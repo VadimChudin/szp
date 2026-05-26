@@ -547,16 +547,18 @@ class FootprintBuffer:
         """
         from tick_reader import get_tick_reader
         import pandas as pd
-        
-        MT4_COMMON = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal" / "Common" / "Files"
-        
+        import paths as _paths
+
+        MT4_COMMON = _paths.MT_COMMON_FILES
+
         # Ищем OHLCV CSV от EA
         tf_map = {"1h": "H1", "4h": "H4", "1d": "D1"}
         tf_label = tf_map.get(self.interval, "H1")
-        
+
         # Пробуем найти CSV (XAUUSD_H1.csv, XAUUSD_H4.csv и т.д.)
         csv_path = None
-        for pattern_dir in [MT4_COMMON, Path(r"d:\smart-zones-pro\python_core\data")]:
+        search_dirs = [d for d in (MT4_COMMON, _paths.LOCAL_DATA_DIR) if d]
+        for pattern_dir in search_dirs:
             if not pattern_dir.exists():
                 continue
             for f in pattern_dir.glob(f"*_{tf_label}.csv"):

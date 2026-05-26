@@ -11,49 +11,37 @@ MQL4 может читать файлы только из:
 
 import shutil
 import os
+import sys
 from pathlib import Path
 
-# Источник — JSON от Python Core
-# В dev-режиме: d:\smart-zones-pro\data_bridge\zones_output.json
-# Из .exe: рядом с exe / data_bridge / zones_output.json
-import sys
-if getattr(sys, 'frozen', False):
-    _base = Path(os.path.dirname(sys.executable))
-else:
-    _base = Path(r"d:\smart-zones-pro")
-SOURCE = _base / "data_bridge" / "zones_output.json"
+import paths
 
-# Возможные пути MT4 Common Files
-POSSIBLE_MT4_PATHS = [
-    Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal" / "Common" / "Files",
-    Path(r"C:\Users") / os.environ.get("USERNAME", "user") / "AppData" / "Roaming" / "MetaQuotes" / "Terminal" / "Common" / "Files",
-]
+# Источник — JSON от Python Core (разрешается через paths.py).
+SOURCE = paths.ZONES_FILE
 
 
 def find_mt4_common_files() -> Path | None:
-    """Ищет папку Common/Files от MetaTrader 4."""
-    for p in POSSIBLE_MT4_PATHS:
-        if p.exists():
-            print(f"[sync] Found MT4 Common Files: {p}")
-            return p
+    """Ищет папку Common/Files от MetaTrader 4/5."""
+    common = paths.MT_COMMON_FILES
+    if common and common.exists():
+        print(f"[sync] Found MT Common Files: {common}")
+        return common
 
-    # Поиск по всем подпапкам Terminal/
-    terminal_base = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal"
-    if terminal_base.exists():
+    terminal_base = paths.MT_TERMINAL_ROOT
+    if terminal_base and terminal_base.exists():
         for sub in terminal_base.iterdir():
             if sub.is_dir():
                 files_dir = sub / "MQL4" / "Files"
                 if files_dir.exists():
                     print(f"[sync] Found MT4 Files dir: {files_dir}")
                     return files_dir
-
     return None
 
 
 def find_mt4_indicators_dir() -> Path | None:
     """Ищет папку MQL4/Indicators для установки индикатора."""
-    terminal_base = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal"
-    if terminal_base.exists():
+    terminal_base = paths.MT_TERMINAL_ROOT
+    if terminal_base and terminal_base.exists():
         for sub in terminal_base.iterdir():
             if sub.is_dir():
                 ind_dir = sub / "MQL4" / "Indicators"
@@ -82,9 +70,9 @@ def sync_zones():
 
 def find_all_terminals() -> list[tuple[str, Path]]:
     """Находит ВСЕ установленные терминалы MT4 и MT5 (по хэш-папкам)."""
-    terminal_base = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal"
-    terminals = []
-    if terminal_base.exists():
+    terminal_base = paths.MT_TERMINAL_ROOT
+    terminals: list[tuple[str, Path]] = []
+    if terminal_base and terminal_base.exists():
         for sub in terminal_base.iterdir():
             if sub.is_dir():
                 if (sub / "MQL4").exists():
@@ -181,11 +169,8 @@ def install_all():
       2. EA SmartZonesCollector.mq4 (только для MT4)
       3. Компиляция файлов через metaeditor.exe
     """
-    if getattr(sys, 'frozen', False):
-        base = Path(os.path.dirname(sys.executable))
-    else:
-        base = Path(r"d:\smart-zones-pro")
-    
+    base = paths.BASE_DIR
+
     terminals = find_all_terminals()
     
     if not terminals:
@@ -223,7 +208,8 @@ def install_all():
             
         elif term_type == "MT5":
             indicator_src = base / "mql" / "MT5" / "Indicators" / "StrongZones.mq5"
-            
+            ea_src = base / "mql" / "MT5" / "Experts" / "SmartZonesCollector.mq5"
+
             # --- MT5 Индикатор ---
             ind_dir = term_path / "MQL5" / "Indicators"
             if ind_dir.exists() and indicator_src.exists():
@@ -231,7 +217,15 @@ def install_all():
                 shutil.copy2(indicator_src, dest)
                 print(f"  [OK] Indicator -> {dest.name}")
                 compile_mq(dest, term_path, True)
-                
+
+            # --- MT5 EA (брокерские данные → CSV) ---
+            ea_dir = term_path / "MQL5" / "Experts"
+            if ea_dir.exists() and ea_src.exists():
+                dest = ea_dir / "SmartZonesCollector.mq5"
+                shutil.copy2(ea_src, dest)
+                print(f"  [OK] EA -> {dest.name}")
+                compile_mq(dest, term_path, True)
+
             installed += 1
     
     # ── Синхронизация zones_output.json ───────────────────────────

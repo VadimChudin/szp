@@ -7,9 +7,11 @@ Continuous candle grids to fix daily gaps, TF switching via pywebview API.
 
 import json
 from pathlib import Path
+import paths
 from footprint_data import get_collector
 
-ZONES_FILE = Path(r"d:\smart-zones-pro\data_bridge\zones_output.json")
+ZONES_FILE = paths.ZONES_FILE
+BROKERS_FILE = paths.BROKERS_FILE
 
 def _load_zones():
     if not ZONES_FILE.exists():
@@ -71,23 +73,22 @@ class API:
 
     def get_brokers(self):
         try:
-            bps = Path(r"d:\smart-zones-pro\python_core\brokers.json")
-            if bps.exists():
-                with open(bps, "r", encoding="utf-8") as f:
+            if BROKERS_FILE.exists():
+                with open(BROKERS_FILE, "r", encoding="utf-8") as f:
                     return f.read()
-        except: pass
+        except Exception:
+            pass
         return json.dumps({"active_broker": 0, "brokers": []})
 
     def save_brokers(self, config_str):
         try:
-            bps = Path(r"d:\smart-zones-pro\python_core\brokers.json")
             data = json.loads(config_str)
-            with open(bps, "w", encoding="utf-8") as f:
+            BROKERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(BROKERS_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
-            # Re-init engine if possible (for later implementation)
             return True
-        except: return False
-        return self.get_data()
+        except Exception:
+            return False
 
 HTML = """<!DOCTYPE html>
 <html>
@@ -361,57 +362,63 @@ function draw() {
     gp += priceGridStep;
   }
 
+  // === Зоны (SZP) — золотой полупрозрачный фон + бейдж со score ===
   const zonesList = DATA.zones || [];
   zonesList.forEach(z => {
-    const zt = py(z.price + 1);
-    const zb = py(z.price - 1);
-    const zy = py(z.price);
-
-    let col = 'rgba(100,100,100,0.4)';
-    if (z.label && z.label.includes('Bull')) { col = 'rgba(8,153,129,0.7)'; }
-    if (z.label && z.label.includes('Bear')) { col = 'rgba(242,54,69,0.7)'; }
+    // Границы зоны: top/bottom если есть, иначе ±1 пункт вокруг price.
+    const zTop = (z.top    !== undefined && z.top    !== null) ? z.top    : (z.price + 1);
+    const zBot = (z.bottom !== undefined && z.bottom !== null) ? z.bottom : (z.price - 1);
+    const yTop = py(Math.max(zTop, zBot));
+    const yBot = py(Math.min(zTop, zBot));
+    const zh   = Math.max(2, Math.abs(yBot - yTop));
+    const zy   = py((zTop + zBot) / 2);
 
     const score = z.score || 0;
-    
-    // Рисуем одну тонкую штриховую линию в центре зоны
-    ctx.strokeStyle = col;
-    ctx.lineWidth = score >= 11 ? 2 : 1;
-    ctx.setLineDash([5, 5]);
-    ctx.beginPath(); 
-    ctx.moveTo(ml, zy); 
-    ctx.lineTo(chartW, zy); 
-    ctx.stroke();
+
+    // Цвет: золотой по умолчанию (зона = премиум-сигнал),
+    // bull/bear оттенки если есть лейбл.
+    let bgFill   = 'rgba(255,215,0,0.10)';   // gold @ 10%
+    let edgeCol  = 'rgba(255,215,0,0.55)';
+    let textCol2 = '#ffd700';
+    if (z.label && z.label.includes('Bull')) {
+      bgFill   = 'rgba(8,153,129,0.14)';
+      edgeCol  = 'rgba(8,153,129,0.70)';
+      textCol2 = '#089981';
+    } else if (z.label && z.label.includes('Bear')) {
+      bgFill   = 'rgba(242,54,69,0.14)';
+      edgeCol  = 'rgba(242,54,69,0.70)';
+      textCol2 = '#f23645';
+    }
+
+    // Полупрозрачная заливка по всей ширине графика
+    ctx.fillStyle = bgFill;
+    ctx.fillRect(ml, yTop, chartW - ml, zh);
+
+    // Верхняя и нижняя граница зоны
+    ctx.strokeStyle = edgeCol;
+    ctx.lineWidth = score >= 11 ? 1.5 : 1;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(ml, yTop); ctx.lineTo(chartW, yTop); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ml, yBot); ctx.lineTo(chartW, yBot); ctx.stroke();
     ctx.setLineDash([]);
 
-    // Подпись зоны справа
-    const label = z.label || ('S:' + score);
-    ctx.font = 'bold 9px Courier New';
-    ctx.fillStyle = col;
+    // Подпись зоны + бейдж score (справа у верхней границы)
+    const label = (z.label || 'ZONE') + '  S:' + score;
+    ctx.font = 'bold 10px Courier New';
     ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(label, chartW - 4, zy - 2);
-  });
-
-  // Проверка: POC попадает в зону (сильнейший сигнал)
-  vis.forEach((candle, j) => {
-    if (!candle.poc) return;
-    const inZone = zonesList.find(z => {
-      const top = z.top || z.price + 1;
-      const bot = z.bottom || z.price - 1;
-      return candle.poc >= bot && candle.poc <= top;
-    });
-    if (inZone) {
-      const xL = ml + j * colW;
-      const pocY = py(candle.poc);
-      // Яркий маркер POC-in-Zone
-      ctx.fillStyle = '#FFD700';
-      ctx.beginPath();
-      ctx.arc(xL + colW/2, pocY, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#FF6600';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
+    ctx.textBaseline = 'middle';
+    const padX = 6, padY = 3;
+    const txtW = ctx.measureText(label).width;
+    const badgeX = chartW - 6 - txtW - padX * 2;
+    const badgeY = yTop + 1;
+    const badgeH = 16;
+    ctx.fillStyle = 'rgba(20,22,30,0.85)';
+    ctx.fillRect(badgeX, badgeY, txtW + padX * 2, badgeH);
+    ctx.strokeStyle = edgeCol;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(badgeX, badgeY, txtW + padX * 2, badgeH);
+    ctx.fillStyle = textCol2;
+    ctx.fillText(label, chartW - 6 - padX, badgeY + badgeH / 2);
   });
 
   // === Свечи (Непрерывная сетка) ===
@@ -456,6 +463,13 @@ function draw() {
       const yTop = py(p + step);
       const yBot = py(p);
       const h = Math.abs(yBot - yTop);
+
+      // POC cell — золотой full-fill фон под ячейкой максимального объёма
+      const isPocCell = (maxPr !== null && Math.abs(p - maxPr) < step * 0.1 && maxT > mx * 0.1);
+      if (isPocCell) {
+        ctx.fillStyle = 'rgba(255,215,0,0.55)'; // густое золото
+        ctx.fillRect(xBuyL, yTop, halfW * 2, h);
+      }
 
       // Рамки
       ctx.strokeStyle = 'rgba(60,65,80,1)';

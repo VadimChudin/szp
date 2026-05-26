@@ -21,7 +21,7 @@ echo [INFO] Press Ctrl+C to stop
 echo.
 echo --------------------------------------------------
 
-cd /d "d:\smart-zones-pro\python_core"
+cd /d "%~dp0python_core"
 python bridge_server.py
 
 echo.

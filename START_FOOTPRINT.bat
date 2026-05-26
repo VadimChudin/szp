@@ -18,7 +18,7 @@ echo [OK] Python found
 echo [INFO] Starting Footprint Window...
 echo.
 
-cd /d "d:\smart-zones-pro\python_core"
+cd /d "%~dp0python_core"
 python footprint_window.py
 
 echo.

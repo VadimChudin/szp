@@ -9,10 +9,13 @@ echo.
 :: Создаём ярлык в папке автозагрузки Windows
 set STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 set SHORTCUT=%STARTUP%\SmartZonesBridge.lnk
-set TARGET=d:\smart-zones-pro\START_BRIDGE.bat
+set BASE=%~dp0
+:: Strip trailing backslash from BASE
+if "%BASE:~-1%"=="\" set BASE=%BASE:~0,-1%
+set TARGET=%BASE%\START_BRIDGE.bat
 
 :: Используем PowerShell для создания ярлыка
-powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT%'); $s.TargetPath = '%TARGET%'; $s.WorkingDirectory = 'd:\smart-zones-pro'; $s.WindowStyle = 7; $s.Save()"
+powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT%'); $s.TargetPath = '%TARGET%'; $s.WorkingDirectory = '%BASE%'; $s.WindowStyle = 7; $s.Save()"
 
 if exist "%SHORTCUT%" (
     echo [OK] Автозапуск установлен!

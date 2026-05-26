@@ -10,7 +10,9 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
 
-OUTPUT_DIR = Path(r"d:\smart-zones-pro\python_core\data")
+import paths
+
+OUTPUT_DIR = paths.LOCAL_DATA_DIR
 SYMBOL = "GC=F"  # Gold Futures (прокси для XAU/USD)
 
 

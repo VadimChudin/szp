@@ -1,0 +1,23 @@
+# ── Python ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ── App config (must never be committed) ──────────────────────────────
+.env
+
+# ── Build / installer artifacts ───────────────────────────────────────
+build/
+dist/
+installer/files/
+installer/output/
+output/
+Output/
+
+# ── IDE / OS ──────────────────────────────────────────────────────────
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

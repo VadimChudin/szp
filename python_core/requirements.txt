@@ -4,3 +4,7 @@ mplfinance>=0.12.10b0
 matplotlib>=3.7
 MetaTrader5>=5.0.45
 pyzmq>=25.0
+requests>=2.31
+python-dotenv>=1.0
+yfinance>=0.2.40
+pywebview>=4.4

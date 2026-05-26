@@ -102,7 +102,8 @@ def run_pipeline(plot: bool = True) -> list[dict]:
 
     # Сохраняем JSON для отладки
     import os
-    out_dir = r"d:\smart-zones-pro\output"
+    import paths as _paths
+    out_dir = str(_paths.OUTPUT_DIR)
     os.makedirs(out_dir, exist_ok=True)
     json_path = os.path.join(out_dir, "last_zones.json")
     with open(json_path, "w") as f:

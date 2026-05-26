@@ -24,10 +24,11 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent))
 
 import config
+import paths
 from data_fetcher import fetch_from_csv, fetch_all_timeframes
 from volume_filter import get_volume_flags_all_tf, calculate_delta, get_delta_at_zone
 from zone_detector import detect_zones
-from telegram_bot import send_telegram_message
+from telegram_bot import send_telegram_message, send_alert_line, send_zones_update
 from footprint_data import get_collector as get_fp_collector
 # footprint_window импортируется лениво (содержит webview, блокирует headless)
 
@@ -36,8 +37,8 @@ is_fp_downloading = False
 
 # ── Вспомогательная функция для Telegram ───────────────────────────────
 def get_mt4_local_files_dir() -> Path | None:
-    terminal_base = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal"
-    if terminal_base.exists():
+    terminal_base = paths.MT_TERMINAL_ROOT
+    if terminal_base and terminal_base.exists():
         for sub in terminal_base.iterdir():
             if sub.is_dir():
                 files_dir = sub / "MQL4" / "Files"
@@ -47,24 +48,24 @@ def get_mt4_local_files_dir() -> Path | None:
 
 # ── Пути обмена данными ──────────────────────────────────────────────
 # MT4 будет писать сюда OHLC, Python будет читать отсюда
-BRIDGE_DIR = Path(r"d:\smart-zones-pro\data_bridge")
-BRIDGE_DIR.mkdir(exist_ok=True)
+BRIDGE_DIR = paths.DATA_BRIDGE_DIR
+BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Файл с зонами — MT4 будет его читать
-ZONES_OUTPUT = BRIDGE_DIR / "zones_output.json"
+ZONES_OUTPUT = paths.ZONES_FILE
 
 # Файл-флаг: MT4 создаёт его когда записал новые данные
-TRIGGER_FILE = BRIDGE_DIR / "new_data.flag"
+TRIGGER_FILE = paths.TRIGGER_FILE
 
 # Файл-флаг: MT4 создаёт при нажатии кнопки "FP" (содержит таймфрейм)
-FOOTPRINT_FLAG = BRIDGE_DIR / "footprint_request.flag"
+FOOTPRINT_FLAG = paths.FOOTPRINT_FLAG
 
 # Путь к Common/Files MT4 (EA пишет сюда CSV)
-MT4_COMMON_FILES = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal" / "Common" / "Files"
+MT4_COMMON_FILES = paths.MT_COMMON_FILES or Path("")
 
 # Путь к локальным CSV для zone_detector
-LOCAL_DATA_DIR = Path(r"d:\smart-zones-pro\python_core\data")
-LOCAL_DATA_DIR.mkdir(exist_ok=True)
+LOCAL_DATA_DIR = paths.LOCAL_DATA_DIR
+LOCAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def sync_mt4_broker_data() -> bool:
@@ -76,7 +77,7 @@ def sync_mt4_broker_data() -> bool:
     """
     import shutil
     
-    if not MT4_COMMON_FILES.exists():
+    if not MT4_COMMON_FILES or not MT4_COMMON_FILES.exists():
         print(f"[bridge] MT4 Common/Files not found: {MT4_COMMON_FILES}")
         return False
     
@@ -238,6 +239,12 @@ def calculate_and_export_zones(refresh_data: bool = True):
     # ── Синхронизация в MT4 ──────────────────────────────────────────
     sync_to_mt4()
 
+    # ── Telegram: краткая сводка по зонам (если бот настроен) ────────
+    try:
+        send_zones_update(zones_for_mt4)
+    except Exception as e:
+        print(f"[bridge] telegram zones-update skipped: {e}")
+
     return zones_for_mt4
 
 
@@ -279,8 +286,7 @@ def run_monitor_loop(interval_seconds: int = 5):
                         if new_text:
                             for line in new_text.split('\n'):
                                 if line.strip():
-                                    msg = f"🚨 <b>Smart Zones Alert</b>\n<code>{line.strip()}</code>"
-                                    send_telegram_message(msg)
+                                    send_alert_line(line.strip())
                     last_alert_size = curr_size
                 elif curr_size < last_alert_size:
                     last_alert_size = curr_size # Файл был перезаписан или очищен

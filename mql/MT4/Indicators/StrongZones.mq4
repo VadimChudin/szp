@@ -13,16 +13,18 @@
 #property indicator_chart_window
 
 //--- Настройки (Input Parameters) ------------------------------------
-input string   ZonesFilePath    = "d:\\smart-zones-pro\\data_bridge\\zones_output.json";  // Путь к JSON с зонами
 input int      RefreshSeconds   = 10;        // Интервал обновления (сек)
-input color    ZoneColorStrong  = clrRed;    // Цвет сильных зон (Score >= 11)
-input color    ZoneColorMedium  = C'255,77,77';  // Цвет средних зон (Score 9-10)
-input color    ZoneColorWeak    = C'255,153,153'; // Цвет слабых зон
+input color    ZoneColorStrong  = clrGold;   // Цвет сильных зон (Score >= 11)
+input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон (Score 9-10)
+input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
 input int      ZoneLineWidth    = 2;         // Толщина линии зоны
 input bool     ShowLabels       = true;      // Показывать подписи
-input bool     ShowRectangles   = false;     // Выключено для "тонкого" стиля без шума
+input bool     ShowRectangles   = true;      // Полупрозрачные прямоугольники зон
+input bool     ShowScoreBadge   = true;      // Показывать бейдж со скором зоны
 input bool     EnableAlerts     = true;      // Алерты при касании зоны
 input double   AlertDistance    = 5.0;       // Расстояние до зоны для алерта ($)
+// Имя файла с зонами — лежит в MQL4/Files или Common/Files (положит sync_zones_to_mt4.py).
+input string   ZonesFilePath    = "zones_output.json";
 
 //--- Глобальные переменные -------------------------------------------
 datetime       lastFileTime     = 0;         // Время последнего изменения файла
@@ -67,7 +69,7 @@ int OnInit()
    ObjectSetInteger(0, btnName, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, btnName, OBJPROP_STATE, false);
    
-   Print("[SmartZones] Indicator initialized. Monitoring: ", ZonesFilePath);
+   Print("[SmartZones] Indicator initialized. Reading zones from MQL4/Files/", ZonesFilePath);
    Print("[SmartZones] Refresh interval: ", RefreshSeconds, " seconds");
    Print("[SmartZones] Footprint button [FP] created");
    
@@ -399,31 +401,38 @@ void DrawSingleZone(int index)
    ObjectSetInteger(0, lineName, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, lineName, OBJPROP_BACK, true);
    
-   // ── 2. Прямоугольник (Отключено навсегда для снижения шума) ──────
-   if(false)
+   // ── 2. Полупрозрачный прямоугольник зоны ──────────────────
+   // MQL4 не имеет альфа-канала для OBJ_RECTANGLE — имитируем
+   // прозрачность явно "приглушённым" цветом + BACK=true,
+   // чтобы свечи были поверх.
+   if(ShowRectangles)
    {
       string rectName = baseName + "_rect";
-      datetime timeLeft  = Time[(int)MathMin(Bars - 1, 200)];  // 200 баров назад
-      datetime timeRight = Time[0] + PeriodSeconds() * 50; // 50 баров вперёд
-      
+      int barsBack    = (int)MathMin(Bars - 1, 120);
+      int barsForward = 30;
+      datetime timeLeft  = Time[barsBack];
+      datetime timeRight = Time[0] + PeriodSeconds() * barsForward;
+
+      // Приглушённый оттенок по силе зоны
+      color rectFill;
+      if(score >= 11)      rectFill = C'80,70,30';   // сильная — тёмное золото
+      else if(score >= 9)  rectFill = C'55,50,30';   // средняя
+      else                 rectFill = C'40,40,35';   // слабая
+
       ObjectCreate(rectName, OBJ_RECTANGLE, 0, timeLeft, top, timeRight, bottom);
-      ObjectSetInteger(0, rectName, OBJPROP_COLOR, zoneColor);
+      ObjectSetInteger(0, rectName, OBJPROP_COLOR, rectFill);
       ObjectSetInteger(0, rectName, OBJPROP_FILL, true);
       ObjectSetInteger(0, rectName, OBJPROP_BACK, true);
       ObjectSetInteger(0, rectName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, rectName, OBJPROP_HIDDEN, true);
-      
-      // Полупрозрачность через стиль (MQL4 не поддерживает alpha напрямую)
-      // Используем пунктирный стиль для имитации
       ObjectSetInteger(0, rectName, OBJPROP_STYLE, STYLE_SOLID);
    }
    
-   // ── 3. Текстовая подпись ─────────────────────────────────────────
+   // ── 3. Текстовая подпись зоны ────────────────────────────────────
    if(ShowLabels)
    {
       string textName = baseName + "_text";
-      // Размещаем текст в "пустоте" справа от текущей цены, чтобы он был идеально читабельным
-      datetime labelTime = Time[0] + PeriodSeconds() * 12; 
+      datetime labelTime = Time[0] + PeriodSeconds() * 12;
       ObjectCreate(textName, OBJ_TEXT, 0, labelTime, price);
       ObjectSetString(0, textName, OBJPROP_TEXT, " " + label + " ");
       ObjectSetInteger(0, textName, OBJPROP_COLOR, clrWhite);
@@ -433,7 +442,23 @@ void DrawSingleZone(int index)
       ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, textName, OBJPROP_HIDDEN, true);
    }
-   
+
+   // ── 3b. Бейдж со скором (S:11) — у правого края зоны ─────────────
+   if(ShowScoreBadge)
+   {
+      string badgeName = baseName + "_badge";
+      datetime badgeTime = Time[0] + PeriodSeconds() * 4;
+      ObjectCreate(badgeName, OBJ_TEXT, 0, badgeTime, price);
+      ObjectSetString(0, badgeName, OBJPROP_TEXT,
+                      " S:" + IntegerToString(score) + " ");
+      ObjectSetInteger(0, badgeName, OBJPROP_COLOR, zoneColor);
+      ObjectSetString(0, badgeName, OBJPROP_FONT, "Consolas");
+      ObjectSetInteger(0, badgeName, OBJPROP_FONTSIZE, 9);
+      ObjectSetInteger(0, badgeName, OBJPROP_ANCHOR, ANCHOR_LEFT);
+      ObjectSetInteger(0, badgeName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, badgeName, OBJPROP_HIDDEN, true);
+   }
+
    // ── 4. Жёлтые треугольники из Python (маркеры касания) ───────────
    int maxBars = (int)MathMin(Bars, 200);
    int arrowCount = 0;
