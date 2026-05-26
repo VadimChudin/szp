@@ -14,13 +14,14 @@
 //--- Настройки (Input Parameters) ------------------------------------
 input string   ZonesFilePath    = "zones_output.json";   // Имя файла с зонами (в Common/Files)
 input int      RefreshSeconds   = 10;         // Интервал обновления (сек)
-input color    ZoneColorStrong  = clrRed;     // Цвет сильных зон (Score >= 11)
-input color    ZoneColorMedium  = C'255,77,77';   // Цвет средних зон
-input color    ZoneColorWeak    = C'255,153,153';  // Цвет слабых зон
+input color    ZoneColorStrong  = clrGold;        // Цвет сильных зон (Score >= 11)
+input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон
+input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
 input int      ZoneLineWidth    = 2;          // Толщина линии
 input bool     ShowLabels       = true;       // Показывать подписи
-input bool     ShowRectangles   = true;       // Рисовать прямоугольники
-input bool     ShowGradient     = true;       // Градиентная визуализация
+input bool     ShowRectangles   = true;       // Полупрозрачные прямоугольники зон
+input bool     ShowScoreBadge   = true;       // Бейдж со скором
+input bool     ShowGradient     = false;      // Градиентная визуализация (выкл. по умолчанию)
 input int      GradientLayers   = 5;          // Кол-во слоёв градиента
 input bool     EnableAlerts     = true;       // Алерты при касании зоны
 input double   AlertDistance    = 5.0;        // Расстояние для алерта ($)
@@ -225,13 +226,21 @@ void DrawSingleZone(int index)
    }
    else if(ShowRectangles)
    {
-      // Обычный прямоугольник
+      // Приглушённый полупрозрачный прямоугольник (MT5 не имеет
+      // альфы для OBJ_RECTANGLE — используем тёмный цвет + BACK=true).
       string rectName = baseName + "_rect";
-      datetime timeLeft  = iTime(_Symbol, PERIOD_CURRENT, MathMin(Bars(_Symbol, PERIOD_CURRENT) - 1, 200));
-      datetime timeRight = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 50;
+      int totalBars = Bars(_Symbol, PERIOD_CURRENT);
+      int leftIdx   = (int)MathMin(totalBars - 1, 120);
+      datetime timeLeft  = iTime(_Symbol, PERIOD_CURRENT, leftIdx);
+      datetime timeRight = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 30;
+
+      color rectFill;
+      if(score >= 11)      rectFill = (color)C'80,70,30';
+      else if(score >= 9)  rectFill = (color)C'55,50,30';
+      else                 rectFill = (color)C'40,40,35';
 
       ObjectCreate(0, rectName, OBJ_RECTANGLE, 0, timeLeft, top, timeRight, bottom);
-      ObjectSetInteger(0, rectName, OBJPROP_COLOR, zoneColor);
+      ObjectSetInteger(0, rectName, OBJPROP_COLOR, rectFill);
       ObjectSetInteger(0, rectName, OBJPROP_FILL, true);
       ObjectSetInteger(0, rectName, OBJPROP_BACK, true);
       ObjectSetInteger(0, rectName, OBJPROP_SELECTABLE, false);
@@ -251,6 +260,22 @@ void DrawSingleZone(int index)
       ObjectSetInteger(0, textName, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
       ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, textName, OBJPROP_HIDDEN, true);
+   }
+
+   // ── 3b. Бейдж со скором зоны ───────────────────────────────────
+   if(ShowScoreBadge)
+   {
+      string badgeName = baseName + "_badge";
+      datetime badgeTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 4;
+      ObjectCreate(0, badgeName, OBJ_TEXT, 0, badgeTime, price);
+      ObjectSetString(0, badgeName, OBJPROP_TEXT,
+                      " S:" + IntegerToString(score) + " ");
+      ObjectSetInteger(0, badgeName, OBJPROP_COLOR, zoneColor);
+      ObjectSetString(0, badgeName, OBJPROP_FONT, "Consolas");
+      ObjectSetInteger(0, badgeName, OBJPROP_FONTSIZE, 9);
+      ObjectSetInteger(0, badgeName, OBJPROP_ANCHOR, ANCHOR_LEFT);
+      ObjectSetInteger(0, badgeName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, badgeName, OBJPROP_HIDDEN, true);
    }
 }
 

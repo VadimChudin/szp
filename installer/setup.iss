@@ -8,6 +8,8 @@
 #define MyAppPublisher "Smart Zones Trading"
 #define MyAppURL "https://smartzonespro.com"
 #define MyAppExeName "SmartZonesPro.exe"
+; Корень репо относительно этого .iss (работает из любой папки).
+#define RepoDir SourcePath + "..\"
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
@@ -21,10 +23,10 @@ DefaultGroupName={#MyAppName}
 WizardStyle=modern
 WizardSizePercent=120
 ; Картинки инсталлятора (164x314 px для большой, 55x58 для маленькой)
-WizardImageFile=d:\smart-zones-pro\splash_image.bmp
+WizardImageFile={#RepoDir}splash_image.bmp
 ; WizardSmallImageFile=wizard_icon.bmp
 ; SetupIconFile=app_icon.ico
-OutputDir=d:\smart-zones-pro\installer\output
+OutputDir={#SourcePath}output
 OutputBaseFilename=SmartZonesPro_Setup_v{#MyAppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -55,14 +57,16 @@ Name: "desktopicon"; Description: "Создать ярлык на рабочем
 
 [Files]
 ; Ядро (Python, упакованное PyInstaller — БЕЗ консоли)
-Source: "d:\smart-zones-pro\installer\build\dist\SmartZonesPro\*"; DestDir: "{app}"; Components: core; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourcePath}build\dist\SmartZonesPro\*"; DestDir: "{app}"; Components: core; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#RepoDir}.env.example"; DestDir: "{app}"; Components: core; Flags: ignoreversion
 
 ; MQL4 файлы (будут установлены в MT4 автоматически при первом запуске)
-Source: "d:\smart-zones-pro\mql\MT4\Indicators\StrongZones.mq4"; DestDir: "{app}\mql\MT4\Indicators"; Components: mt4; Flags: ignoreversion
-Source: "d:\smart-zones-pro\mql\MT4\Experts\SmartZonesCollector.mq4"; DestDir: "{app}\mql\MT4\Experts"; Components: mt4; Flags: ignoreversion
+Source: "{#RepoDir}mql\MT4\Indicators\StrongZones.mq4"; DestDir: "{app}\mql\MT4\Indicators"; Components: mt4; Flags: ignoreversion
+Source: "{#RepoDir}mql\MT4\Experts\SmartZonesCollector.mq4"; DestDir: "{app}\mql\MT4\Experts"; Components: mt4; Flags: ignoreversion
 
 ; MQL5 файлы
-Source: "d:\smart-zones-pro\mql\MT5\Indicators\StrongZones.mq5"; DestDir: "{app}\mql\MT5\Indicators"; Components: mt5; Flags: ignoreversion
+Source: "{#RepoDir}mql\MT5\Indicators\StrongZones.mq5"; DestDir: "{app}\mql\MT5\Indicators"; Components: mt5; Flags: ignoreversion
+Source: "{#RepoDir}mql\MT5\Experts\SmartZonesCollector.mq5"; DestDir: "{app}\mql\MT5\Experts"; Components: mt5; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 ; Ярлык на рабочем столе — "SZP"
@@ -83,13 +87,14 @@ procedure PatchTerminals();
 var
   TerminalBase: String;
   SearchRec: TFindRec;
-  SourceMQ4Ind, SourceMQ4EA, SourceMQ5Ind: String;
+  SourceMQ4Ind, SourceMQ4EA, SourceMQ5Ind, SourceMQ5EA: String;
   DestDir: String;
 begin
   TerminalBase := ExpandConstant('{userappdata}') + '\MetaQuotes\Terminal';
   SourceMQ4Ind := ExpandConstant('{app}') + '\mql\MT4\Indicators\StrongZones.mq4';
   SourceMQ4EA := ExpandConstant('{app}') + '\mql\MT4\Experts\SmartZonesCollector.mq4';
   SourceMQ5Ind := ExpandConstant('{app}') + '\mql\MT5\Indicators\StrongZones.mq5';
+  SourceMQ5EA := ExpandConstant('{app}') + '\mql\MT5\Experts\SmartZonesCollector.mq5';
   
   if not DirExists(TerminalBase) then
   begin
@@ -120,12 +125,20 @@ begin
               Log('MT4 EA installed to: ' + DestDir);
             end;
             
-            // MT5
+            // MT5 Индикатор
             DestDir := TerminalBase + '\' + SearchRec.Name + '\MQL5\Indicators';
             if DirExists(DestDir) and IsComponentSelected('mt5') then
             begin
               FileCopy(SourceMQ5Ind, DestDir + '\StrongZones.mq5', False);
               Log('MT5 Indicator installed to: ' + DestDir);
+            end;
+
+            // MT5 EA (брокерские данные → CSV)
+            DestDir := TerminalBase + '\' + SearchRec.Name + '\MQL5\Experts';
+            if DirExists(DestDir) and IsComponentSelected('mt5') and FileExists(SourceMQ5EA) then
+            begin
+              FileCopy(SourceMQ5EA, DestDir + '\SmartZonesCollector.mq5', False);
+              Log('MT5 EA installed to: ' + DestDir);
             end;
           end;
         end;

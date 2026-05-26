@@ -117,9 +117,10 @@ def plot_zones_mplfinance(
 
     # Сохранение
     if save_path is None:
+        import paths as _paths
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_dir = Path(r"d:\smart-zones-pro\output")
-        save_dir.mkdir(exist_ok=True)
+        save_dir = _paths.OUTPUT_DIR
+        save_dir.mkdir(parents=True, exist_ok=True)
         save_path = str(save_dir / f"zones_{timeframe_label}_{timestamp}.png")
 
     fig, axes = mpf.plot(
