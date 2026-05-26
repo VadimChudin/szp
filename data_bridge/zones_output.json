@@ -1,0 +1,45 @@
+{
+  "symbol": "XAUUSD",
+  "calculated_at": "2026-04-27T08:00:00.916408",
+  "zone_count": 2,
+  "min_score": 13,
+  "fp_status": "Ready",
+  "zones": [
+    {
+      "price": 4799.09,
+      "top": 4800.09,
+      "bottom": 4798.09,
+      "score": 24,
+      "sources": "D1+FVG+H1+H4",
+      "label": "4799.09 | D1+FVG+H1+H4 BP | S:24",
+      "has_big_player": true,
+      "is_round_level": false,
+      "touch_count": 73,
+      "timestamp": "2026-04-27T08:00:00.915398",
+      "delta": {
+        "total_delta": 36390.0,
+        "buy_count": 18,
+        "sell_count": 14,
+        "dominant": "BUYERS"
+      }
+    },
+    {
+      "price": 4839.98,
+      "top": 4840.98,
+      "bottom": 4838.98,
+      "score": 16,
+      "sources": "D1+FVG+H1+H4",
+      "label": "4839.98 | D1+FVG+H1+H4 BP | S:16",
+      "has_big_player": true,
+      "is_round_level": false,
+      "touch_count": 13,
+      "timestamp": "2026-04-27T08:00:00.915398",
+      "delta": {
+        "total_delta": 6593.0,
+        "buy_count": 6,
+        "sell_count": 5,
+        "dominant": "BUYERS"
+      }
+    }
+  ]
+}

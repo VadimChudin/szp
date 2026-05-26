@@ -1,0 +1,79 @@
+[
+  {
+    "price": 4552.9,
+    "top": 4555.4,
+    "bottom": 4550.4,
+    "score": 13,
+    "sources": [
+      "H4",
+      "H1",
+      "D1",
+      "FVG"
+    ],
+    "label": "4552.90 | D1+FVG+H1+H4 BP | S:13",
+    "has_big_player": true,
+    "is_round_level": false,
+    "touch_count": 11
+  },
+  {
+    "price": 4558.9,
+    "top": 4561.4,
+    "bottom": 4556.4,
+    "score": 13,
+    "sources": [
+      "H4",
+      "H1",
+      "D1",
+      "FVG"
+    ],
+    "label": "4558.90 | D1+FVG+H1+H4 BP | S:13",
+    "has_big_player": true,
+    "is_round_level": false,
+    "touch_count": 13
+  },
+  {
+    "price": 4348.7,
+    "top": 4351.2,
+    "bottom": 4346.2,
+    "score": 12,
+    "sources": [
+      "H4",
+      "H1",
+      "D1"
+    ],
+    "label": "4348.70 | D1+H1+H4 BP RL | S:12",
+    "has_big_player": true,
+    "is_round_level": true,
+    "touch_count": 6
+  },
+  {
+    "price": 4708.6,
+    "top": 4711.1,
+    "bottom": 4706.1,
+    "score": 12,
+    "sources": [
+      "H4",
+      "H1",
+      "FVG"
+    ],
+    "label": "4708.60 | FVG+H1+H4 BP | S:12",
+    "has_big_player": true,
+    "is_round_level": false,
+    "touch_count": 9
+  },
+  {
+    "price": 4720.6,
+    "top": 4723.1,
+    "bottom": 4718.1,
+    "score": 12,
+    "sources": [
+      "H4",
+      "H1",
+      "FVG"
+    ],
+    "label": "4720.60 | FVG+H1+H4 BP | S:12",
+    "has_big_player": true,
+    "is_round_level": false,
+    "touch_count": 14
+  }
+]
