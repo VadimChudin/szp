@@ -106,9 +106,12 @@ def run_pipeline(plot: bool = True) -> list[dict]:
     out_dir = str(_paths.OUTPUT_DIR)
     os.makedirs(out_dir, exist_ok=True)
     json_path = os.path.join(out_dir, "last_zones.json")
-    with open(json_path, "w") as f:
-        json.dump(zones_json, f, indent=2)
-    print(f"[main] Zones saved to {json_path}")
+    try:
+        with open(json_path, "w") as f:
+            json.dump(zones_json, f, indent=2)
+        print(f"[main] Zones saved to {json_path}")
+    except OSError as e:
+        print(f"[main] ERROR: Could not save zones to {json_path}: {e}")
 
     return zones_json
 

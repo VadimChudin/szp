@@ -19,7 +19,8 @@ def _load_zones():
     try:
         with open(ZONES_FILE, "r", encoding="utf-8") as f:
             return json.load(f).get("zones", [])
-    except Exception:
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[footprint] WARN: Could not load zones from {ZONES_FILE}: {e}")
         return []
 
 def _candles_to_json(candles, interval):
@@ -76,8 +77,8 @@ class API:
             if BROKERS_FILE.exists():
                 with open(BROKERS_FILE, "r", encoding="utf-8") as f:
                     return f.read()
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"[footprint] WARN: Could not load brokers config: {e}")
         return json.dumps({"active_broker": 0, "brokers": []})
 
     def save_brokers(self, config_str):
@@ -87,7 +88,11 @@ class API:
             with open(BROKERS_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
             return True
-        except Exception:
+        except json.JSONDecodeError as e:
+            print(f"[footprint] ERROR: Invalid brokers JSON: {e}")
+            return False
+        except OSError as e:
+            print(f"[footprint] ERROR: Could not save brokers config: {e}")
             return False
 
 HTML = """<!DOCTYPE html>

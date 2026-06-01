@@ -23,7 +23,11 @@ def download_and_save():
 
     # ── H1 (1h) — yfinance дает максимум 730 дней для часовых ──
     print("\n[H1] Downloading hourly data...")
-    h1 = yf.download(SYMBOL, period="60d", interval="1h", progress=False)
+    try:
+        h1 = yf.download(SYMBOL, period="60d", interval="1h", progress=False)
+    except Exception as e:
+        print(f"[download] ERROR: Failed to download H1 data: {e}")
+        h1 = pd.DataFrame()
     if not h1.empty:
         h1_df = h1.reset_index()
         # Flatten MultiIndex columns if present
@@ -79,7 +83,11 @@ def download_and_save():
 
     # ── D1 (1d) — берем за полгода ──
     print("\n[D1] Downloading daily data...")
-    d1 = yf.download(SYMBOL, period="6mo", interval="1d", progress=False)
+    try:
+        d1 = yf.download(SYMBOL, period="6mo", interval="1d", progress=False)
+    except Exception as e:
+        print(f"[download] ERROR: Failed to download D1 data: {e}")
+        d1 = pd.DataFrame()
     if not d1.empty:
         d1_df = d1.reset_index()
         if hasattr(d1_df.columns, 'get_level_values'):

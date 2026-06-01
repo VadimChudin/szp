@@ -129,7 +129,7 @@ def plot_zones_mplfinance(
         style=style,
         title=f"\n{title} ({timeframe_label})",
         ylabel='Price ($)',
-        volume=('tick_volume' in plot_df.columns),
+        volume=('volume' in plot_df.columns),
         figsize=(18, 10),
         returnfig=True,
         **hline_kwargs,

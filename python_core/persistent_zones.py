@@ -22,49 +22,57 @@ def load_db() -> list[Zone]:
     try:
         with open(DB_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            zones = []
-            for z_dict in data.get("archived", []):
-                z = Zone(
-                    price=z_dict["price"],
-                    width=z_dict["width"],
-                    score=z_dict["score"],
-                    sources=z_dict["sources"],
-                    touch_count=z_dict["touch_count"],
-                    has_big_player=z_dict["has_big_player"],
-                    is_round_level=z_dict["is_round_level"],
-                    wick_points=z_dict.get("wick_points", []),
-                    label_suffix=z_dict.get("label_suffix", "")
-                )
-                zones.append(z)
-            return zones
-    except Exception as e:
-        print(f"[persistent] Failed to load DB: {e}")
+    except json.JSONDecodeError as e:
+        print(f"[persistent] ERROR: DB file is corrupted ({DB_FILE}): {e}")
+        return []
+    except OSError as e:
+        print(f"[persistent] ERROR: Cannot read DB file ({DB_FILE}): {e}")
         return []
 
+    zones = []
+    for i, z_dict in enumerate(data.get("archived", [])):
+        try:
+            z = Zone(
+                price=z_dict["price"],
+                width=z_dict["width"],
+                score=z_dict["score"],
+                sources=z_dict["sources"],
+                touch_count=z_dict["touch_count"],
+                has_big_player=z_dict["has_big_player"],
+                is_round_level=z_dict["is_round_level"],
+                wick_points=z_dict.get("wick_points", []),
+                label_suffix=z_dict.get("label_suffix", "")
+            )
+            zones.append(z)
+        except (KeyError, TypeError) as e:
+            print(f"[persistent] WARN: Skipping malformed zone #{i} in DB: {e}")
+    return zones
+
 def save_db(zones: list[Zone]):
+    z_dicts = []
+    for z in zones:
+        z_dicts.append({
+            "price": z.price,
+            "width": z.width,
+            "score": z.score,
+            "sources": z.sources,
+            "touch_count": z.touch_count,
+            "has_big_player": z.has_big_player,
+            "is_round_level": z.is_round_level,
+            "wick_points": z.wick_points,
+            "label_suffix": z.label_suffix
+        })
+    data = {
+        "version": "1.0",
+        "last_update": datetime.now().isoformat(),
+        "archived": z_dicts
+    }
     try:
-        z_dicts = []
-        for z in zones:
-            z_dicts.append({
-                "price": z.price,
-                "width": z.width,
-                "score": z.score,
-                "sources": z.sources,
-                "touch_count": z.touch_count,
-                "has_big_player": z.has_big_player,
-                "is_round_level": z.is_round_level,
-                "wick_points": z.wick_points,
-                "label_suffix": z.label_suffix
-            })
-        data = {
-            "version": "1.0",
-            "last_update": datetime.now().isoformat(),
-            "archived": z_dicts
-        }
+        DB_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, default=default_serializer)
-    except Exception as e:
-        print(f"[persistent] Failed to save DB: {e}")
+    except OSError as e:
+        print(f"[persistent] ERROR: Failed to save DB to {DB_FILE}: {e}")
 
 def get_h4_closes(all_data: dict[str, pd.DataFrame]) -> list[tuple[float, float]]:
     # Returns a list of tuples (open, close) for the last N H4 candles
