@@ -123,11 +123,24 @@ def run_tray(bridge_thread):
             except Exception as e:
                 print(f"[tray] Footprint launch error: {e}")
         
+        def on_settings(icon, item):
+            """Открыть окно настроек (брокер MT5 / источник данных / Telegram)."""
+            try:
+                import subprocess
+                settings_script = os.path.join(BASE_DIR, "settings_window.py")
+                if getattr(sys, 'frozen', False):
+                    subprocess.Popen([sys.executable, "--settings"])
+                else:
+                    subprocess.Popen([sys.executable, settings_script])
+            except Exception as e:
+                print(f"[tray] Settings launch error: {e}")
+        
         def on_exit(icon, item):
             icon.stop()
             os._exit(0)
         
         menu = pystray.Menu(
+            pystray.MenuItem("Settings", on_settings),
             pystray.MenuItem("Open Footprint", on_footprint),
             pystray.MenuItem("Exit", on_exit),
         )
@@ -143,6 +156,12 @@ def run_tray(bridge_thread):
 # ── ГЛАВНЫЙ ЗАПУСК ────────────────────────────────────────────────
 def main():
     # Разбор аргументов
+    if "--settings" in sys.argv:
+        # Окно настроек (вызывается из трея)
+        from settings_window import open_settings_window
+        open_settings_window()
+        return
+    
     if "--footprint" in sys.argv:
         # Режим футпринта (вызывается из bridge_server или трея)
         idx = sys.argv.index("--footprint")

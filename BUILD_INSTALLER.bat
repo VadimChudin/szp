@@ -15,9 +15,12 @@ set REPO=%~dp0
 if "%REPO:~-1%"=="\" set REPO=%REPO:~0,-1%
 cd /d "%REPO%\python_core"
 
-python -m PyInstaller --noconfirm --onedir --console ^
+python -m PyInstaller --noconfirm --onedir --windowed ^
     --name "SmartZonesBridge" ^
     --add-data "splash.gif;." ^
+    --hidden-import settings_window ^
+    --hidden-import pystray ^
+    --hidden-import PIL ^
     --hidden-import pandas ^
     --hidden-import numpy ^
     --hidden-import yfinance ^
@@ -38,7 +41,6 @@ python -m PyInstaller --noconfirm --onedir --console ^
     --exclude-module boto3 ^
     --exclude-module cryptography ^
     --exclude-module bcrypt ^
-    --exclude-module PIL ^
     --exclude-module lxml ^
     "app_entry.py"
 

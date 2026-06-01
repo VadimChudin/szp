@@ -2,9 +2,15 @@
 # Smart Zones Pro — PyInstaller Build Spec
 # Собирает всё в один пакет БЕЗ окна консоли
 
+import os
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 block_cipher = None
+
+# Relocatable paths: resolve everything relative to this .spec file so the repo
+# can live anywhere (no more hardcoded d:\smart-zones-pro).
+REPO_DIR = os.path.dirname(os.path.abspath(SPECPATH))
+PYTHON_CORE = os.path.join(REPO_DIR, 'python_core')
 
 # ── Собираем зависимости ──
 datas = []
@@ -45,22 +51,22 @@ hiddenimports += [
     'fvg_detector', 'bridge_server', 'footprint_data', 'footprint_window',
     'tick_reader', 'sync_zones_to_mt4', 'persistent_zones',
     'telegram_bot', 'smart_zones_tray', 'dukascopy_loader',
+    'settings_window', 'paths', 'installer_gui',
 ]
 
 # ── Данные проекта (MQL файлы, splash) ──
 datas += [
-    ('d:\\smart-zones-pro\\mql', 'mql'),
-    ('d:\\smart-zones-pro\\splash_image.bmp', '.'),
+    (os.path.join(REPO_DIR, 'mql'), 'mql'),
+    (os.path.join(REPO_DIR, 'splash_image.bmp'), '.'),
 ]
 
 # Проверяем наличие splash.gif
-import os
-if os.path.exists('d:\\smart-zones-pro\\python_core\\splash.gif'):
-    datas += [('d:\\smart-zones-pro\\python_core\\splash.gif', '.')]
+if os.path.exists(os.path.join(PYTHON_CORE, 'splash.gif')):
+    datas += [(os.path.join(PYTHON_CORE, 'splash.gif'), '.')]
 
 a = Analysis(
-    ['d:\\smart-zones-pro\\python_core\\app_entry.py'],
-    pathex=['d:\\smart-zones-pro\\python_core'],
+    [os.path.join(PYTHON_CORE, 'app_entry.py')],
+    pathex=[PYTHON_CORE],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
