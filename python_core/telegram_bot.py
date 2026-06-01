@@ -55,7 +55,12 @@ def send_telegram_message(text: str, *, parse_mode: str = "HTML",
     except Exception as e:
         print(f"[telegram] send failed: {e}")
         if hasattr(e, "response") and e.response is not None:
-            print(f"[telegram] response: {e.response.text}")
+            try:
+                error_data = e.response.json()
+                print(f"[telegram] error_code: {error_data.get('error_code')}, "
+                      f"description: {error_data.get('description')}")
+            except Exception:
+                print(f"[telegram] HTTP {e.response.status_code}")
         return False
 
 
