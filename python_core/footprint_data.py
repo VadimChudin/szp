@@ -26,8 +26,8 @@ from typing import Optional
 import config
 SOURCE = config.DATA_SOURCE  # Read from main config instead of hardcoding
 # Binance config
-BASE_URL = "https://fapi.binance.com"
-BINANCE_SYMBOL = "XAUUSDT"
+BASE_URL = config.BINANCE_BASE_URL
+BINANCE_SYMBOL = config.BINANCE_SYMBOL
 
 # yfinance config (Gold Futures = реальный XAUUSD)
 YF_SYMBOL = "GC=F"

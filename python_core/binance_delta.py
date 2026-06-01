@@ -13,11 +13,13 @@ import requests
 import time
 from datetime import datetime, timedelta
 
+import config
+
 # ── Binance Futures API (публичный, без ключей) ───────────────────────
-BASE_URL = "https://fapi.binance.com"
+BASE_URL = config.BINANCE_BASE_URL
 
 # Фьючерс на золото
-SYMBOL = "XAUUSDT"
+SYMBOL = config.BINANCE_SYMBOL
 
 def get_klines(symbol: str = SYMBOL, interval: str = "4h", limit: int = 100) -> list[dict]:
     """

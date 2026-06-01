@@ -44,6 +44,38 @@ class Zone:
         rl = " RL" if self.is_round_level else ""
         return f"{self.price:.2f} | {src}{bp}{rl}{self.label_suffix} | S:{self.score}"
 
+    def to_dict(self) -> dict:
+        """Serialize zone to a JSON-ready dictionary."""
+        return {
+            "price": self.price,
+            "top": self.top,
+            "bottom": self.bottom,
+            "width": self.width,
+            "score": self.score,
+            "sources": self.sources,
+            "label": self.label,
+            "has_big_player": self.has_big_player,
+            "is_round_level": self.is_round_level,
+            "touch_count": self.touch_count,
+            "wick_points": self.wick_points,
+            "label_suffix": self.label_suffix,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Zone":
+        """Deserialize zone from a dictionary."""
+        return cls(
+            price=d["price"],
+            width=d.get("width", config.ZONE_WIDTH),
+            score=d.get("score", 0),
+            sources=d.get("sources", []),
+            touch_count=d.get("touch_count", 0),
+            has_big_player=d.get("has_big_player", False),
+            is_round_level=d.get("is_round_level", False),
+            wick_points=d.get("wick_points", []),
+            label_suffix=d.get("label_suffix", ""),
+        )
+
     def __repr__(self):
         return f"Zone({self.label})"
 

@@ -1,15 +1,15 @@
 import json
-import os
 import copy
 from pathlib import Path
 import pandas as pd
 
 from zone_detector import Zone
 import config
+import paths
 
 from datetime import datetime
 
-DB_FILE = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal" / "Common" / "Files" / "persistent_zones_db.json"
+DB_FILE = (paths.MT_COMMON_FILES / "persistent_zones_db.json") if paths.MT_COMMON_FILES else (paths.DATA_BRIDGE_DIR / "persistent_zones_db.json")
 
 def default_serializer(obj):
     if hasattr(obj, 'isoformat'):
@@ -17,54 +17,24 @@ def default_serializer(obj):
     return str(obj)
 
 def load_db() -> list[Zone]:
-    if not DB_FILE.exists():
+    data = paths.load_json_file(DB_FILE, default={})
+    if not data:
         return []
     try:
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            zones = []
-            for z_dict in data.get("archived", []):
-                z = Zone(
-                    price=z_dict["price"],
-                    width=z_dict["width"],
-                    score=z_dict["score"],
-                    sources=z_dict["sources"],
-                    touch_count=z_dict["touch_count"],
-                    has_big_player=z_dict["has_big_player"],
-                    is_round_level=z_dict["is_round_level"],
-                    wick_points=z_dict.get("wick_points", []),
-                    label_suffix=z_dict.get("label_suffix", "")
-                )
-                zones.append(z)
-            return zones
+        return [Zone.from_dict(d) for d in data.get("archived", [])]
     except Exception as e:
         print(f"[persistent] Failed to load DB: {e}")
         return []
 
 def save_db(zones: list[Zone]):
-    try:
-        z_dicts = []
-        for z in zones:
-            z_dicts.append({
-                "price": z.price,
-                "width": z.width,
-                "score": z.score,
-                "sources": z.sources,
-                "touch_count": z.touch_count,
-                "has_big_player": z.has_big_player,
-                "is_round_level": z.is_round_level,
-                "wick_points": z.wick_points,
-                "label_suffix": z.label_suffix
-            })
-        data = {
-            "version": "1.0",
-            "last_update": datetime.now().isoformat(),
-            "archived": z_dicts
-        }
-        with open(DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, default=default_serializer)
-    except Exception as e:
-        print(f"[persistent] Failed to save DB: {e}")
+    z_dicts = [z.to_dict() for z in zones]
+    data = {
+        "version": "1.0",
+        "last_update": datetime.now().isoformat(),
+        "archived": z_dicts,
+    }
+    if not paths.save_json_file(DB_FILE, data, indent=4, default=default_serializer):
+        print(f"[persistent] Failed to save DB: {DB_FILE}")
 
 def get_h4_closes(all_data: dict[str, pd.DataFrame]) -> list[tuple[float, float]]:
     # Returns a list of tuples (open, close) for the last N H4 candles

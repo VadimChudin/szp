@@ -86,28 +86,12 @@ def run_pipeline(plot: bool = True) -> list[dict]:
         print("[4/4] Skipping chart generation (--no-plot)")
 
     # ── Формируем JSON-ответ (для ZeroMQ / MetaTrader) ───────────────
-    zones_json = []
-    for z in zones:
-        zones_json.append({
-            "price": z.price,
-            "top": z.top,
-            "bottom": z.bottom,
-            "score": z.score,
-            "sources": z.sources,
-            "label": z.label,
-            "has_big_player": z.has_big_player,
-            "is_round_level": z.is_round_level,
-            "touch_count": z.touch_count,
-        })
+    zones_json = [z.to_dict() for z in zones]
 
     # Сохраняем JSON для отладки
-    import os
     import paths as _paths
-    out_dir = str(_paths.OUTPUT_DIR)
-    os.makedirs(out_dir, exist_ok=True)
-    json_path = os.path.join(out_dir, "last_zones.json")
-    with open(json_path, "w") as f:
-        json.dump(zones_json, f, indent=2)
+    json_path = _paths.OUTPUT_DIR / "last_zones.json"
+    _paths.save_json_file(json_path, zones_json)
     print(f"[main] Zones saved to {json_path}")
 
     return zones_json
