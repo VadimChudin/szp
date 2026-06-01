@@ -8,6 +8,9 @@ venv/
 # ── App config (must never be committed) ──────────────────────────────
 .env
 
+# ── Broker credentials (user-specific, must never be committed) ───────
+python_core/brokers.json
+
 # ── Build / installer artifacts ───────────────────────────────────────
 build/
 dist/

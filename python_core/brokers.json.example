@@ -2,10 +2,10 @@
     "active_broker": 0,
     "brokers": [
         {
-            "name": "Just2Trade Demo",
-            "server": "Just2Trade",
-            "login": 3269679,
-            "password": "-i2eIfJb",
+            "name": "My Broker",
+            "server": "",
+            "login": 0,
+            "password": "",
             "path": ""
         },
         {
