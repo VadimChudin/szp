@@ -35,16 +35,8 @@ from footprint_data import get_collector as get_fp_collector
 # Вводим флаг загрузки
 is_fp_downloading = False
 
-# ── Вспомогательная функция для Telegram ───────────────────────────────
-def get_mt4_local_files_dir() -> Path | None:
-    terminal_base = paths.MT_TERMINAL_ROOT
-    if terminal_base and terminal_base.exists():
-        for sub in terminal_base.iterdir():
-            if sub.is_dir():
-                files_dir = sub / "MQL4" / "Files"
-                if files_dir.exists():
-                    return files_dir
-    return None
+# Используем централизованную функцию из paths
+get_mt4_local_files_dir = paths.find_mt4_local_files_dir
 
 # ── Пути обмена данными ──────────────────────────────────────────────
 # MT4 будет писать сюда OHLC, Python будет читать отсюда
@@ -187,35 +179,23 @@ def calculate_and_export_zones(refresh_data: bool = True):
 
     # ── Формируем JSON для MT4 ───────────────────────────────────
     # Считываем уже существующий zones_output.json чтобы не затереть fp_status
-    current_fp_status = "Ready"
-    if ZONES_OUTPUT.exists():
-        try:
-            with open(ZONES_OUTPUT, "r") as f:
-                old_data = json.load(f)
-                current_fp_status = old_data.get("fp_status", "Ready")
-        except (json.JSONDecodeError, KeyError, OSError) as exc:
-            print(f"[bridge] WARN: Could not read previous zones file: {exc}")
+    old_data = paths.load_json_file(ZONES_OUTPUT, default={})
+    current_fp_status = old_data.get("fp_status", "Ready")
 
     zones_for_mt4 = []
     for z in zones:
-        zone_data = {
-            "price": round(z.price, 2),
-            "top": round(z.top, 2),
-            "bottom": round(z.bottom, 2),
-            "score": z.score,
-            "sources": "+".join(sorted(set(z.sources))),
-            "label": z.label,
-            "has_big_player": z.has_big_player,
-            "is_round_level": z.is_round_level,
-            "touch_count": z.touch_count,
-            "timestamp": datetime.now().isoformat(),
-        }
+        zone_data = z.to_dict()
+        zone_data["price"] = round(zone_data["price"], 2)
+        zone_data["top"] = round(zone_data["top"], 2)
+        zone_data["bottom"] = round(zone_data["bottom"], 2)
+        zone_data["sources"] = "+".join(sorted(set(z.sources)))
+        zone_data["timestamp"] = datetime.now().isoformat()
 
         # Добавляем дельту для каждой зоны
         if delta_df is not None:
             delta_info = get_delta_at_zone(delta_df, z.price)
             zone_data["delta"] = delta_info
-        
+
         zones_for_mt4.append(zone_data)
 
     # ── Записываем JSON ──────────────────────────────────────────────

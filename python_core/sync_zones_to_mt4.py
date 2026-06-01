@@ -22,20 +22,10 @@ SOURCE = paths.ZONES_FILE
 
 def find_mt4_common_files() -> Path | None:
     """Ищет папку Common/Files от MetaTrader 4/5."""
-    common = paths.MT_COMMON_FILES
-    if common and common.exists():
-        print(f"[sync] Found MT Common Files: {common}")
-        return common
-
-    terminal_base = paths.MT_TERMINAL_ROOT
-    if terminal_base and terminal_base.exists():
-        for sub in terminal_base.iterdir():
-            if sub.is_dir():
-                files_dir = sub / "MQL4" / "Files"
-                if files_dir.exists():
-                    print(f"[sync] Found MT4 Files dir: {files_dir}")
-                    return files_dir
-    return None
+    result = paths.find_mt_common_files()
+    if result:
+        print(f"[sync] Found MT Common/Files: {result}")
+    return result
 
 
 def find_mt4_indicators_dir() -> Path | None:
@@ -70,16 +60,7 @@ def sync_zones():
 
 def find_all_terminals() -> list[tuple[str, Path]]:
     """Находит ВСЕ установленные терминалы MT4 и MT5 (по хэш-папкам)."""
-    terminal_base = paths.MT_TERMINAL_ROOT
-    terminals: list[tuple[str, Path]] = []
-    if terminal_base and terminal_base.exists():
-        for sub in terminal_base.iterdir():
-            if sub.is_dir():
-                if (sub / "MQL4").exists():
-                    terminals.append(("MT4", sub))
-                if (sub / "MQL5").exists():
-                    terminals.append(("MT5", sub))
-    return terminals
+    return paths.find_all_terminals()
 
 
 def find_metaeditor(terminal_path: Path, is_mt5: bool) -> Path | None:

@@ -14,8 +14,10 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import Optional
 
+import paths
+
 # ── Путь к Common/Files MT4 ──────────────────────────────────────────
-MT4_COMMON_FILES = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal" / "Common" / "Files"
+MT4_COMMON_FILES = paths.MT_COMMON_FILES or Path("")
 
 
 class Tick:

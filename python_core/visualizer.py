@@ -93,12 +93,7 @@ def plot_zones_mplfinance(
     hlines_prices = []
     hlines_colors = []
     for zone in zones:
-        if zone.score >= 9:
-            color = config.ZONE_COLOR_STRONG
-        elif zone.score >= 7:
-            color = config.ZONE_COLOR_MEDIUM
-        else:
-            color = config.ZONE_COLOR_WEAK
+        color, _ = config.zone_color_for_score(zone.score)
         hlines_prices.append(zone.price)
         hlines_colors.append(color)
 
@@ -138,15 +133,7 @@ def plot_zones_mplfinance(
     # Добавляем зоны-прямоугольники (полупрозрачные полосы ±width)
     ax_main = axes[0]
     for zone in zones:
-        if zone.score >= 9:
-            color = '#FF0000'
-            alpha = 0.15
-        elif zone.score >= 7:
-            color = '#FF4D4D'
-            alpha = 0.10
-        else:
-            color = '#FF9999'
-            alpha = 0.07
+        color, alpha = config.zone_color_for_score(zone.score)
 
         ax_main.axhspan(
             zone.bottom, zone.top,
@@ -220,8 +207,8 @@ def plot_zones_basic(
 
     # Рисуем зоны
     for zone in zones:
-        color = '#FF0000' if zone.score >= 9 else '#FF4D4D'
-        ax.axhspan(zone.bottom, zone.top, color=color, alpha=0.15)
+        color, alpha = config.zone_color_for_score(zone.score)
+        ax.axhspan(zone.bottom, zone.top, color=color, alpha=alpha)
         ax.axhline(zone.price, color=color, linewidth=1.5, alpha=0.6)
         ax.text(
             x.iloc[-1] if hasattr(x, 'iloc') else x[-1],

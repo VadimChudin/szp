@@ -103,6 +103,20 @@ ZONE_COLOR_STRONG = "#FF0000"    # Ярко-красный для сильных
 ZONE_COLOR_MEDIUM = "#FF4D4D"    # Средне-красный (score 7-8)
 ZONE_COLOR_WEAK   = "#FF9999"    # Бледно-красный (score < 7)
 
+# ── Binance Futures (для реальной дельты объёма) ─────────────────────
+BINANCE_BASE_URL = "https://fapi.binance.com"
+BINANCE_SYMBOL = "XAUUSDT"
+
+
+def zone_color_for_score(score: int) -> tuple[str, float]:
+    """Возвращает (hex_color, alpha) для зоны по её score."""
+    if score >= 9:
+        return ZONE_COLOR_STRONG, 0.15
+    if score >= 7:
+        return ZONE_COLOR_MEDIUM, 0.10
+    return ZONE_COLOR_WEAK, 0.07
+
+
 # ── Данные ───────────────────────────────────────────────────────────
 # Источник данных для алгоритма. "mt5" будет тянуть данные напрямую от терминала
 # в скрытом фоновом режиме. "csv" - через EA.

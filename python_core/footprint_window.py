@@ -14,14 +14,8 @@ ZONES_FILE = paths.ZONES_FILE
 BROKERS_FILE = paths.BROKERS_FILE
 
 def _load_zones():
-    if not ZONES_FILE.exists():
-        return []
-    try:
-        with open(ZONES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f).get("zones", [])
-    except (json.JSONDecodeError, OSError) as e:
-        print(f"[footprint] WARN: Could not load zones from {ZONES_FILE}: {e}")
-        return []
+    data = paths.load_json_file(ZONES_FILE, default={})
+    return data.get("zones", [])
 
 def _candles_to_json(candles, interval):
     mx = 1
