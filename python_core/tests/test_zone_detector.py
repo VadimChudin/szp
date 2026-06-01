@@ -1,0 +1,203 @@
+"""
+Тесты для zone_detector.py — ядро алгоритма кластеризации зон.
+"""
+
+import numpy as np
+import pandas as pd
+import pytest
+
+import config
+from zone_detector import Zone, extract_wick_levels, cluster_levels, detect_zones
+
+
+# ── Zone dataclass ────────────────────────────────────────────────────────
+
+class TestZoneDataclass:
+    def test_top_bottom(self):
+        z = Zone(price=2400.0, width=1.0)
+        assert z.top == 2401.0
+        assert z.bottom == 2399.0
+
+    def test_label_basic(self):
+        z = Zone(price=2386.50, sources=["H4", "D1"], score=8)
+        label = z.label
+        assert "2386.50" in label
+        assert "D1+H4" in label or "H4+D1" in label
+        assert "S:8" in label
+
+    def test_label_big_player(self):
+        z = Zone(price=2400.0, sources=["H1"], score=5, has_big_player=True)
+        assert " BP" in z.label
+
+    def test_label_round_level(self):
+        z = Zone(price=2400.0, sources=["H1"], score=5, is_round_level=True)
+        assert " RL" in z.label
+
+    def test_label_suffix(self):
+        z = Zone(price=2400.0, sources=["H1"], score=5, label_suffix=" (Vol POC)")
+        assert "(Vol POC)" in z.label
+
+    def test_repr(self):
+        z = Zone(price=2400.0, sources=["H1"], score=5)
+        assert "Zone(" in repr(z)
+
+
+# ── extract_wick_levels ───────────────────────────────────────────────────
+
+class TestExtractWickLevels:
+    def test_returns_dataframe_with_required_columns(self, sample_ohlcv_df):
+        result = extract_wick_levels(sample_ohlcv_df)
+        assert isinstance(result, pd.DataFrame)
+        for col in ["level", "wick_type", "time", "tick_volume", "candle_range"]:
+            assert col in result.columns
+
+    def test_wick_types_are_valid(self, sample_ohlcv_df):
+        result = extract_wick_levels(sample_ohlcv_df)
+        if not result.empty:
+            assert set(result["wick_type"].unique()).issubset({"upper", "lower"})
+
+    def test_skips_doji_candles(self):
+        """Свечи с диапазоном < SYMBOL_POINT * 10 пропускаются."""
+        df = pd.DataFrame({
+            "time": pd.date_range("2024-01-01", periods=3, freq="1h"),
+            "open": [2400.0, 2400.0, 2400.0],
+            "high": [2400.005, 2400.005, 2400.005],  # range = 0.005 < 0.01*10
+            "low": [2400.0, 2400.0, 2400.0],
+            "close": [2400.003, 2400.003, 2400.003],
+            "tick_volume": [100, 200, 300],
+        })
+        result = extract_wick_levels(df)
+        assert result.empty
+
+    def test_detects_lower_wick(self):
+        """Свеча с длинным нижним фитилем даёт lower wick."""
+        df = pd.DataFrame({
+            "time": [pd.Timestamp("2024-01-01")],
+            "open": [2405.0],
+            "high": [2406.0],
+            "low": [2395.0],   # lower wick = 2405-2395 = 10, range = 11, 10/11 > 0.15
+            "close": [2405.5],
+            "tick_volume": [1000],
+        })
+        result = extract_wick_levels(df)
+        assert not result.empty
+        assert "lower" in result["wick_type"].values
+
+    def test_detects_upper_wick(self):
+        """Свеча с длинным верхним фитилем даёт upper wick."""
+        df = pd.DataFrame({
+            "time": [pd.Timestamp("2024-01-01")],
+            "open": [2395.0],
+            "high": [2406.0],   # upper wick = 2406-2395.5 = 10.5, range = 11, > 0.15
+            "low": [2395.0],
+            "close": [2395.5],
+            "tick_volume": [1000],
+        })
+        result = extract_wick_levels(df)
+        assert not result.empty
+        assert "upper" in result["wick_type"].values
+
+    def test_empty_dataframe(self):
+        df = pd.DataFrame(columns=["time", "open", "high", "low", "close", "tick_volume"])
+        result = extract_wick_levels(df)
+        assert result.empty
+
+
+# ── cluster_levels ────────────────────────────────────────────────────────
+
+class TestClusterLevels:
+    def test_empty_input(self):
+        result = cluster_levels(np.array([]))
+        assert result == []
+
+    def test_single_level(self):
+        result = cluster_levels(np.array([2400.0]))
+        assert len(result) == 1
+        assert result[0]["center"] == 2400.0
+        assert result[0]["count"] == 1
+
+    def test_close_levels_merge(self):
+        """Уровни в пределах tolerance объединяются."""
+        levels = np.array([2400.0, 2401.0, 2402.0, 2403.0])
+        result = cluster_levels(levels, tolerance=5.0)
+        assert len(result) == 1
+        assert result[0]["count"] == 4
+
+    def test_distant_levels_separate(self):
+        """Уровни дальше tolerance формируют разные кластеры."""
+        levels = np.array([2400.0, 2401.0, 2420.0, 2421.0])
+        result = cluster_levels(levels, tolerance=5.0)
+        assert len(result) == 2
+        assert result[0]["count"] == 2
+        assert result[1]["count"] == 2
+
+    def test_center_is_median(self):
+        """Центр кластера — медиана его элементов."""
+        levels = np.array([2400.0, 2402.0, 2404.0])
+        result = cluster_levels(levels, tolerance=5.0)
+        assert len(result) == 1
+        assert result[0]["center"] == pytest.approx(2402.0)
+
+    def test_unsorted_input(self):
+        """Работает корректно с неотсортированным массивом."""
+        levels = np.array([2420.0, 2400.0, 2421.0, 2401.0])
+        result = cluster_levels(levels, tolerance=5.0)
+        assert len(result) == 2
+
+    def test_custom_tolerance(self):
+        levels = np.array([2400.0, 2403.0, 2406.0])
+        # С tolerance=2 — должно быть 3 кластера (3 > 2)
+        # С tolerance=10 — 1 кластер
+        result_tight = cluster_levels(levels, tolerance=2.0)
+        result_wide = cluster_levels(levels, tolerance=10.0)
+        assert len(result_tight) >= 2
+        assert len(result_wide) == 1
+
+    def test_members_field(self):
+        """Каждый кластер содержит list members."""
+        levels = np.array([2400.0, 2401.0, 2405.0])
+        result = cluster_levels(levels, tolerance=5.0)
+        for cluster in result:
+            assert "members" in cluster
+            assert isinstance(cluster["members"], list)
+
+
+# ── detect_zones (интеграционный тест) ────────────────────────────────────
+
+class TestDetectZones:
+    def test_returns_list_of_zones(self, multi_tf_data):
+        zones = detect_zones(multi_tf_data)
+        assert isinstance(zones, list)
+        for z in zones:
+            assert isinstance(z, Zone)
+
+    def test_zones_sorted_by_score_desc(self, multi_tf_data):
+        zones = detect_zones(multi_tf_data)
+        if len(zones) >= 2:
+            scores = [z.score for z in zones]
+            assert scores == sorted(scores, reverse=True)
+
+    def test_zones_respect_max_limit(self, multi_tf_data):
+        zones = detect_zones(multi_tf_data)
+        assert len(zones) <= config.MAX_ZONES_ON_CHART
+
+    def test_with_volume_flags(self, multi_tf_data):
+        """Работает с переданными volume_flags."""
+        vol_flags = {}
+        for tf, df in multi_tf_data.items():
+            vol_flags[tf] = np.zeros(len(df), dtype=bool)
+            # Помечаем первые 5 свечей как big-player
+            vol_flags[tf][:5] = True
+
+        zones = detect_zones(multi_tf_data, volume_flags=vol_flags)
+        assert isinstance(zones, list)
+
+    def test_empty_data(self):
+        """Пустой DataFrame — пустой результат."""
+        empty = {
+            "H1": pd.DataFrame(columns=["time", "open", "high", "low", "close", "tick_volume"]),
+            "H4": pd.DataFrame(columns=["time", "open", "high", "low", "close", "tick_volume"]),
+            "D1": pd.DataFrame(columns=["time", "open", "high", "low", "close", "tick_volume"]),
+        }
+        zones = detect_zones(empty)
+        assert zones == []
