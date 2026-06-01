@@ -76,11 +76,11 @@ class DukascopyLoader:
                     # Кэшируем пустой файл, чтобы не скачивать битые часы заново
                     pd.DataFrame(columns=["time_ms", "time", "ask", "bid", "ask_vol", "bid_vol"]).to_parquet(cache_path, index=False)
                 return df
-        except Exception:
+        except Exception as e:
             try:
                 import pandas as pd
                 pd.DataFrame(columns=["time_ms", "time", "ask", "bid", "ask_vol", "bid_vol"]).to_parquet(cache_path, index=False)
-            except:
+            except OSError:
                 pass
             return None
 

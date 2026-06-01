@@ -30,6 +30,7 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(raw)
     except ValueError:
+        print(f"[config] WARN: invalid integer for {name}={raw!r}, using default {default}")
         return default
 
 
@@ -40,6 +41,7 @@ def _env_float(name: str, default: float) -> float:
     try:
         return float(raw)
     except ValueError:
+        print(f"[config] WARN: invalid float for {name}={raw!r}, using default {default}")
         return default
 
 
