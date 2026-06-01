@@ -19,11 +19,11 @@ def get_mt4_terminals() -> list[dict]:
                 try:
                     with open(origin_file, 'r', encoding='utf-16le') as f:
                         origin_path = f.read().strip()
-                except:
+                except (UnicodeDecodeError, OSError):
                     try:
                         with open(origin_file, 'r', encoding='utf-8') as f:
                             origin_path = f.read().strip()
-                    except:
+                    except (UnicodeDecodeError, OSError):
                         origin_path = str(sub.name)
                 
                 terminals.append({

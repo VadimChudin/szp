@@ -86,8 +86,8 @@ def find_metaeditor(terminal_path: Path, is_mt5: bool) -> Path | None:
                 if me.exists(): return me
                 me64 = install_path / "metaeditor64.exe"
                 if me64.exists(): return me64
-        except Exception:
-            pass
+        except (UnicodeDecodeError, OSError) as e:
+            print(f"[install] WARN: Could not read origin.txt for {terminal_path.name}: {e}")
     
     # Метод 2: Стандартные места установки
     search_paths = [

@@ -84,8 +84,8 @@ def show_splash():
         root.attributes('-topmost', True)
         root.after_idle(root.attributes, '-topmost', False)
         root.mainloop()
-    except Exception:
-        pass  # Сплэш не критичен
+    except Exception as e:
+        print(f"[app] Splash screen skipped: {e}")
 
 
 # ── Патчинг MT4/MT5 ──────────────────────────────────────────────

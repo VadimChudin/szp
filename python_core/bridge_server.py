@@ -108,9 +108,11 @@ def refresh_data_source():
     try:
         from download_real_data import download_and_save
         download_and_save()
+    except ImportError:
+        print("[bridge] ERROR: yfinance not installed — cannot refresh data")
     except Exception as e:
-        print(f"[bridge] WARN: Could not refresh any data: {e}")
-        print("[bridge] Using cached CSV data")
+        print(f"[bridge] WARN: yfinance data refresh failed: {e}")
+        print("[bridge] Using cached CSV data (may be stale)")
 
 
 def sync_to_mt4():
@@ -206,8 +208,12 @@ def calculate_and_export_zones(refresh_data: bool = True):
         "zones": zones_for_mt4,
     }
 
-    with open(ZONES_OUTPUT, "w") as f:
-        json.dump(output, f, indent=2)
+    try:
+        with open(ZONES_OUTPUT, "w") as f:
+            json.dump(output, f, indent=2)
+    except OSError as e:
+        print(f"[bridge] ERROR: Could not write zones to {ZONES_OUTPUT}: {e}")
+        return zones_for_mt4
 
     print(f"\n[bridge] Exported {len(zones_for_mt4)} zones to: {ZONES_OUTPUT}")
 

@@ -91,8 +91,10 @@ def run_pipeline(plot: bool = True) -> list[dict]:
     # Сохраняем JSON для отладки
     import paths as _paths
     json_path = _paths.OUTPUT_DIR / "last_zones.json"
-    _paths.save_json_file(json_path, zones_json)
-    print(f"[main] Zones saved to {json_path}")
+    if _paths.save_json_file(json_path, zones_json):
+        print(f"[main] Zones saved to {json_path}")
+    else:
+        print(f"[main] ERROR: Could not save zones to {json_path}")
 
     return zones_json
 

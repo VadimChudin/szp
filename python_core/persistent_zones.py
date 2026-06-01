@@ -20,11 +20,14 @@ def load_db() -> list[Zone]:
     data = paths.load_json_file(DB_FILE, default={})
     if not data:
         return []
-    try:
-        return [Zone.from_dict(d) for d in data.get("archived", [])]
-    except Exception as e:
-        print(f"[persistent] Failed to load DB: {e}")
-        return []
+
+    zones = []
+    for i, z_dict in enumerate(data.get("archived", [])):
+        try:
+            zones.append(Zone.from_dict(z_dict))
+        except (KeyError, TypeError) as e:
+            print(f"[persistent] WARN: Skipping malformed zone #{i} in DB: {e}")
+    return zones
 
 def save_db(zones: list[Zone]):
     z_dicts = [z.to_dict() for z in zones]
@@ -34,7 +37,7 @@ def save_db(zones: list[Zone]):
         "archived": z_dicts,
     }
     if not paths.save_json_file(DB_FILE, data, indent=4, default=default_serializer):
-        print(f"[persistent] Failed to save DB: {DB_FILE}")
+        print(f"[persistent] ERROR: Failed to save DB to {DB_FILE}")
 
 def get_h4_closes(all_data: dict[str, pd.DataFrame]) -> list[tuple[float, float]]:
     # Returns a list of tuples (open, close) for the last N H4 candles
