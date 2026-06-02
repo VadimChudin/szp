@@ -136,8 +136,8 @@ void OnChartEvent(const int id,
          else if(per <= PERIOD_H4) fpInterval = "4h";
          else fpInterval = "1d";
          
-         // Записываем файл-флаг для Python Bridge
-         string flagPath = "d:\\smart-zones-pro\\data_bridge\\footprint_request.flag";
+         // Записываем файл-флаг для Python Bridge в общую папку терминала
+         // (Terminal\Common\Files), откуда его читает bridge_server.
          int fh = FileOpen("footprint_request.flag", FILE_WRITE|FILE_TXT|FILE_COMMON);
          if(fh != INVALID_HANDLE)
          {

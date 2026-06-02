@@ -13,11 +13,14 @@ pip install pystray Pillow termcolor pyinstaller
 echo [2/3] Compiling SmartZonesPro executable...
 cd /d "%REPO%\python_core"
 pyinstaller --noconfirm --onedir --windowed --name "SmartZonesPro" ^
+  --hidden-import settings_window ^
+  --hidden-import pystray ^
+  --hidden-import PIL ^
   --add-data "%REPO%\python_core\brokers.json;." ^
   --add-data "%REPO%\data_bridge\footprint_1h.html;data_bridge" ^
   --add-data "%REPO%\data_bridge\footprint_4h.html;data_bridge" ^
   --add-data "%REPO%\data_bridge\footprint_1d.html;data_bridge" ^
-  "%REPO%\python_core\smart_zones_tray.py"
+  "%REPO%\python_core\app_entry.py"
 
 echo [3/3] Compiling Inno Setup...
 echo Make sure you have Inno Setup installed!
