@@ -185,6 +185,11 @@ def calculate_and_export_zones(refresh_data: bool = True):
     zones_for_mt4 = []
     for z in zones:
         zone_data = z.to_dict()
+        # Индикатор (StrongZones.mq*) парсит JSON наивно, по ключу "price".
+        # wick_points содержат свой "price" на каждую точку — из-за них
+        # индикатор насчитывал фантомные зоны с битыми границами (огромные
+        # прямоугольники). В файл для MT отдаём только сами зоны, без wick_points.
+        zone_data.pop("wick_points", None)
         zone_data["price"] = round(zone_data["price"], 2)
         zone_data["top"] = round(zone_data["top"], 2)
         zone_data["bottom"] = round(zone_data["bottom"], 2)
