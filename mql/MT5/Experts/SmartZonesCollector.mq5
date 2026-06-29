@@ -30,6 +30,14 @@ input int      D1_Bars             = 60;       // Баров D1 для эксп�
 input int      M1_Bars             = 15000;    // Баров M1 для эмуляции истории (~10 дней)
 input color    PanelTextColor      = clrWhite; // Цвет текста панели
 input color    PanelBgColor        = C'30,30,40'; // Фон панели
+input string   AccessPassword      = "";        // Пароль доступа (обязателен)
+
+//--- Защита доступа --------------------------------------------------
+// SHA-256 от правильного пароля. Советник не запустится, пока в поле
+// "AccessPassword" не введён пароль, чьим хэшем является эта строка.
+// Чтобы сменить пароль — пересчитайте SHA-256 нового пароля и впишите сюда
+// (нижний регистр, hex). По умолчанию пароль: SmartZones-2026
+#define EXPECTED_PWD_SHA256 "ce0902931e9139e1ac2ef11f83f5e7cabfa133d1251ebfddb2846d8802ac4fa9"
 
 //--- Глобальные переменные -------------------------------------------
 string   g_prefix     = "SZC_";           // Префикс объектов
@@ -43,10 +51,48 @@ string   g_symbolName = "";               // Имя символа (для фа�
 
 
 //+------------------------------------------------------------------+
+//| SHA-256 пароля в hex (нижний регистр)                            |
+//+------------------------------------------------------------------+
+string Sha256Hex(const string text)
+{
+   uchar data[];
+   int len = StringToCharArray(text, data, 0, StringLen(text), CP_UTF8);
+   if(len < 0) len = 0;
+   ArrayResize(data, len);  // убираем хвостовой '\0', чтобы не хэшировать его
+
+   uchar key[];
+   uchar hash[];
+   if(CryptEncode(CRYPT_HASH_SHA256, data, key, hash) <= 0)
+      return("");
+
+   string hex = "";
+   for(int i = 0; i < ArraySize(hash); i++)
+      hex += StringFormat("%02x", hash[i]);
+   return(hex);
+}
+
+//+------------------------------------------------------------------+
+//| Проверка пароля доступа                                          |
+//+------------------------------------------------------------------+
+bool CheckAccessPassword()
+{
+   if(Sha256Hex(AccessPassword) == EXPECTED_PWD_SHA256)
+      return(true);
+
+   Alert("Smart Zones Pro: неверный пароль доступа. Укажите его в поле "
+         "\"AccessPassword\" в настройках советника.");
+   Print("[Collector] ACCESS DENIED: wrong or empty AccessPassword.");
+   return(false);
+}
+
+//+------------------------------------------------------------------+
 //| Expert initialization                                             |
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   if(!CheckAccessPassword())
+      return(INIT_FAILED);
+
    g_symbolName = Symbol();
 
    g_prevBid = SymbolInfoDouble(g_symbolName, SYMBOL_BID);
