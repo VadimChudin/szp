@@ -8,6 +8,7 @@ Smart Zones Pro — Главная точка входа.
 """
 import sys
 import os
+import hashlib
 import threading
 import multiprocessing
 
@@ -19,6 +20,77 @@ else:
 
 sys.path.insert(0, BASE_DIR)
 os.chdir(BASE_DIR)
+
+
+# ── Защита паролем при запуске ─────────────────────────────────────
+# SHA-256 правильного пароля (не сам пароль). Приложение не запустится,
+# пока не введён пароль, чьим хэшем является эта строка.
+# Чтобы сменить пароль — посчитайте SHA-256 нового и впишите сюда.
+# По умолчанию пароль: SmartZones-2026
+EXPECTED_PWD_SHA256 = "ce0902931e9139e1ac2ef11f83f5e7cabfa133d1251ebfddb2846d8802ac4fa9"
+
+
+def ask_password() -> bool:
+    """Окно ввода пароля при старте. True — пароль верный, иначе False."""
+    import tkinter as tk
+
+    state = {"ok": False, "attempts": 0}
+
+    root = tk.Tk()
+    root.title("Smart Zones Pro")
+    root.overrideredirect(True)
+    root.configure(bg='#0d1117')
+
+    w, h = 380, 230
+    ws, hs = root.winfo_screenwidth(), root.winfo_screenheight()
+    x, y = int((ws / 2) - (w / 2)), int((hs / 2) - (h / 2))
+    root.geometry(f"{w}x{h}+{x}+{y}")
+    root.attributes('-topmost', True)
+
+    tk.Label(root, text="Smart Zones Pro", fg='#58a6ff', bg='#0d1117',
+             font=("Segoe UI", 20, "bold")).pack(pady=(34, 4))
+    tk.Label(root, text="Введите пароль доступа", fg='#8b949e', bg='#0d1117',
+             font=("Segoe UI", 11)).pack()
+
+    entry = tk.Entry(root, show="•", justify='center', width=24,
+                     font=("Segoe UI", 13), bg='#161b22', fg='#e6edf3',
+                     insertbackground='#e6edf3', relief='flat')
+    entry.pack(pady=(18, 6), ipady=6)
+    entry.focus_set()
+
+    err = tk.Label(root, text="", fg='#f85149', bg='#0d1117', font=("Segoe UI", 9))
+    err.pack()
+
+    def submit(event=None):
+        pwd = entry.get()
+        if hashlib.sha256(pwd.encode("utf-8")).hexdigest() == EXPECTED_PWD_SHA256:
+            state["ok"] = True
+            root.destroy()
+            return
+        state["attempts"] += 1
+        entry.delete(0, tk.END)
+        if state["attempts"] >= 3:
+            err.config(text="Слишком много попыток. Закрытие…")
+            root.after(1200, root.destroy)
+        else:
+            err.config(text="Неверный пароль. Попробуйте ещё раз.")
+
+    def cancel():
+        root.destroy()
+
+    btns = tk.Frame(root, bg='#0d1117')
+    btns.pack(pady=(12, 0))
+    tk.Button(btns, text="Войти", command=submit, width=10, relief='flat',
+              bg='#238636', fg='white', activebackground='#2ea043',
+              font=("Segoe UI", 10, "bold")).pack(side='left', padx=6)
+    tk.Button(btns, text="Выход", command=cancel, width=8, relief='flat',
+              bg='#21262d', fg='#c9d1d9', activebackground='#30363d',
+              font=("Segoe UI", 10)).pack(side='left', padx=6)
+
+    entry.bind("<Return>", submit)
+    root.bind("<Escape>", lambda e: cancel())
+    root.mainloop()
+    return state["ok"]
 
 # Создаём необходимые папки
 data_bridge = os.path.join(os.path.dirname(BASE_DIR), "data_bridge")
@@ -180,6 +252,11 @@ def main():
         return
     
     # ── Полный запуск ──
+    # 0. Пароль доступа (без него приложение не стартует)
+    if not ask_password():
+        print("[app] Доступ запрещён: неверный пароль.")
+        return
+
     # 1. Сплэш
     show_splash()
     
