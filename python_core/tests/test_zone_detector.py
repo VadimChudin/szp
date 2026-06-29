@@ -41,6 +41,29 @@ class TestZoneDataclass:
         z = Zone(price=2400.0, sources=["H1"], score=5)
         assert "Zone(" in repr(z)
 
+    def test_to_dict_is_json_serializable_with_timestamp_wicks(self):
+        """to_dict() must stay JSON-serializable even when wick_points carry
+        pandas Timestamps / numpy scalars — otherwise zones_output.json (read
+        by the MT4/MT5 indicator) cannot be written."""
+        import json
+
+        z = Zone(
+            price=2400.0,
+            sources=["H1", "H4"],
+            score=11,
+            wick_points=[
+                {"time": pd.Timestamp("2024-01-01 12:00:00"),
+                 "price": np.float64(2400.5),
+                 "wick_type": "lower",
+                 "tf": "H1"},
+            ],
+        )
+        d = z.to_dict()
+        encoded = json.dumps(d)  # must not raise
+        restored = json.loads(encoded)
+        assert restored["wick_points"][0]["time"] == "2024-01-01T12:00:00"
+        assert restored["wick_points"][0]["price"] == 2400.5
+
 
 # ── extract_wick_levels ───────────────────────────────────────────────────
 

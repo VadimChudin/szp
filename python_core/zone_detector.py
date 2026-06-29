@@ -14,6 +14,24 @@ import config
 from fvg_detector import detect_fvgs
 
 
+def _json_safe_wick(wick: dict) -> dict:
+    """Convert a wick-point dict into a JSON-serializable form.
+
+    `wick_points` carry pandas/numpy values (e.g. a Timestamp in ``time``)
+    that ``json.dump`` cannot encode. Normalize them so the exported
+    ``zones_output.json`` (read by the MT4/MT5 indicator) is always valid.
+    """
+    safe = {}
+    for key, value in wick.items():
+        if isinstance(value, pd.Timestamp):
+            safe[key] = value.isoformat()
+        elif isinstance(value, np.generic):
+            safe[key] = value.item()
+        else:
+            safe[key] = value
+    return safe
+
+
 @dataclass
 class Zone:
     """Одна обнаруженная зона (уровень поддержки/сопротивления)."""
@@ -57,7 +75,7 @@ class Zone:
             "has_big_player": self.has_big_player,
             "is_round_level": self.is_round_level,
             "touch_count": self.touch_count,
-            "wick_points": self.wick_points,
+            "wick_points": [_json_safe_wick(w) for w in self.wick_points],
             "label_suffix": self.label_suffix,
         }
 
