@@ -12,6 +12,11 @@ python -m pip install pystray Pillow termcolor pyinstaller
 
 echo [2/3] Compiling SmartZonesPro executable...
 cd /d "%REPO%\python_core"
+REM brokers.json в .gitignore и на чистом клоне отсутствует. Создаём дефолтный,
+REM иначе PyInstaller падает на --add-data. В рантайме приложение его перезапишет.
+if not exist "%REPO%\python_core\brokers.json" (
+  echo {"active_broker": 0, "brokers": [{"name": "Broker 1", "server": "", "login": 0, "password": "", "path": ""}, {"name": "Broker 2", "server": "", "login": 0, "password": "", "path": ""}, {"name": "Broker 3", "server": "", "login": 0, "password": "", "path": ""}]}> "%REPO%\python_core\brokers.json"
+)
 REM Вызов через "python -m PyInstaller" не зависит от PATH (Scripts может быть не в PATH).
 python -m PyInstaller --noconfirm --onedir --windowed --name "SmartZonesPro" ^
   --hidden-import settings_window ^
