@@ -34,17 +34,23 @@ if errorlevel 1 (
 )
 
 echo [3/3] Compiling Inno Setup...
-REM Ищем ISCC.exe в стандартных путях Inno Setup 6 (x86 и x64).
-set "ISCC="
+REM Ищем ISCC.exe. Можно задать вручную: set "ISCC=D:\path\to\ISCC.exe" перед запуском.
+if not "%ISCC%"=="" goto :have_iscc
 if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 if exist "C:\Program Files\Inno Setup 6\ISCC.exe" set "ISCC=C:\Program Files\Inno Setup 6\ISCC.exe"
+if exist "D:\Program\Inno Setup 6\ISCC.exe" set "ISCC=D:\Program\Inno Setup 6\ISCC.exe"
+REM Последняя попытка — поиск в PATH.
+if "%ISCC%"=="" for %%I in (ISCC.exe) do if not "%%~$PATH:I"=="" set "ISCC=%%~$PATH:I"
 
 if "%ISCC%"=="" (
   echo ERROR: Inno Setup 6 not found.
   echo Install it first: run "%REPO%\installer\innosetup6.exe", then re-run build.bat.
+  echo Or set the path manually:  set "ISCC=D:\Program\Inno Setup 6\ISCC.exe"  ^&^& build.bat
   pause
   exit /b 1
 )
+:have_iscc
+echo Using ISCC: %ISCC%
 
 "%ISCC%" "%REPO%\setup.iss"
 
