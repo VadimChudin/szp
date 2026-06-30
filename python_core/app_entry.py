@@ -92,10 +92,10 @@ def ask_password() -> bool:
     root.mainloop()
     return state["ok"]
 
-# Создаём необходимые папки
-data_bridge = os.path.join(os.path.dirname(BASE_DIR), "data_bridge")
-os.makedirs(data_bridge, exist_ok=True)
-os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
+# Создаём необходимые папки в каталоге для записи (в установленной сборке это
+# %LOCALAPPDATA%\SmartZonesPro, а не Program Files — иначе PermissionError).
+import paths
+paths.ensure_dirs()
 
 
 # ── Сплэш-экран (4 секунды при запуске) ───────────────────────────

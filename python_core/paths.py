@@ -41,19 +41,44 @@ def _detect_base_dir() -> Path:
 
 BASE_DIR: Path = _detect_base_dir()
 
+
+def _detect_data_dir() -> Path:
+    """Каталог для данных, которые приложение ПИШЕТ во время работы.
+
+    В установленной сборке BASE_DIR указывает в Program Files — туда писать
+    нельзя (PermissionError [WinError 5]). Поэтому при frozen-сборке пишем в
+    пользовательский каталог %LOCALAPPDATA%\\SmartZonesPro. Из исходников —
+    в корень репозитория, как раньше. Можно переопределить через SZP_DATA_DIR.
+    """
+    override = os.environ.get("SZP_DATA_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
+
+    if getattr(sys, "frozen", False):
+        root = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if root:
+            return Path(root) / "SmartZonesPro"
+
+    return BASE_DIR
+
+
+# Каталог установки (read-only ресурсы: шаблоны, .env.example, mql/…).
 PYTHON_CORE_DIR: Path = BASE_DIR / "python_core"
-DATA_BRIDGE_DIR: Path = BASE_DIR / "data_bridge"
-LOCAL_DATA_DIR: Path = PYTHON_CORE_DIR / "data"
-OUTPUT_DIR: Path = BASE_DIR / "output"
 MQL_DIR: Path = BASE_DIR / "mql"
 INSTALLER_DIR: Path = BASE_DIR / "installer"
 
+# Каталог для записи (data_bridge, csv, output, настройки).
+DATA_DIR: Path = _detect_data_dir()
+DATA_BRIDGE_DIR: Path = DATA_DIR / "data_bridge"
+LOCAL_DATA_DIR: Path = DATA_DIR / "data"
+OUTPUT_DIR: Path = DATA_DIR / "output"
+
 ZONES_FILE: Path = DATA_BRIDGE_DIR / "zones_output.json"
-BROKERS_FILE: Path = PYTHON_CORE_DIR / "brokers.json"
+BROKERS_FILE: Path = DATA_DIR / "brokers.json"
 FOOTPRINT_FLAG: Path = DATA_BRIDGE_DIR / "footprint_request.flag"
 TRIGGER_FILE: Path = DATA_BRIDGE_DIR / "new_data.flag"
 
-ENV_FILE: Path = BASE_DIR / ".env"
+ENV_FILE: Path = DATA_DIR / ".env"
 
 # Windows-only MetaTrader paths (best-effort discovery on other platforms).
 APPDATA = Path(os.environ.get("APPDATA", "")) if os.environ.get("APPDATA") else None
