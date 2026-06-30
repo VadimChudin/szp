@@ -143,6 +143,22 @@ def compile_mq(mq_path: Path, terminal_path: Path, is_mt5: bool) -> bool:
         return False
 
 
+def deploy_component(src_mq: Path, dest_dir: Path, term_path: Path, is_mt5: bool):
+    """Копирует исходник (.mq4/.mq5) и, если рядом лежит уже скомпилированный
+    .ex4/.ex5, копирует и его — тогда клиенту не нужен MetaEditor. Компилируем
+    через metaeditor только если готового .ex-файла нет."""
+    dest = dest_dir / src_mq.name
+    shutil.copy2(src_mq, dest)
+    print(f"  [OK] {src_mq.stem} -> {dest.name}")
+
+    ex_src = src_mq.with_suffix(".ex5" if is_mt5 else ".ex4")
+    if ex_src.exists():
+        shutil.copy2(ex_src, dest_dir / ex_src.name)
+        print(f"  [OK] precompiled -> {ex_src.name}")
+        return
+    compile_mq(dest, term_path, is_mt5)
+
+
 def install_all():
     """
     Автоматическая установка ВСЕХ компонентов Smart Zones Pro в MT4 и MT5:
@@ -172,19 +188,13 @@ def install_all():
             # --- MT4 Индикатор ---
             ind_dir = term_path / "MQL4" / "Indicators"
             if ind_dir.exists() and indicator_src.exists():
-                dest = ind_dir / "StrongZones.mq4"
-                shutil.copy2(indicator_src, dest)
-                print(f"  [OK] Indicator -> {dest.name}")
-                compile_mq(dest, term_path, False)
-                
+                deploy_component(indicator_src, ind_dir, term_path, False)
+
             # --- MT4 EA ---
             ea_dir = term_path / "MQL4" / "Experts"
             if ea_dir.exists() and ea_src.exists():
-                dest = ea_dir / "SmartZonesCollector.mq4"
-                shutil.copy2(ea_src, dest)
-                print(f"  [OK] EA -> {dest.name}")
-                compile_mq(dest, term_path, False)
-                
+                deploy_component(ea_src, ea_dir, term_path, False)
+
             installed += 1
             
         elif term_type == "MT5":
@@ -194,18 +204,12 @@ def install_all():
             # --- MT5 Индикатор ---
             ind_dir = term_path / "MQL5" / "Indicators"
             if ind_dir.exists() and indicator_src.exists():
-                dest = ind_dir / "StrongZones.mq5"
-                shutil.copy2(indicator_src, dest)
-                print(f"  [OK] Indicator -> {dest.name}")
-                compile_mq(dest, term_path, True)
+                deploy_component(indicator_src, ind_dir, term_path, True)
 
             # --- MT5 EA (брокерские данные → CSV) ---
             ea_dir = term_path / "MQL5" / "Experts"
             if ea_dir.exists() and ea_src.exists():
-                dest = ea_dir / "SmartZonesCollector.mq5"
-                shutil.copy2(ea_src, dest)
-                print(f"  [OK] EA -> {dest.name}")
-                compile_mq(dest, term_path, True)
+                deploy_component(ea_src, ea_dir, term_path, True)
 
             installed += 1
     
