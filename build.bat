@@ -18,7 +18,10 @@ if not exist "%REPO%\python_core\brokers.json" (
   echo {"active_broker": 0, "brokers": [{"name": "Broker 1", "server": "", "login": 0, "password": "", "path": ""}, {"name": "Broker 2", "server": "", "login": 0, "password": "", "path": ""}, {"name": "Broker 3", "server": "", "login": 0, "password": "", "path": ""}]}> "%REPO%\python_core\brokers.json"
 )
 REM Вызов через "python -m PyInstaller" не зависит от PATH (Scripts может быть не в PATH).
+REM --distpath/--workpath в корень репо: setup.iss ищет dist\SmartZonesPro там,
+REM а не в python_core\dist (иначе "No files found matching ...\dist\SmartZonesPro\*").
 python -m PyInstaller --noconfirm --onedir --windowed --name "SmartZonesPro" ^
+  --distpath "%REPO%\dist" --workpath "%REPO%\build" --specpath "%REPO%" ^
   --hidden-import settings_window ^
   --hidden-import pystray ^
   --hidden-import PIL ^
