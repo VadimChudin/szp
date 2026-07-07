@@ -18,7 +18,7 @@ import os
 import sys
 import threading
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Добавляем путь к модулям
 sys.path.insert(0, str(Path(__file__).parent))
@@ -283,12 +283,12 @@ def run_monitor_loop(interval_seconds: int = 5):
                 elif curr_size < last_alert_size:
                     last_alert_size = curr_size # Файл был перезаписан или очищен
 
-            # Проверяем файл-флаг от MT4 для пересчета зон
+            # Флаг новых данных от MT4 больше НЕ пересчитывает зоны.
+            # По просьбе клиента зоны обновляются строго раз в 4 часа —
+            # только на закрытии свечи H4 (см. блок ниже). Иначе они
+            # перерисовывались по 2–3 раза в час. Флаг просто снимаем.
             if TRIGGER_FILE.exists():
-                print(f"\n[bridge] Trigger detected! MT4 sent new data.")
-                TRIGGER_FILE.unlink()  # Удаляем флаг
-                calculate_and_export_zones()
-                last_calc_time = time.time()
+                TRIGGER_FILE.unlink()
 
             # ── Проверяем запрос на футпринт от MT4 ──────────────────
             # MT4 пишет через FILE_COMMON → ищем в Common/Files
@@ -325,17 +325,19 @@ def run_monitor_loop(interval_seconds: int = 5):
                     print(f"[bridge] Footprint already downloading, ignored duplicate click.")
 
             # Автоматический пересчёт ТОЛЬКО на закрытии H4 свечи
-            # Зоны определяются на 4h, в течение тех же 4 часов новые зоны не строятся
-            now = datetime.now()
-            # H4 свечи закрываются в 0:00, 4:00, 8:00, 12:00, 16:00, 20:00 (по серверному времени)
-            current_h4_slot = now.hour // 4
+            # Зоны определяются на 4h, в течение тех же 4 часов новые зоны не строятся.
+            # Считаем по времени БРОКЕРА (UTC + BROKER_UTC_OFFSET), т.к. H4-свечи
+            # закрываются по серверному времени брокера, а не по времени ПК.
+            broker_now = datetime.utcnow() + timedelta(hours=config.BROKER_UTC_OFFSET)
+            # H4 свечи закрываются в 0:00, 4:00, 8:00, 12:00, 16:00, 20:00 (время брокера)
+            current_h4_slot = broker_now.hour // 4
             
             if not hasattr(run_monitor_loop, '_last_h4_slot'):
                 run_monitor_loop._last_h4_slot = current_h4_slot
             
             if current_h4_slot != run_monitor_loop._last_h4_slot:
                 run_monitor_loop._last_h4_slot = current_h4_slot
-                print(f"\n[bridge] H4 candle closed ({now.strftime('%H:%M')}). Recalculating zones...")
+                print(f"\n[bridge] H4 candle closed (broker {broker_now.strftime('%H:%M')}). Recalculating zones...")
                 calculate_and_export_zones()
                 last_calc_time = time.time()
 
