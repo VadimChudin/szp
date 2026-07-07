@@ -147,7 +147,7 @@ def show_splash():
             status.pack(pady=(40, 0))
         
         # Подпись
-        txt = tk.Label(root, text="for Yerassyl Uzakhbayev", fg='#d4a824', bg='#0d1117',
+        txt = tk.Label(root, text="NoName Trader", fg='#d4a824', bg='#0d1117',
                       font=("Segoe UI", 13, "bold"))
         txt.place(relx=0.5, rely=0.92, anchor='center')
         

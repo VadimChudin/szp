@@ -413,6 +413,16 @@ def detect_zones(
                 merged_zones.append(z)
                 
     strong_zones = merged_zones
+
+    # ── Шаг 4.6: Привязка к H4 (главный таймфрейм, меньше шума) ─────────
+    # Клиент просил, чтобы главным был H4 и не было «шума» от мелких уровней.
+    # Оставляем только зоны, подтверждённые H4; H1/D1/FVG остаются как
+    # усиление, но сами по себе зону не создают.
+    if config.REQUIRE_H4_ANCHOR:
+        h4_zones = [z for z in strong_zones if config.PRIMARY_TIMEFRAME in z.sources]
+        if h4_zones:
+            strong_zones = h4_zones
+
     strong_zones.sort(key=lambda z: z.score, reverse=True)
 
     # Ограничиваем количество зон
