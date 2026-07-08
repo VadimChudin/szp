@@ -18,9 +18,9 @@ input color    ZoneColorStrong  = clrGold;   // Цвет сильных зон (
 input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон (Score 9-10)
 input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
 input int      ZoneLineWidth    = 2;         // Толщина линии зоны
-input bool     ShowLabels       = true;      // Показывать подписи
+input bool     ShowLabels       = false;     // Показывать подписи (текст на зоне)
 input bool     ShowRectangles   = true;      // Полупрозрачные прямоугольники зон
-input bool     ShowScoreBadge   = true;      // Показывать бейдж со скором зоны
+input bool     ShowScoreBadge   = false;     // Показывать бейдж со скором зоны
 input bool     EnableAlerts     = true;      // Алерты при касании зоны
 input double   AlertDistance    = 5.0;       // Расстояние до зоны для алерта ($)
 // Имя файла с зонами — лежит в MQL4/Files или Common/Files (положит sync_zones_to_mt4.py).
