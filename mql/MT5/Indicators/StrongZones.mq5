@@ -18,7 +18,7 @@ input color    ZoneColorStrong  = clrGold;        // Цвет сильных з�
 input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон
 input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
 input int      ZoneLineWidth    = 2;          // Толщина линии
-input bool     ShowLabels       = false;      // Показывать подписи (текст на зоне)
+input bool     ShowLabels       = true;       // Показывать цену зоны (только цена)
 input bool     ShowRectangles   = true;       // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;      // Бейдж со скором
 input bool     ShowGradient     = false;      // Градиентная визуализация (выкл. по умолчанию)
@@ -253,7 +253,8 @@ void DrawSingleZone(int index)
       string textName = baseName + "_text";
       datetime textTime = iTime(_Symbol, PERIOD_CURRENT, 10);
       ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price + (top - price) * 0.3);
-      ObjectSetString(0, textName, OBJPROP_TEXT, " " + label + " ");
+      // Только цена зоны (без источников/скора) — как просил клиент.
+      ObjectSetString(0, textName, OBJPROP_TEXT, DoubleToString(price, 2));
       ObjectSetInteger(0, textName, OBJPROP_COLOR, clrWhite);
       ObjectSetString(0, textName, OBJPROP_FONT, "Arial Bold");
       ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, 9);
@@ -277,6 +278,67 @@ void DrawSingleZone(int index)
       ObjectSetInteger(0, badgeName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, badgeName, OBJPROP_HIDDEN, true);
    }
+
+   // ── 4. SL Pool — Зоны ликвидности (идентично в MT4 и MT5) ───────────
+   int maxBars = (int)MathMin(Bars(_Symbol, PERIOD_CURRENT), 200);
+   int touchesFound = 0;
+   for(int b = 1; b < maxBars; b++)
+   {
+      if(iLow(_Symbol, PERIOD_CURRENT, b) <= top &&
+         iHigh(_Symbol, PERIOD_CURRENT, b) >= bottom)
+         touchesFound++;
+   }
+
+   int slProb = 45;
+   slProb += (int)MathMin(touchesFound * 5, 20);
+   if(score >= 13) slProb += 15;
+   else if(score >= 11) slProb += 10;
+   else if(score >= 9) slProb += 5;
+   if(StringFind(label, "RL") >= 0) slProb += 10;
+   if(StringFind(label, "BP") >= 0) slProb += 5;
+   slProb = (int)MathMin(slProb, 95);
+
+   color slColor;
+   if(slProb >= 80) slColor = (color)C'80,40,15';      // сильный
+   else if(slProb >= 65) slColor = (color)C'65,40,20'; // средний
+   else slColor = (color)C'50,35,25';                  // слабый
+
+   double slDepth  = (top - bottom) * 4.5;
+   double slOffset = (top - bottom) * 0.1;
+   datetime timeStart = iTime(_Symbol, PERIOD_CURRENT, (int)MathMin(Bars(_Symbol, PERIOD_CURRENT) - 1, 12));
+   datetime timeEnd   = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 80;
+   double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   double baseLVL, pointLVL;
+   if(currentPrice > price)   // Зона поддержки -> пул снизу
+   {
+      baseLVL  = bottom - slOffset;
+      pointLVL = baseLVL - slDepth;
+   }
+   else                       // Зона сопротивления -> пул сверху
+   {
+      baseLVL  = top + slOffset;
+      pointLVL = baseLVL + slDepth;
+   }
+
+   string slRectName = baseName + "_slcloud";
+   ObjectCreate(0, slRectName, OBJ_RECTANGLE, 0, timeStart, baseLVL, timeEnd, pointLVL);
+   ObjectSetInteger(0, slRectName, OBJPROP_COLOR, slColor);
+   ObjectSetInteger(0, slRectName, OBJPROP_FILL, true);
+   ObjectSetInteger(0, slRectName, OBJPROP_BACK, true);
+   ObjectSetInteger(0, slRectName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, slRectName, OBJPROP_HIDDEN, true);
+
+   string slTextName = baseName + "_slpct";
+   datetime slTextTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 25;
+   ObjectCreate(0, slTextName, OBJ_TEXT, 0, slTextTime, (baseLVL + pointLVL) / 2);
+   ObjectSetString(0, slTextName, OBJPROP_TEXT, " SL Pool ~" + IntegerToString(slProb) + "%");
+   ObjectSetInteger(0, slTextName, OBJPROP_COLOR, (color)C'160,160,160');
+   ObjectSetString(0, slTextName, OBJPROP_FONT, "Arial");
+   ObjectSetInteger(0, slTextName, OBJPROP_FONTSIZE, 8);
+   ObjectSetInteger(0, slTextName, OBJPROP_ANCHOR, ANCHOR_CENTER);
+   ObjectSetInteger(0, slTextName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, slTextName, OBJPROP_HIDDEN, true);
 }
 
 //+------------------------------------------------------------------+

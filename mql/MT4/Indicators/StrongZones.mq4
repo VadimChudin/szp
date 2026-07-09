@@ -18,7 +18,7 @@ input color    ZoneColorStrong  = clrGold;   // Цвет сильных зон (
 input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон (Score 9-10)
 input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
 input int      ZoneLineWidth    = 2;         // Толщина линии зоны
-input bool     ShowLabels       = false;     // Показывать подписи (текст на зоне)
+input bool     ShowLabels       = true;      // Показывать цену зоны (только цена)
 input bool     ShowRectangles   = true;      // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;     // Показывать бейдж со скором зоны
 input bool     EnableAlerts     = true;      // Алерты при касании зоны
@@ -434,7 +434,8 @@ void DrawSingleZone(int index)
       string textName = baseName + "_text";
       datetime labelTime = Time[0] + PeriodSeconds() * 12;
       ObjectCreate(textName, OBJ_TEXT, 0, labelTime, price);
-      ObjectSetString(0, textName, OBJPROP_TEXT, " " + label + " ");
+      // Только цена зоны (без источников/скора) — как просил клиент.
+      ObjectSetString(0, textName, OBJPROP_TEXT, DoubleToString(price, 2));
       ObjectSetInteger(0, textName, OBJPROP_COLOR, clrWhite);
       ObjectSetString(0, textName, OBJPROP_FONT, "Arial Bold");
       ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, 9);
@@ -459,128 +460,67 @@ void DrawSingleZone(int index)
       ObjectSetInteger(0, badgeName, OBJPROP_HIDDEN, true);
    }
 
-   // ── 4. Жёлтые треугольники из Python (маркеры касания) ───────────
+   // ── 4. SL Pool — Зоны ликвидности (идентично в MT4 и MT5) ───────────
+   // Жёлтые треугольники-маркеры касаний убраны (по просьбе клиента), но
+   // касания по-прежнему считаем — для оценки вероятности SL Pool.
    int maxBars = (int)MathMin(Bars, 200);
-   int arrowCount = 0;
-   int touchesFound = 0;  // для расчёта вероятности SL Pool
-   
-   for(int b = 1; b < maxBars && arrowCount < 8; b++)
+   int touchesFound = 0;
+   for(int b = 1; b < maxBars; b++)
    {
-      double mid = (top + bottom) / 2.0;
-      
-      // Свеча коснулась зоны или прошила её фитилем
       if(Low[b] <= top && High[b] >= bottom)
-      {
-         // Если цена отскочила и закрылась выше середины зоны -> реакция от поддержки
-         if(Close[b] >= mid)
-         {
-            string arrowName = baseName + "_tri_" + IntegerToString(b);
-            // Отступ от фитиля вниз
-            ObjectCreate(arrowName, OBJ_ARROW, 0, Time[b], Low[b] - (top - bottom) * 0.4);
-            ObjectSetInteger(0, arrowName, OBJPROP_ARROWCODE, 115); // ▲ Wingdings Solid Up Triangle (как в Python)
-            ObjectSetInteger(0, arrowName, OBJPROP_COLOR, clrGold);
-            ObjectSetInteger(0, arrowName, OBJPROP_WIDTH, 1);
-            ObjectSetInteger(0, arrowName, OBJPROP_SELECTABLE, false);
-            ObjectSetInteger(0, arrowName, OBJPROP_HIDDEN, true);
-            ObjectSetInteger(0, arrowName, OBJPROP_BACK, false);
-            arrowCount++;
-            touchesFound++;
-         }
-         // Если цена отскочила вниз и закрылась ниже середины -> реакция от сопротивления
-         else
-         {
-            string arrowName2 = baseName + "_tri_" + IntegerToString(b);
-            // Отступ от фитиля вверх
-            ObjectCreate(arrowName2, OBJ_ARROW, 0, Time[b], High[b] + (top - bottom) * 0.4);
-            ObjectSetInteger(0, arrowName2, OBJPROP_ARROWCODE, 116); // ▼ Wingdings Solid Down Triangle
-            ObjectSetInteger(0, arrowName2, OBJPROP_COLOR, clrGold);
-            ObjectSetInteger(0, arrowName2, OBJPROP_WIDTH, 1);
-            ObjectSetInteger(0, arrowName2, OBJPROP_SELECTABLE, false);
-            ObjectSetInteger(0, arrowName2, OBJPROP_HIDDEN, true);
-            ObjectSetInteger(0, arrowName2, OBJPROP_BACK, false);
-            arrowCount++;
-            touchesFound++;
-         }
-      }
+         touchesFound++;
    }
-   
-   // ── 5. SL Pool — Зоны ликвидности (тёмные, не отвлекающие) ───────────
+
    int slProb = 45;
    slProb += (int)MathMin(touchesFound * 5, 20);
    if(score >= 13) slProb += 15;
    else if(score >= 11) slProb += 10;
    else if(score >= 9) slProb += 5;
-   
    if(StringFind(label, "RL") >= 0) slProb += 10;
    if(StringFind(label, "BP") >= 0) slProb += 5;
-   
    slProb = (int)MathMin(slProb, 95);
-   
-   // Цвета "стопов": Приглушённые, тёмные тона
+
    color slColor;
-   if(slProb >= 80) slColor = C'80,40,15';      // Приглушенный тёмно-терракотовый (сильный)
-   else if(slProb >= 65) slColor = C'65,40,20'; // Тёмно-медный (средний)
-   else slColor = C'50,35,25';                  // Серо-коричневый (слабый)
-   
-   // Значительно расширяем глубину отрисовки SL пулов для визуального веса
-   double slDepth = (top - bottom) * 4.5;
+   if(slProb >= 80) slColor = C'80,40,15';      // сильный
+   else if(slProb >= 65) slColor = C'65,40,20'; // средний
+   else slColor = C'50,35,25';                  // слабый
+
+   double slDepth  = (top - bottom) * 4.5;
    double slOffset = (top - bottom) * 0.1;
-   
-   // Облако формируется локально справа
    datetime timeStart = Time[(int)MathMin(Bars-1, 12)];
-   datetime timeEnd   = Time[0] + PeriodSeconds() * 80; // Уходит далеко в будущее
-   
+   datetime timeEnd   = Time[0] + PeriodSeconds() * 80;
    double currentPrice = Bid;
-   
-   if(currentPrice > price) // Зона поддержки -> Пул снизу
+
+   double baseLVL, pointLVL;
+   if(currentPrice > price)   // Зона поддержки -> пул снизу
    {
-      string slRectName = baseName + "_slcloud";
-      double baseLVL = bottom - slOffset;
-      double pointLVL = baseLVL - slDepth;
-      
-      // Рисуем прямоугольный тёмный блок на заднем фоне
-      ObjectCreate(slRectName, OBJ_RECTANGLE, 0, timeStart, baseLVL, timeEnd, pointLVL);
-      ObjectSetInteger(0, slRectName, OBJPROP_COLOR, slColor);
-      ObjectSetInteger(0, slRectName, OBJPROP_FILL, true);
-      ObjectSetInteger(0, slRectName, OBJPROP_BACK, true); 
-      ObjectSetInteger(0, slRectName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, slRectName, OBJPROP_HIDDEN, true);
-      
-      string slTextName = baseName + "_slpct";
-      datetime slTextTime = Time[0] + PeriodSeconds() * 25; // Текст внутри блока
-      ObjectCreate(slTextName, OBJ_TEXT, 0, slTextTime, (baseLVL + pointLVL) / 2);
-      ObjectSetString(0, slTextName, OBJPROP_TEXT, " SL Pool ~" + IntegerToString(slProb) + "%");
-      ObjectSetInteger(0, slTextName, OBJPROP_COLOR, C'160,160,160'); // Приятный светло-серый текст
-      ObjectSetString(0, slTextName, OBJPROP_FONT, "Arial");
-      ObjectSetInteger(0, slTextName, OBJPROP_FONTSIZE, 8);
-      ObjectSetInteger(0, slTextName, OBJPROP_ANCHOR, ANCHOR_CENTER);
-      ObjectSetInteger(0, slTextName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, slTextName, OBJPROP_HIDDEN, true);
+      baseLVL  = bottom - slOffset;
+      pointLVL = baseLVL - slDepth;
    }
-   else // Зона сопротивления -> Пул сверху
+   else                       // Зона сопротивления -> пул сверху
    {
-      string slRectName2 = baseName + "_slcloud";
-      double baseLVL = top + slOffset;
-      double pointLVL = baseLVL + slDepth;
-      
-      ObjectCreate(slRectName2, OBJ_RECTANGLE, 0, timeStart, baseLVL, timeEnd, pointLVL);
-      ObjectSetInteger(0, slRectName2, OBJPROP_COLOR, slColor);
-      ObjectSetInteger(0, slRectName2, OBJPROP_FILL, true);
-      ObjectSetInteger(0, slRectName2, OBJPROP_BACK, true);
-      ObjectSetInteger(0, slRectName2, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, slRectName2, OBJPROP_HIDDEN, true);
-      
-      string slTextName2 = baseName + "_slpct";
-      datetime slTextTime = Time[0] + PeriodSeconds() * 25;
-      ObjectCreate(slTextName2, OBJ_TEXT, 0, slTextTime, (baseLVL + pointLVL) / 2);
-      ObjectSetString(0, slTextName2, OBJPROP_TEXT, "  SL Pool ~" + IntegerToString(slProb) + "%");
-      ObjectSetInteger(0, slTextName2, OBJPROP_COLOR, C'160,160,160');
-      ObjectSetString(0, slTextName2, OBJPROP_FONT, "Arial");
-      ObjectSetInteger(0, slTextName2, OBJPROP_FONTSIZE, 8);
-      ObjectSetInteger(0, slTextName2, OBJPROP_ANCHOR, ANCHOR_CENTER);
-      ObjectSetInteger(0, slTextName2, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, slTextName2, OBJPROP_HIDDEN, true);
+      baseLVL  = top + slOffset;
+      pointLVL = baseLVL + slDepth;
    }
+
+   string slRectName = baseName + "_slcloud";
+   ObjectCreate(slRectName, OBJ_RECTANGLE, 0, timeStart, baseLVL, timeEnd, pointLVL);
+   ObjectSetInteger(0, slRectName, OBJPROP_COLOR, slColor);
+   ObjectSetInteger(0, slRectName, OBJPROP_FILL, true);
+   ObjectSetInteger(0, slRectName, OBJPROP_BACK, true);
+   ObjectSetInteger(0, slRectName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, slRectName, OBJPROP_HIDDEN, true);
+
+   string slTextName = baseName + "_slpct";
+   datetime slTextTime = Time[0] + PeriodSeconds() * 25;
+   ObjectCreate(slTextName, OBJ_TEXT, 0, slTextTime, (baseLVL + pointLVL) / 2);
+   ObjectSetString(0, slTextName, OBJPROP_TEXT, " SL Pool ~" + IntegerToString(slProb) + "%");
+   ObjectSetInteger(0, slTextName, OBJPROP_COLOR, C'160,160,160');
+   ObjectSetString(0, slTextName, OBJPROP_FONT, "Arial");
+   ObjectSetInteger(0, slTextName, OBJPROP_FONTSIZE, 8);
+   ObjectSetInteger(0, slTextName, OBJPROP_ANCHOR, ANCHOR_CENTER);
+   ObjectSetInteger(0, slTextName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, slTextName, OBJPROP_HIDDEN, true);
 }
 
 
