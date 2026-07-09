@@ -18,7 +18,7 @@ input color    ZoneColorStrong  = clrGold;        // Цвет сильных з�
 input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон
 input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
 input int      ZoneLineWidth    = 2;          // Толщина линии
-input bool     ShowLabels       = true;       // Показывать цену зоны (только цена)
+input bool     ShowLabels       = false;      // Подписи на зонах отключены (не появляются вообще)
 input bool     ShowRectangles   = true;       // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;      // Бейдж со скором
 input bool     ShowGradient     = false;      // Градиентная визуализация (выкл. по умолчанию)
@@ -42,6 +42,10 @@ bool           zoneBigPlayer[];
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   // Чистим объекты сразу при инициализации (в т.ч. при смене ТФ). Иначе
+   // подписи/объекты, сохранённые в профиле графика от прежней версии
+   // индикатора, «мигают» до первой успешной загрузки JSON.
+   DeleteAllZoneObjects();
    EventSetTimer(RefreshSeconds);
    LoadZonesFromFile();
    Print("[SmartZones MT5] Initialized. File: ", ZonesFilePath);
