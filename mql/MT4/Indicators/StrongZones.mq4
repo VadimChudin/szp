@@ -18,7 +18,7 @@ input color    ZoneColorStrong  = clrGold;   // Цвет сильных зон (
 input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон (Score 9-10)
 input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
 input int      ZoneLineWidth    = 2;         // Толщина линии зоны
-input bool     ShowLabels       = true;      // Показывать цену зоны (только цена)
+input bool     ShowLabels       = true;      // Показывать только цену зоны
 input bool     ShowRectangles   = true;      // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;     // Показывать бейдж со скором зоны
 input bool     EnableAlerts     = true;      // Алерты при касании зоны
@@ -45,6 +45,11 @@ string         zoneLabels[];
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   // Чистим объекты сразу при инициализации (в т.ч. при смене ТФ). Иначе
+   // подписи/объекты, сохранённые в профиле графика от прежней версии
+   // индикатора, «мигают» до первой успешной загрузки JSON.
+   DeleteAllZoneObjects();
+
    // Таймер для периодического обновления
    EventSetTimer(RefreshSeconds);
    
