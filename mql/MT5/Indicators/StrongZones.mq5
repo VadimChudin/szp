@@ -18,7 +18,7 @@ input color    ZoneColorStrong  = clrGold;        // Цвет сильных з�
 input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон
 input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
 input int      ZoneLineWidth    = 2;          // Толщина линии
-input bool     ShowLabels       = false;      // Показывать подписи (текст на зоне)
+input bool     ShowLabels       = true;       // Показывать цену зоны (только цена)
 input bool     ShowRectangles   = true;       // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;      // Бейдж со скором
 input bool     ShowGradient     = false;      // Градиентная визуализация (выкл. по умолчанию)
@@ -253,7 +253,8 @@ void DrawSingleZone(int index)
       string textName = baseName + "_text";
       datetime textTime = iTime(_Symbol, PERIOD_CURRENT, 10);
       ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price + (top - price) * 0.3);
-      ObjectSetString(0, textName, OBJPROP_TEXT, " " + label + " ");
+      // Только цена зоны (без источников/скора) — как просил клиент.
+      ObjectSetString(0, textName, OBJPROP_TEXT, DoubleToString(price, 2));
       ObjectSetInteger(0, textName, OBJPROP_COLOR, clrWhite);
       ObjectSetString(0, textName, OBJPROP_FONT, "Arial Bold");
       ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, 9);
