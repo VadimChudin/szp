@@ -460,9 +460,67 @@ void DrawSingleZone(int index)
       ObjectSetInteger(0, badgeName, OBJPROP_HIDDEN, true);
    }
 
-   // Примечание: маркеры-треугольники касаний и «SL Pool»-облака убраны,
-   // чтобы MT4 отображался идентично MT5 (только линия зоны, прямоугольник и
-   // подпись с ценой) и не создавал «шум» на графике.
+   // ── 4. SL Pool — Зоны ликвидности (идентично в MT4 и MT5) ───────────
+   // Жёлтые треугольники-маркеры касаний убраны (по просьбе клиента), но
+   // касания по-прежнему считаем — для оценки вероятности SL Pool.
+   int maxBars = (int)MathMin(Bars, 200);
+   int touchesFound = 0;
+   for(int b = 1; b < maxBars; b++)
+   {
+      if(Low[b] <= top && High[b] >= bottom)
+         touchesFound++;
+   }
+
+   int slProb = 45;
+   slProb += (int)MathMin(touchesFound * 5, 20);
+   if(score >= 13) slProb += 15;
+   else if(score >= 11) slProb += 10;
+   else if(score >= 9) slProb += 5;
+   if(StringFind(label, "RL") >= 0) slProb += 10;
+   if(StringFind(label, "BP") >= 0) slProb += 5;
+   slProb = (int)MathMin(slProb, 95);
+
+   color slColor;
+   if(slProb >= 80) slColor = C'80,40,15';      // сильный
+   else if(slProb >= 65) slColor = C'65,40,20'; // средний
+   else slColor = C'50,35,25';                  // слабый
+
+   double slDepth  = (top - bottom) * 4.5;
+   double slOffset = (top - bottom) * 0.1;
+   datetime timeStart = Time[(int)MathMin(Bars-1, 12)];
+   datetime timeEnd   = Time[0] + PeriodSeconds() * 80;
+   double currentPrice = Bid;
+
+   double baseLVL, pointLVL;
+   if(currentPrice > price)   // Зона поддержки -> пул снизу
+   {
+      baseLVL  = bottom - slOffset;
+      pointLVL = baseLVL - slDepth;
+   }
+   else                       // Зона сопротивления -> пул сверху
+   {
+      baseLVL  = top + slOffset;
+      pointLVL = baseLVL + slDepth;
+   }
+
+   string slRectName = baseName + "_slcloud";
+   ObjectCreate(slRectName, OBJ_RECTANGLE, 0, timeStart, baseLVL, timeEnd, pointLVL);
+   ObjectSetInteger(0, slRectName, OBJPROP_COLOR, slColor);
+   ObjectSetInteger(0, slRectName, OBJPROP_FILL, true);
+   ObjectSetInteger(0, slRectName, OBJPROP_BACK, true);
+   ObjectSetInteger(0, slRectName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, slRectName, OBJPROP_HIDDEN, true);
+
+   string slTextName = baseName + "_slpct";
+   datetime slTextTime = Time[0] + PeriodSeconds() * 25;
+   ObjectCreate(slTextName, OBJ_TEXT, 0, slTextTime, (baseLVL + pointLVL) / 2);
+   ObjectSetString(0, slTextName, OBJPROP_TEXT, " SL Pool ~" + IntegerToString(slProb) + "%");
+   ObjectSetInteger(0, slTextName, OBJPROP_COLOR, C'160,160,160');
+   ObjectSetString(0, slTextName, OBJPROP_FONT, "Arial");
+   ObjectSetInteger(0, slTextName, OBJPROP_FONTSIZE, 8);
+   ObjectSetInteger(0, slTextName, OBJPROP_ANCHOR, ANCHOR_CENTER);
+   ObjectSetInteger(0, slTextName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, slTextName, OBJPROP_HIDDEN, true);
 }
 
 
