@@ -15,6 +15,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 import paths
+import ui_theme as ui
 
 DATA_SOURCES = ["mt5", "csv", "yfinance", "binance", "mt4_ticks", "dukascopy"]
 BROKER_SLOTS = 3
@@ -94,9 +95,10 @@ class SettingsWindow(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Smart Zones Pro — Settings")
-        self.geometry("540x760")
-        self.minsize(500, 620)
-        self.configure(bg="#0d1117", padx=16, pady=16)
+        self.geometry("560x780")
+        self.minsize(520, 640)
+        self.configure(bg=ui.CARD_BOT, padx=18, pady=18)
+        self._style_ttk()
 
         self._brokers = load_brokers()
         self._env = _read_env()
@@ -105,18 +107,30 @@ class SettingsWindow(tk.Tk):
 
         self._build_ui()
 
+    def _style_ttk(self):
+        st = ttk.Style(self)
+        try:
+            st.theme_use("clam")
+        except tk.TclError:
+            pass
+        st.configure("TCombobox", fieldbackground=ui.FIELD_BG, background=ui.CARD_FLAT,
+                     foreground=ui.TXT, arrowcolor=ui.TXT_DIM, borderwidth=0,
+                     padding=4)
+        st.map("TCombobox", fieldbackground=[("readonly", ui.FIELD_BG)],
+               foreground=[("readonly", ui.TXT)])
+
     def _label(self, parent, text, **kw):
-        return tk.Label(parent, text=text, fg="#c9d1d9", bg="#0d1117",
-                        font=("Segoe UI", 9), anchor="w", **kw)
+        return tk.Label(parent, text=text, fg=ui.TXT, bg=parent["bg"],
+                        font=(ui.FONT, 9), anchor="w", **kw)
 
     def _build_ui(self):
-        tk.Label(self, text="Smart Zones Pro", fg="#58a6ff", bg="#0d1117",
-                 font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        tk.Label(self, text="Подключение брокера и источник данных",
-                 fg="#8b949e", bg="#0d1117", font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 10))
+        tk.Label(self, text="Smart Zones Pro", fg=ui.TXT, bg=ui.CARD_BOT,
+                 font=(ui.FONT, 17, "bold")).pack(anchor="w")
+        tk.Label(self, text="NoName Trader · подключение брокера и источник данных",
+                 fg=ui.GOLD, bg=ui.CARD_BOT, font=(ui.FONT, 9, "bold")).pack(anchor="w", pady=(0, 12))
 
         # ── Data source ──
-        ds_frame = tk.Frame(self, bg="#0d1117")
+        ds_frame = tk.Frame(self, bg=ui.CARD_BOT)
         ds_frame.pack(fill="x", pady=(0, 8))
         self._label(ds_frame, "Источник данных (DATA_SOURCE):").pack(side="left")
         self._data_source = tk.StringVar(value=self._env.get("DATA_SOURCE", "mt5"))
@@ -124,39 +138,45 @@ class SettingsWindow(tk.Tk):
                      state="readonly", width=14).pack(side="left", padx=8)
 
         # ── Buttons (pinned to bottom so they're always visible) ──
-        btns = tk.Frame(self, bg="#0d1117")
-        btns.pack(side="bottom", fill="x", pady=(10, 0))
-        tk.Button(btns, text="Save", command=self._save, bg="#238636", fg="white",
-                  font=("Segoe UI", 10, "bold"), width=14).pack(side="left")
-        tk.Button(btns, text="Close", command=self.destroy, width=10).pack(side="right")
+        btns = tk.Frame(self, bg=ui.CARD_BOT)
+        btns.pack(side="bottom", fill="x", pady=(12, 0))
+        ui.GlassButton(btns, "Сохранить", command=self._save, width=150,
+                       height=40, kind="primary", bg=ui.CARD_BOT).pack(side="left")
+        ui.GlassButton(btns, "Закрыть", command=self.destroy, width=110,
+                       height=40, kind="ghost", bg=ui.CARD_BOT).pack(side="right")
 
         # ── Telegram (also pinned above the buttons) ──
-        tg_box = tk.LabelFrame(self, text=" Telegram alerts ", fg="#c9d1d9",
-                               bg="#0d1117", font=("Segoe UI", 9, "bold"), padx=8, pady=8)
-        tg_box.pack(side="bottom", fill="x", pady=6)
+        tg_box = tk.LabelFrame(self, text=" Telegram alerts ", fg=ui.TXT_DIM,
+                               bg=ui.CARD_BOT, font=(ui.FONT, 9, "bold"),
+                               bd=1, relief="solid", padx=10, pady=10)
+        tg_box.pack(side="bottom", fill="x", pady=8)
         self._tg_enabled = tk.BooleanVar(
             value=str(self._env.get("ENABLE_TELEGRAM", "false")).lower() in {"1", "true", "yes", "on"})
         tk.Checkbutton(tg_box, text="Enable Telegram", variable=self._tg_enabled,
-                       fg="#c9d1d9", bg="#0d1117", selectcolor="#0d1117",
-                       activebackground="#0d1117").pack(anchor="w")
+                       fg=ui.TXT, bg=ui.CARD_BOT, selectcolor=ui.FIELD_BG,
+                       activebackground=ui.CARD_BOT, activeforeground=ui.TXT,
+                       font=(ui.FONT, 9)).pack(anchor="w")
         self._tg_token = tk.StringVar(value=self._env.get("TELEGRAM_BOT_TOKEN", ""))
         self._tg_chat = tk.StringVar(value=self._env.get("TELEGRAM_CHAT_ID", ""))
         self._row(tg_box, "Bot token", self._tg_token)
         self._row(tg_box, "Chat id", self._tg_chat)
 
         # ── Brokers (takes the remaining space) ──
-        brokers_box = tk.LabelFrame(self, text=" MT5 Brokers ", fg="#c9d1d9",
-                                    bg="#0d1117", font=("Segoe UI", 9, "bold"), padx=8, pady=8)
-        brokers_box.pack(fill="both", expand=True, pady=6)
+        brokers_box = tk.LabelFrame(self, text=" MT5 Brokers ", fg=ui.TXT_DIM,
+                                    bg=ui.CARD_BOT, font=(ui.FONT, 9, "bold"),
+                                    bd=1, relief="solid", padx=10, pady=10)
+        brokers_box.pack(fill="both", expand=True, pady=8)
 
         for i, b in enumerate(self._brokers["brokers"][:BROKER_SLOTS]):
-            slot = tk.Frame(brokers_box, bg="#161b22", padx=8, pady=6)
-            slot.pack(fill="x", pady=4)
-            top = tk.Frame(slot, bg="#161b22")
+            slot = tk.Frame(brokers_box, bg=ui.CARD_FLAT, padx=10, pady=8,
+                            highlightthickness=1, highlightbackground=ui.STROKE_SOFT)
+            slot.pack(fill="x", pady=5)
+            top = tk.Frame(slot, bg=ui.CARD_FLAT)
             top.pack(fill="x")
             tk.Radiobutton(top, text="Active", variable=self._active_var, value=i,
-                           fg="#089981", bg="#161b22", selectcolor="#0d1117",
-                           activebackground="#161b22", font=("Segoe UI", 8, "bold")).pack(side="right")
+                           fg=ui.OK, bg=ui.CARD_FLAT, selectcolor=ui.FIELD_BG,
+                           activebackground=ui.CARD_FLAT, activeforeground=ui.OK,
+                           font=(ui.FONT, 8, "bold")).pack(side="right")
             vars_ = {
                 "name": tk.StringVar(value=str(b.get("name", ""))),
                 "server": tk.StringVar(value=str(b.get("server", ""))),
@@ -173,11 +193,12 @@ class SettingsWindow(tk.Tk):
 
     def _row(self, parent, label, var, show=None):
         row = tk.Frame(parent, bg=parent["bg"])
-        row.pack(fill="x", pady=2)
-        tk.Label(row, text=label, fg="#8b949e", bg=parent["bg"], width=18,
-                 anchor="w", font=("Segoe UI", 8)).pack(side="left")
-        tk.Entry(row, textvariable=var, show=show, bg="#0d1117", fg="#c9d1d9",
-                 insertbackground="#c9d1d9", relief="flat").pack(side="left", fill="x", expand=True)
+        row.pack(fill="x", pady=3)
+        tk.Label(row, text=label, fg=ui.TXT_DIM, bg=parent["bg"], width=18,
+                 anchor="w", font=(ui.FONT, 8)).pack(side="left")
+        entry = tk.Entry(row, textvariable=var, show=show, font=(ui.FONT, 9))
+        ui.style_entry(entry)
+        entry.pack(side="left", fill="x", expand=True, ipady=3)
 
     def _collect_brokers(self) -> dict:
         brokers = []
