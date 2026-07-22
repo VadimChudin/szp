@@ -1,0 +1,167 @@
+name: Build Turnkey Installer
+
+# Turnkey-конвейер: сам компилирует MT5-компоненты (.ex5) из свежих исходников,
+# собирает десктоп-приложение (PyInstaller) и финальный установщик (Inno Setup),
+# и публикует SmartZonesPro_Setup.exe как артефакт (а по тегу v* — в Releases).
+#
+# Клиенту достаточно ссылки на скачивание .exe — ручная компиляция в MetaEditor
+# больше не нужна.
+
+on:
+  push:
+    branches: [ devin/turnkey-ci ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # нужно для публикации Release по тегу
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # ── 1. MetaEditor (ставится вместе с MetaTrader 5) ──────────────────
+      - name: Install MetaTrader 5 (provides MetaEditor)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe'
+          $installer = Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Write-Host "Downloading MT5 setup from $url"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          Write-Host "Running silent install (/auto)…"
+          Start-Process -FilePath $installer -ArgumentList '/auto' -Wait
+          # MetaEditor может ставиться асинхронно — подождём появления файла.
+          $me = $null
+          foreach ($i in 1..30) {
+            $me = Get-ChildItem 'C:\Program Files' -Recurse -Filter 'metaeditor64.exe' -ErrorAction SilentlyContinue |
+                  Select-Object -First 1
+            if ($me) { break }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $me) {
+            Write-Error 'metaeditor64.exe not found after MT5 install'
+            exit 1
+          }
+          Write-Host "MetaEditor: $($me.FullName)"
+          "METAEDITOR=$($me.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # ── 2. Компиляция MT5 (.mq5 → .ex5) ─────────────────────────────────
+      - name: Compile MQL5 components
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(
+            'mql\MT5\Indicators\StrongZones.mq5',
+            'mql\MT5\Experts\SmartZonesCollector.mq5'
+          )
+          $failed = $false
+          foreach ($rel in $files) {
+            $src = Join-Path $PWD $rel
+            $ex  = [System.IO.Path]::ChangeExtension($src, 'ex5')
+            $log = "$src.log"
+            # Удаляем старый бинарник, чтобы «файл существует» = свежая сборка.
+            if (Test-Path $ex)  { Remove-Item $ex  -Force }
+            if (Test-Path $log) { Remove-Item $log -Force }
+            Write-Host "::group::Compiling $rel"
+            Start-Process -FilePath $env:METAEDITOR `
+              -ArgumentList "/compile:`"$src`"", "/log:`"$log`"" -Wait
+            if (Test-Path $log) {
+              # Лог MetaEditor в UTF-16.
+              Get-Content -Path $log -Encoding Unicode | ForEach-Object { Write-Host $_ }
+            }
+            Write-Host "::endgroup::"
+            if (-not (Test-Path $ex)) {
+              Write-Error "Compilation FAILED: $ex was not produced"
+              $failed = $true
+            } else {
+              Write-Host "OK: $ex ($((Get-Item $ex).Length) bytes)"
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Upload compiled .ex5 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-compiled
+          path: |
+            mql/MT5/Indicators/StrongZones.ex5
+            mql/MT5/Experts/SmartZonesCollector.ex5
+          if-no-files-found: error
+
+      # ── 3. Сборка приложения (PyInstaller) ──────────────────────────────
+      - name: Install Python build deps
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r python_core/requirements.txt
+          python -m pip install pystray Pillow termcolor pyinstaller
+
+      - name: Build SmartZonesPro.exe (PyInstaller)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $PWD
+          if (-not (Test-Path 'python_core\brokers.json')) {
+            '{"active_broker": 0, "brokers": [{"name": "Broker 1", "server": "", "login": 0, "password": "", "path": ""}, {"name": "Broker 2", "server": "", "login": 0, "password": "", "path": ""}, {"name": "Broker 3", "server": "", "login": 0, "password": "", "path": ""}]}' |
+              Out-File -FilePath 'python_core\brokers.json' -Encoding ascii
+          }
+          python -m PyInstaller --noconfirm --onedir --windowed --name "SmartZonesPro" `
+            --distpath "$repo\dist" --workpath "$repo\build" --specpath "$repo" `
+            --hidden-import settings_window `
+            --hidden-import ui_theme `
+            --hidden-import pystray `
+            --hidden-import PIL `
+            --add-data "$repo\python_core\brokers.json;." `
+            --add-data "$repo\data_bridge\footprint_1h.html;data_bridge" `
+            --add-data "$repo\data_bridge\footprint_4h.html;data_bridge" `
+            --add-data "$repo\data_bridge\footprint_1d.html;data_bridge" `
+            "$repo\python_core\app_entry.py"
+          if (-not (Test-Path "$repo\dist\SmartZonesPro\SmartZonesPro.exe")) {
+            Write-Error 'PyInstaller output missing'
+            exit 1
+          }
+
+      # ── 4. Финальный установщик (Inno Setup) ────────────────────────────
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer (ISCC)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) {
+            $found = Get-ChildItem 'C:\Program Files (x86)','C:\Program Files' -Recurse -Filter 'ISCC.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $iscc = $found.FullName } else { Write-Error 'ISCC.exe not found'; exit 1 }
+          }
+          & $iscc "$PWD\setup.iss"
+          if (-not (Test-Path "$PWD\Output\SmartZonesPro_Setup.exe")) {
+            Write-Error 'Installer output missing'
+            exit 1
+          }
+          Write-Host "Installer built: Output\SmartZonesPro_Setup.exe ($((Get-Item "$PWD\Output\SmartZonesPro_Setup.exe").Length) bytes)"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartZonesPro_Setup
+          path: Output/SmartZonesPro_Setup.exe
+          if-no-files-found: error
+
+      # ── 5. Публикация в Releases (только по тегу v*) ─────────────────────
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Output/SmartZonesPro_Setup.exe
+          fail_on_unmatched_files: true
