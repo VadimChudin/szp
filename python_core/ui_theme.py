@@ -15,20 +15,24 @@ import tkinter as tk
 # ── Палитра ────────────────────────────────────────────────────────────
 CHROMA        = "#ff00ff"          # цвет-ключ для прозрачных углов (Windows)
 
-BG_BASE       = "#0b0e14"          # фон «пустоты» вокруг карточки
-CARD_TOP      = "#171b26"          # верх градиента карточки
-CARD_BOT      = "#0f131c"          # низ градиента карточки
-CARD_FLAT     = "#141824"          # усреднённый цвет карточки (для виджетов)
-FIELD_BG      = "#0c1017"          # фон полей ввода
-STROKE        = "#2a3040"          # тонкая обводка
-STROKE_SOFT   = "#1d2331"
+BG_BASE       = "#0a0b0d"          # фон «пустоты» вокруг карточки (почти чёрный)
+CARD_TOP      = "#17191d"          # верх «приподнятой» карточки
+CARD_BOT      = "#0e0f11"          # низ / базовый цвет панели
+CARD_FLAT     = "#141518"          # усреднённый матовый цвет карточки
+CARD_HI       = "#1c1e22"          # активная «пилюля» (чуть светлее)
+FIELD_BG      = "#0b0c0e"          # фон полей ввода
+STROKE        = "#26282d"          # тонкая обводка
+STROKE_SOFT   = "#1a1c1f"
 
-TXT           = "#e7ecf3"          # основной текст
-TXT_DIM       = "#9aa4b2"          # вторичный текст
-ACCENT        = "#5b8cff"          # основной акцент (голубой)
-ACCENT_DK     = "#3f6bff"
-GOLD          = "#e8c15a"          # бренд-акцент (NoName Trader)
-OK            = "#26c281"
+TXT           = "#f2f4f5"          # основной текст (почти белый)
+TXT_DIM       = "#8b9096"          # вторичный текст
+TXT_MUTE      = "#5f646a"          # подписи секций (капс)
+ACCENT        = "#a6e22e"          # основной акцент (лаймово-зелёный)
+ACCENT_DK     = "#8fce1f"          # акцент при наведении
+ACCENT_GLOW   = "#3f5a12"          # тёмно-зелёное «свечение» для tk
+ACCENT_TXT    = "#0b0e08"          # тёмный текст на зелёной кнопке
+GOLD          = "#a6e22e"          # бренд-акцент (совместимость → зелёный)
+OK            = "#a6e22e"
 BAD           = "#f2556b"
 
 FONT          = "Segoe UI"
@@ -79,7 +83,7 @@ def make_glass_window(root: tk.Misc, w: int, h: int, *, radius: int = 22,
 
     # Тень (мягкая, только если есть прозрачность углов)
     if transparent_ok:
-        for i, col in enumerate(("#05070b", "#070a10", "#0a0e15")):
+        for i, col in enumerate(("#050506", "#08090b", "#0b0c0e")):
             off = 6 - i * 2
             round_rect(cv, off, off + 4, w - off, h - off + 4, radius,
                        fill=col, outline="")
@@ -113,16 +117,17 @@ class GlassButton(tk.Canvas):
     """Скруглённая «стеклянная» кнопка с hover-эффектом."""
 
     def __init__(self, parent, text, command=None, *, width=120, height=38,
-                 kind="primary", radius=12, bg=CARD_FLAT):
+                 kind="primary", radius=14, bg=CARD_FLAT):
         super().__init__(parent, width=width, height=height,
                          highlightthickness=0, bg=bg, cursor="hand2")
         self._cmd = command
         self._bw, self._bh, self._br = width, height, radius
         self._kind = kind
+        # (fill, hover_fill, text, outline)
         self._fills = {
-            "primary": (ACCENT, ACCENT_DK, "#ffffff"),
-            "ghost":   (CARD_FLAT, "#1c2230", TXT_DIM),
-            "danger":  (BAD, "#d8465a", "#ffffff"),
+            "primary": (ACCENT, ACCENT_DK, ACCENT_TXT, ""),
+            "ghost":   (CARD_HI, "#24262b", TXT, STROKE),
+            "danger":  (BAD, "#d8465a", "#ffffff", ""),
         }
         self.bind("<Enter>", lambda e: self._render(True))
         self.bind("<Leave>", lambda e: self._render(False))
@@ -132,9 +137,8 @@ class GlassButton(tk.Canvas):
 
     def _render(self, hover):
         self.delete("all")
-        base, dark, fg = self._fills.get(self._kind, self._fills["ghost"])
+        base, dark, fg, outline = self._fills.get(self._kind, self._fills["ghost"])
         fill = dark if hover else base
-        outline = STROKE if self._kind == "ghost" else ""
         round_rect(self, 1, 1, self._bw - 1, self._bh - 1, self._br,
                    fill=fill, outline=outline, width=1)
         self.create_text(self._bw / 2, self._bh / 2, text=self._text,

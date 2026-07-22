@@ -97,11 +97,13 @@ HTML = """<!DOCTYPE html>
 <style>
 /* ── Liquid Glass theme ──────────────────────────────────────────── */
 :root{
-  --accent:#5b8cff; --accent-soft:rgba(91,140,255,0.16);
-  --glass:rgba(255,255,255,0.055); --glass-strong:rgba(255,255,255,0.09);
-  --stroke:rgba(255,255,255,0.10); --stroke-soft:rgba(255,255,255,0.06);
-  --txt:#e7ecf3; --txt-dim:#9aa4b2; --gold:#e8c15a;
-  --ok:#26c281; --bad:#f2556b;
+  --accent:#a6e22e; --accent-dk:#8fce1f;
+  --accent-soft:rgba(166,226,46,0.14); --accent-glow:rgba(166,226,46,0.45);
+  --panel:#0e0f11; --panel-hi:#1c1e22; --card:#141518;
+  --glass:rgba(255,255,255,0.04); --glass-strong:rgba(255,255,255,0.07);
+  --stroke:rgba(255,255,255,0.09); --stroke-soft:rgba(255,255,255,0.05);
+  --txt:#f2f4f5; --txt-dim:#8b9096; --txt-mute:#5f646a;
+  --ok:#a6e22e; --bad:#f2556b;
 }
 * { margin:0; padding:0; box-sizing:border-box; user-select:none;
     -webkit-font-smoothing:antialiased; }
@@ -109,87 +111,90 @@ body {
   overflow:hidden; color:var(--txt);
   font-family:'Inter','SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   background:
-    radial-gradient(1200px 700px at 12% -10%, rgba(91,140,255,0.10), transparent 60%),
-    radial-gradient(1000px 600px at 100% 0%, rgba(232,193,90,0.06), transparent 55%),
-    #0b0e14;
+    radial-gradient(1100px 640px at 8% -12%, rgba(166,226,46,0.07), transparent 58%),
+    radial-gradient(900px 560px at 102% 4%, rgba(166,226,46,0.03), transparent 55%),
+    #0a0b0d;
 }
 #toolbar {
-  height:52px; display:flex; align-items:center; gap:8px;
+  height:54px; display:flex; align-items:center; gap:8px;
   padding:0 16px; font-size:13px; position:relative; z-index:5;
-  background:rgba(18,21,30,0.55);
-  backdrop-filter:blur(22px) saturate(150%);
-  -webkit-backdrop-filter:blur(22px) saturate(150%);
+  background:rgba(14,15,17,0.72);
+  backdrop-filter:blur(22px) saturate(140%);
+  -webkit-backdrop-filter:blur(22px) saturate(140%);
   border-bottom:1px solid var(--stroke-soft);
-  box-shadow:0 6px 22px rgba(0,0,0,0.28);
+  box-shadow:0 8px 26px rgba(0,0,0,0.40);
 }
 #toolbar .logo {
-  font-weight:700; letter-spacing:0.4px; font-size:14px;
-  background:linear-gradient(90deg,#7ea2ff,#e8c15a);
-  -webkit-background-clip:text; background-clip:text; color:transparent;
+  font-weight:700; letter-spacing:0.5px; font-size:14px; color:var(--txt);
+  display:flex; align-items:center; gap:8px;
+}
+#toolbar .logo::before {
+  content:''; width:9px; height:9px; border-radius:3px;
+  background:var(--accent); box-shadow:0 0 10px var(--accent-glow);
 }
 #toolbar .sep { width:1px; height:22px; background:var(--stroke); margin:0 6px; opacity:0.7; }
 .tf-btn {
-  padding:7px 15px; border:1px solid var(--stroke-soft); border-radius:11px; cursor:pointer;
-  font-size:12px; font-weight:600; background:var(--glass); color:var(--txt-dim);
-  transition:all 0.18s ease; backdrop-filter:blur(8px);
+  padding:8px 16px; border:1px solid var(--stroke-soft); border-radius:12px; cursor:pointer;
+  font-size:12px; font-weight:600; background:var(--card); color:var(--txt-dim);
+  transition:all 0.18s ease;
 }
-.tf-btn:hover { color:var(--txt); border-color:var(--stroke); background:var(--glass-strong); }
+.tf-btn:hover { color:var(--txt); border-color:var(--stroke); background:var(--panel-hi); }
 .tf-btn.active {
-  color:#fff; border-color:transparent;
-  background:linear-gradient(135deg,#5b8cff,#3f6bff);
-  box-shadow:0 4px 14px rgba(91,140,255,0.40);
+  color:var(--txt); border-color:rgba(166,226,46,0.35);
+  background:var(--panel-hi);
+  box-shadow:inset 3px 0 0 var(--accent), 0 0 18px var(--accent-glow);
 }
 .nav-btn {
-  padding:6px 11px; border:1px solid var(--stroke-soft); border-radius:10px; cursor:pointer;
-  font-size:14px; background:var(--glass); color:var(--txt-dim); transition:all 0.18s ease;
+  padding:7px 12px; border:1px solid var(--stroke-soft); border-radius:11px; cursor:pointer;
+  font-size:14px; background:var(--card); color:var(--txt-dim); transition:all 0.18s ease;
 }
-.nav-btn:hover { color:var(--txt); background:var(--glass-strong); border-color:var(--stroke); }
+.nav-btn:hover { color:var(--txt); background:var(--panel-hi); border-color:var(--stroke); }
 #info { margin-left:auto; font-size:12px; color:var(--txt-dim); font-family:'JetBrains Mono','Courier New',monospace; font-weight:600; }
 #status { font-size:11px; color:var(--ok); margin-left:10px; }
 canvas { display:block; cursor:crosshair; }
 #auto-btn {
   position:absolute; bottom:80px; right:14px; color:var(--txt);
-  background:var(--glass-strong); border:1px solid var(--stroke); border-radius:12px;
-  padding:6px 12px; font-size:11px; cursor:pointer; backdrop-filter:blur(14px);
-  box-shadow:0 6px 18px rgba(0,0,0,0.35); transition:0.15s; display:none;
+  background:var(--panel-hi); border:1px solid var(--stroke); border-radius:12px;
+  padding:7px 13px; font-size:11px; cursor:pointer; backdrop-filter:blur(14px);
+  box-shadow:0 6px 18px rgba(0,0,0,0.40); transition:0.15s; display:none;
 }
-#auto-btn:hover { background:rgba(255,255,255,0.14); }
-/* Modal Styles — glass card */
+#auto-btn:hover { border-color:rgba(166,226,46,0.4); box-shadow:0 0 16px var(--accent-glow); }
+/* Modal Styles — matte glass card */
 .modal-overlay {
   position:fixed; top:0; left:0; width:100%; height:100%;
-  background:rgba(6,8,13,0.55); backdrop-filter:blur(6px);
+  background:rgba(5,5,6,0.62); backdrop-filter:blur(6px);
   display:none; align-items:center; justify-content:center; z-index:999;
 }
 .modal {
-  width:470px; padding:24px; border-radius:20px;
-  background:linear-gradient(160deg,rgba(30,34,46,0.85),rgba(18,21,30,0.82));
-  backdrop-filter:blur(26px) saturate(150%);
-  -webkit-backdrop-filter:blur(26px) saturate(150%);
+  width:470px; padding:26px; border-radius:22px;
+  background:linear-gradient(165deg,#17191d,#0e0f11);
+  backdrop-filter:blur(26px) saturate(140%);
+  -webkit-backdrop-filter:blur(26px) saturate(140%);
   border:1px solid var(--stroke);
-  box-shadow:0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
+  box-shadow:0 28px 70px rgba(0,0,0,0.62), inset 0 1px 0 rgba(255,255,255,0.05);
 }
 .modal h2 { color:var(--txt); font-size:16px; font-weight:700; margin-bottom:16px; border-bottom:1px solid var(--stroke-soft); padding-bottom:12px; }
-.broker-slot { margin-bottom:14px; padding:14px; border:1px solid var(--stroke-soft); border-radius:14px; background:var(--glass); position:relative; }
-.broker-slot.active { border-color:rgba(38,194,129,0.6); box-shadow:0 0 0 1px rgba(38,194,129,0.25); }
+.broker-slot { margin-bottom:14px; padding:14px; border:1px solid var(--stroke-soft); border-radius:16px; background:var(--card); position:relative; }
+.broker-slot.active { border-color:rgba(166,226,46,0.5); box-shadow:inset 3px 0 0 var(--accent), 0 0 18px var(--accent-glow); }
 .broker-slot input {
-  display:block; width:100%; padding:8px 10px; margin-bottom:6px;
-  background:rgba(8,10,16,0.6); border:1px solid var(--stroke-soft); color:var(--txt);
-  border-radius:10px; font-size:12px; transition:border-color 0.15s;
+  display:block; width:100%; padding:9px 11px; margin-bottom:6px;
+  background:#0b0c0e; border:1px solid var(--stroke-soft); color:var(--txt);
+  border-radius:11px; font-size:12px; transition:border-color 0.15s;
 }
 .broker-slot input:focus { outline:none; border-color:var(--accent); }
-.broker-slot label { font-size:10px; color:var(--txt-dim); display:block; margin-bottom:3px; letter-spacing:0.3px; }
+.broker-slot label { font-size:10px; color:var(--txt-mute); display:block; margin-bottom:3px; letter-spacing:0.5px; text-transform:uppercase; }
 .btn-row { display:flex; justify-content:space-between; margin-top:22px; gap:10px; }
-.btn-save { background:linear-gradient(135deg,#5b8cff,#3f6bff); color:#fff; border:none; padding:10px 18px; border-radius:12px; cursor:pointer; font-weight:700; box-shadow:0 6px 18px rgba(91,140,255,0.35); transition:0.15s; }
-.btn-save:hover { filter:brightness(1.08); }
-.btn-close { background:var(--glass); color:var(--txt-dim); border:1px solid var(--stroke-soft); padding:10px 18px; border-radius:12px; cursor:pointer; transition:0.15s; }
-.btn-close:hover { background:var(--glass-strong); color:var(--txt); }
-.btn-activate { position:absolute; top:12px; right:12px; background:linear-gradient(135deg,#26c281,#1ea36b); color:#fff; border:none; padding:5px 10px; border-radius:9px; font-size:10px; font-weight:700; cursor:pointer; }
-.btn-activate:hover { filter:brightness(1.08); }
+.btn-save { background:var(--accent); color:#0b0e08; border:none; padding:11px 20px; border-radius:13px; cursor:pointer; font-weight:700; box-shadow:0 0 20px var(--accent-glow); transition:0.15s; }
+.btn-save:hover { background:var(--accent-dk); }
+.btn-close { background:var(--panel-hi); color:var(--txt-dim); border:1px solid var(--stroke-soft); padding:11px 20px; border-radius:13px; cursor:pointer; transition:0.15s; }
+.btn-close:hover { background:#24262b; color:var(--txt); }
+.btn-activate { position:absolute; top:12px; right:12px; background:var(--accent); color:#0b0e08; border:none; padding:6px 11px; border-radius:10px; font-size:10px; font-weight:700; cursor:pointer; }
+.btn-activate:hover { background:var(--accent-dk); }
 </style>
 </head>
 <body>
 <div id="toolbar">
-  <span class="logo">◆ SMART ZONES · FOOTPRINT</span>
+  <span class="logo">SMART ZONES · FOOTPRINT</span>
   <span class="sep"></span>
   <button class="tf-btn" data-tf="1h" onclick="switchTF('1h')">1H</button>
   <button class="tf-btn active" data-tf="4h" onclick="switchTF('4h')">4H</button>
@@ -203,7 +208,7 @@ canvas { display:block; cursor:crosshair; }
   <button class="nav-btn" onclick="zm(-2)" title="Zoom In">🔍+</button>
   <button class="nav-btn" onclick="zm(2)" title="Zoom Out">🔍−</button>
   <span class="sep"></span>
-  <button class="nav-btn" onclick="refreshData()" title="Refresh" style="color:#089981">⟳</button>
+  <button class="nav-btn" onclick="refreshData()" title="Refresh" style="color:#a6e22e">⟳</button>
   <button class="nav-btn" onclick="openSettings()" title="Data Center (MT5 Brokers)">⚙</button>
   <span id="status">●</span>
   <span id="info">Loading...</span>
@@ -252,7 +257,7 @@ async function loadData(tf) {
     scrollPos = Math.max(0, DATA.candles.length - visibleCount);
     autoScaleY = true;
     draw();
-    document.getElementById('status').style.color = '#089981';
+    document.getElementById('status').style.color = '#a6e22e';
     document.getElementById('status').textContent = '●';
   } catch(e) { console.error('Load error:', e); }
 }
@@ -279,7 +284,7 @@ async function refreshData() {
     }
     
     draw();
-    document.getElementById('status').style.color = '#089981';
+    document.getElementById('status').style.color = '#a6e22e';
     document.getElementById('status').textContent = '●';
   } catch(e) { console.error(e); }
 }
@@ -378,9 +383,9 @@ function draw() {
   // cellH это высота одной ячейки в пикселях
   const cellH = (step / (maxP - minP)) * chartH;
 
-  const bgCol = '#0b0e14';
-  const gridCol = 'rgba(255,255,255,0.05)';
-  const textCol = '#9aa4b2';
+  const bgCol = '#0a0b0d';
+  const gridCol = 'rgba(255,255,255,0.045)';
+  const textCol = '#8b9096';
 
   // === Background ===
   ctx.fillStyle = bgCol;
@@ -411,11 +416,11 @@ function draw() {
 
     const score = z.score || 0;
 
-    // Цвет: золотой по умолчанию (зона = премиум-сигнал),
+    // Цвет: лаймово-зелёный по умолчанию (акцент бренда),
     // bull/bear оттенки если есть лейбл.
-    let bgFill   = 'rgba(255,215,0,0.10)';   // gold @ 10%
-    let edgeCol  = 'rgba(255,215,0,0.55)';
-    let textCol2 = '#ffd700';
+    let bgFill   = 'rgba(166,226,46,0.10)';
+    let edgeCol  = 'rgba(166,226,46,0.55)';
+    let textCol2 = '#a6e22e';
     if (z.label && z.label.includes('Bull')) {
       bgFill   = 'rgba(8,153,129,0.14)';
       edgeCol  = 'rgba(8,153,129,0.70)';
@@ -657,9 +662,9 @@ function draw() {
     ctx.setLineDash([]);
 
     const crossPrice = minP + (1 - mouseY / chartH) * (maxP - minP);
-    ctx.fillStyle = '#5b8cff';
+    ctx.fillStyle = '#a6e22e';
     ctx.fillRect(chartW + 2, mouseY - 10, priceAxisW - 2, 20);
-    ctx.fillStyle = 'white'; ctx.font = 'bold 11px Courier New';
+    ctx.fillStyle = '#0b0e08'; ctx.font = 'bold 11px Courier New';
     ctx.fillText(crossPrice.toFixed(2), W - 6, mouseY);
   }
 
@@ -861,7 +866,7 @@ def open_footprint_window(interval="4h"):
         "Smart Zones Pro — Footprint",
         html=HTML, js_api=api,
         width=1500, height=920, resizable=True,
-        background_color="#0b0e14",
+        background_color="#0a0b0d",
     )
     
     # Обработчик закрытия (прячем в трей вместо уничтожения)
