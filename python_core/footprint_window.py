@@ -95,64 +95,101 @@ HTML = """<!DOCTYPE html>
 <meta charset="utf-8">
 <title>Smart Zones Pro — Footprint</title>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; user-select:none; }
-body { background:#131722; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color:#d1d4dc; }
+/* ── Liquid Glass theme ──────────────────────────────────────────── */
+:root{
+  --accent:#5b8cff; --accent-soft:rgba(91,140,255,0.16);
+  --glass:rgba(255,255,255,0.055); --glass-strong:rgba(255,255,255,0.09);
+  --stroke:rgba(255,255,255,0.10); --stroke-soft:rgba(255,255,255,0.06);
+  --txt:#e7ecf3; --txt-dim:#9aa4b2; --gold:#e8c15a;
+  --ok:#26c281; --bad:#f2556b;
+}
+* { margin:0; padding:0; box-sizing:border-box; user-select:none;
+    -webkit-font-smoothing:antialiased; }
+body {
+  overflow:hidden; color:var(--txt);
+  font-family:'Inter','SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:
+    radial-gradient(1200px 700px at 12% -10%, rgba(91,140,255,0.10), transparent 60%),
+    radial-gradient(1000px 600px at 100% 0%, rgba(232,193,90,0.06), transparent 55%),
+    #0b0e14;
+}
 #toolbar {
-  height:42px; background:#1e222d; display:flex; align-items:center;
-  padding:0 12px; gap:8px; border-bottom:1px solid #2a2e39; font-size:13px;
+  height:52px; display:flex; align-items:center; gap:8px;
+  padding:0 16px; font-size:13px; position:relative; z-index:5;
+  background:rgba(18,21,30,0.55);
+  backdrop-filter:blur(22px) saturate(150%);
+  -webkit-backdrop-filter:blur(22px) saturate(150%);
+  border-bottom:1px solid var(--stroke-soft);
+  box-shadow:0 6px 22px rgba(0,0,0,0.28);
 }
-#toolbar .logo { font-weight:700; color:#2962ff; letter-spacing:0.5px; }
-#toolbar .sep { width:1px; height:22px; background:#363a45; margin:0 4px; }
+#toolbar .logo {
+  font-weight:700; letter-spacing:0.4px; font-size:14px;
+  background:linear-gradient(90deg,#7ea2ff,#e8c15a);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+#toolbar .sep { width:1px; height:22px; background:var(--stroke); margin:0 6px; opacity:0.7; }
 .tf-btn {
-  padding:5px 14px; border:1px solid #363a45; border-radius:4px; cursor:pointer;
-  font-size:12px; font-weight:600; background:transparent; color:#787b86;
-  transition: all 0.15s;
+  padding:7px 15px; border:1px solid var(--stroke-soft); border-radius:11px; cursor:pointer;
+  font-size:12px; font-weight:600; background:var(--glass); color:var(--txt-dim);
+  transition:all 0.18s ease; backdrop-filter:blur(8px);
 }
-.tf-btn:hover { color:#d1d4dc; border-color:#505565; }
-.tf-btn.active { background:#2962ff; color:white; border-color:#2962ff; }
+.tf-btn:hover { color:var(--txt); border-color:var(--stroke); background:var(--glass-strong); }
+.tf-btn.active {
+  color:#fff; border-color:transparent;
+  background:linear-gradient(135deg,#5b8cff,#3f6bff);
+  box-shadow:0 4px 14px rgba(91,140,255,0.40);
+}
 .nav-btn {
-  padding:4px 10px; border:1px solid #363a45; border-radius:4px; cursor:pointer;
-  font-size:14px; background:transparent; color:#787b86; transition:all 0.15s;
+  padding:6px 11px; border:1px solid var(--stroke-soft); border-radius:10px; cursor:pointer;
+  font-size:14px; background:var(--glass); color:var(--txt-dim); transition:all 0.18s ease;
 }
-.nav-btn:hover { color:#d1d4dc; background:#2a2e39; }
-#info { margin-left:auto; font-size:12px; color:#787b86; font-family:'Courier New',monospace; font-weight:bold; }
-#status { font-size:11px; color:#089981; margin-left:8px; }
+.nav-btn:hover { color:var(--txt); background:var(--glass-strong); border-color:var(--stroke); }
+#info { margin-left:auto; font-size:12px; color:var(--txt-dim); font-family:'JetBrains Mono','Courier New',monospace; font-weight:600; }
+#status { font-size:11px; color:var(--ok); margin-left:10px; }
 canvas { display:block; cursor:crosshair; }
 #auto-btn {
-  position:absolute; bottom:80px; right:12px; background:#1e222d; border:1px solid #363a45;
-  color:#d1d4dc; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.1s; display:none;
+  position:absolute; bottom:80px; right:14px; color:var(--txt);
+  background:var(--glass-strong); border:1px solid var(--stroke); border-radius:12px;
+  padding:6px 12px; font-size:11px; cursor:pointer; backdrop-filter:blur(14px);
+  box-shadow:0 6px 18px rgba(0,0,0,0.35); transition:0.15s; display:none;
 }
-#auto-btn:hover { background:#2a2e39; }
-/* Modal Styles */
+#auto-btn:hover { background:rgba(255,255,255,0.14); }
+/* Modal Styles — glass card */
 .modal-overlay {
-  position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6);
+  position:fixed; top:0; left:0; width:100%; height:100%;
+  background:rgba(6,8,13,0.55); backdrop-filter:blur(6px);
   display:none; align-items:center; justify-content:center; z-index:999;
 }
 .modal {
-  background:#1e222d; border-radius:8px; border:1px solid #363a45; width:450px;
-  padding:20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  width:470px; padding:24px; border-radius:20px;
+  background:linear-gradient(160deg,rgba(30,34,46,0.85),rgba(18,21,30,0.82));
+  backdrop-filter:blur(26px) saturate(150%);
+  -webkit-backdrop-filter:blur(26px) saturate(150%);
+  border:1px solid var(--stroke);
+  box-shadow:0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
 }
-.modal h2 { color:#d1d4dc; font-size:16px; margin-bottom:15px; border-bottom:1px solid #2a2e39; padding-bottom:10px; }
-.broker-slot { margin-bottom:15px; padding:10px; border:1px solid #2a2e39; border-radius:6px; background:#131722; position:relative;}
-.broker-slot.active { border-color:#089981; }
+.modal h2 { color:var(--txt); font-size:16px; font-weight:700; margin-bottom:16px; border-bottom:1px solid var(--stroke-soft); padding-bottom:12px; }
+.broker-slot { margin-bottom:14px; padding:14px; border:1px solid var(--stroke-soft); border-radius:14px; background:var(--glass); position:relative; }
+.broker-slot.active { border-color:rgba(38,194,129,0.6); box-shadow:0 0 0 1px rgba(38,194,129,0.25); }
 .broker-slot input {
-  display:block; width:100%; padding:5px 8px; margin-bottom:5px;
-  background:#1e222d; border:1px solid #363a45; color:#d1d4dc; border-radius:4px;
+  display:block; width:100%; padding:8px 10px; margin-bottom:6px;
+  background:rgba(8,10,16,0.6); border:1px solid var(--stroke-soft); color:var(--txt);
+  border-radius:10px; font-size:12px; transition:border-color 0.15s;
 }
-.broker-slot label { font-size:10px; color:#787b86; display:block; margin-bottom:2px; }
-.btn-row { display:flex; justify-content:space-between; margin-top:20px; }
-.btn-save { background:#2962ff; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer; font-weight:bold; }
-.btn-save:hover { background:#1e53e5; }
-.btn-close { background:transparent; color:#787b86; border:1px solid #363a45; padding:8px 16px; border-radius:4px; cursor:pointer; }
-.btn-close:hover { background:#2a2e39; color:white; }
-.btn-activate { position:absolute; top:10px; right:10px; background:#089981; color:white; border:none; padding:4px 8px; border-radius:4px; font-size:10px; cursor:pointer; }
-.btn-activate:hover { opacity:0.8; }
+.broker-slot input:focus { outline:none; border-color:var(--accent); }
+.broker-slot label { font-size:10px; color:var(--txt-dim); display:block; margin-bottom:3px; letter-spacing:0.3px; }
+.btn-row { display:flex; justify-content:space-between; margin-top:22px; gap:10px; }
+.btn-save { background:linear-gradient(135deg,#5b8cff,#3f6bff); color:#fff; border:none; padding:10px 18px; border-radius:12px; cursor:pointer; font-weight:700; box-shadow:0 6px 18px rgba(91,140,255,0.35); transition:0.15s; }
+.btn-save:hover { filter:brightness(1.08); }
+.btn-close { background:var(--glass); color:var(--txt-dim); border:1px solid var(--stroke-soft); padding:10px 18px; border-radius:12px; cursor:pointer; transition:0.15s; }
+.btn-close:hover { background:var(--glass-strong); color:var(--txt); }
+.btn-activate { position:absolute; top:12px; right:12px; background:linear-gradient(135deg,#26c281,#1ea36b); color:#fff; border:none; padding:5px 10px; border-radius:9px; font-size:10px; font-weight:700; cursor:pointer; }
+.btn-activate:hover { filter:brightness(1.08); }
 </style>
 </head>
 <body>
 <div id="toolbar">
-  <span class="logo">⚡ FOOTPRINT</span>
+  <span class="logo">◆ SMART ZONES · FOOTPRINT</span>
   <span class="sep"></span>
   <button class="tf-btn" data-tf="1h" onclick="switchTF('1h')">1H</button>
   <button class="tf-btn active" data-tf="4h" onclick="switchTF('4h')">4H</button>
@@ -341,9 +378,9 @@ function draw() {
   // cellH это высота одной ячейки в пикселях
   const cellH = (step / (maxP - minP)) * chartH;
 
-  const bgCol = '#131722';
-  const gridCol = '#2a2e39';
-  const textCol = '#787b86';
+  const bgCol = '#0b0e14';
+  const gridCol = 'rgba(255,255,255,0.05)';
+  const textCol = '#9aa4b2';
 
   // === Background ===
   ctx.fillStyle = bgCol;
@@ -401,23 +438,29 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(ml, yBot); ctx.lineTo(chartW, yBot); ctx.stroke();
     ctx.setLineDash([]);
 
-    // Подпись зоны + бейдж score (справа у верхней границы)
-    const label = (z.label || 'ZONE') + '  S:' + score;
-    ctx.font = 'bold 10px Courier New';
+    // Подпись зоны — ТОЛЬКО цена (без источников/скора), в стеклянной «пилюле».
+    const label = (z.price !== undefined && z.price !== null)
+                  ? z.price.toFixed(2) : ((zTop + zBot) / 2).toFixed(2);
+    ctx.font = 'bold 11px "JetBrains Mono", "Courier New", monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    const padX = 6, padY = 3;
+    const padX = 8;
     const txtW = ctx.measureText(label).width;
-    const badgeX = chartW - 6 - txtW - padX * 2;
-    const badgeY = yTop + 1;
-    const badgeH = 16;
-    ctx.fillStyle = 'rgba(20,22,30,0.85)';
-    ctx.fillRect(badgeX, badgeY, txtW + padX * 2, badgeH);
+    const badgeH = 18;
+    const badgeW = txtW + padX * 2;
+    const badgeX = chartW - 8 - badgeW;
+    const badgeY = yTop + 2;
+    const r = 6;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(badgeX, badgeY, badgeW, badgeH, r);
+    else ctx.rect(badgeX, badgeY, badgeW, badgeH);
+    ctx.fillStyle = 'rgba(12,15,22,0.72)';
+    ctx.fill();
     ctx.strokeStyle = edgeCol;
     ctx.lineWidth = 1;
-    ctx.strokeRect(badgeX, badgeY, txtW + padX * 2, badgeH);
+    ctx.stroke();
     ctx.fillStyle = textCol2;
-    ctx.fillText(label, chartW - 6 - padX, badgeY + badgeH / 2);
+    ctx.fillText(label, badgeX + badgeW - padX, badgeY + badgeH / 2);
   });
 
   // === Свечи (Непрерывная сетка) ===
@@ -614,7 +657,7 @@ function draw() {
     ctx.setLineDash([]);
 
     const crossPrice = minP + (1 - mouseY / chartH) * (maxP - minP);
-    ctx.fillStyle = '#2962ff';
+    ctx.fillStyle = '#5b8cff';
     ctx.fillRect(chartW + 2, mouseY - 10, priceAxisW - 2, 20);
     ctx.fillStyle = 'white'; ctx.font = 'bold 11px Courier New';
     ctx.fillText(crossPrice.toFixed(2), W - 6, mouseY);
@@ -818,7 +861,7 @@ def open_footprint_window(interval="4h"):
         "Smart Zones Pro — Footprint",
         html=HTML, js_api=api,
         width=1500, height=920, resizable=True,
-        background_color="#131722",
+        background_color="#0b0e14",
     )
     
     # Обработчик закрытия (прячем в трей вместо уничтожения)

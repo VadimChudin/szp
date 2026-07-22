@@ -75,6 +75,62 @@ begin
   end;
 end;
 
+{ ── Проверка/установка системных зависимостей ───────────────────────────
+  На «чистых» ПК приложение может не стартовать, т.к. не хватает:
+    1) Microsoft Visual C++ Redistributable (нужен рантайму Python/PyInstaller);
+    2) Microsoft Edge WebView2 Runtime (нужен окну футпринта на pywebview).
+  Проверяем реестр и, если чего-то нет, тихо докачиваем и ставим. Ошибки
+  не фатальны — установка приложения продолжается в любом случае. }
+
+function VCRedistInstalled(): Boolean;
+var
+  Installed: Cardinal;
+begin
+  Result := False;
+  if RegQueryDWordValue(HKLM, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', Installed) then
+    Result := (Installed = 1)
+  else if RegQueryDWordValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', Installed) then
+    Result := (Installed = 1);
+end;
+
+function WebView2Installed(): Boolean;
+var
+  S: String;
+begin
+  Result := False;
+  if RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', S) then
+    Result := (S <> '') and (S <> '0.0.0.0')
+  else if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', S) then
+    Result := (S <> '') and (S <> '0.0.0.0')
+  else if RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', S) then
+    Result := (S <> '') and (S <> '0.0.0.0');
+end;
+
+procedure DownloadAndRun(const Url, FileName, Args: String);
+var
+  Dest: String;
+  ResultCode: Integer;
+begin
+  Dest := ExpandConstant('{tmp}\') + FileName;
+  try
+    DownloadTemporaryFile(Url, FileName, '', nil);
+    if FileExists(Dest) then
+      Exec(Dest, Args, '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
+  except
+    { Нет интернета / сбой загрузки — не блокируем установку приложения. }
+  end;
+end;
+
+procedure EnsurePrerequisites();
+begin
+  if not VCRedistInstalled() then
+    DownloadAndRun('https://aka.ms/vs/17/release/vc_redist.x64.exe',
+                   'vc_redist.x64.exe', '/install /quiet /norestart');
+  if not WebView2Installed() then
+    DownloadAndRun('https://go.microsoft.com/fwlink/p/?LinkId=2124703',
+                   'MicrosoftEdgeWebview2Setup.exe', '/silent /install');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
@@ -88,5 +144,10 @@ begin
     { Сносим старые версии: новая (с AppId) и старая (по имени, без AppId). }
     RunUninstaller('{7B4C9E2A-3F1D-4A6B-9C2E-5D8F0A1B2C3D}_is1');
     RunUninstaller('Smart Zones Pro_is1');
+  end
+  else if CurStep = ssPostInstall then
+  begin
+    { Ставим недостающие системные зависимости (VC++ / WebView2). }
+    EnsurePrerequisites();
   end;
 end;

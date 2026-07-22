@@ -23,6 +23,7 @@ REM а не в python_core\dist (иначе "No files found matching ...\dist\Sm
 python -m PyInstaller --noconfirm --onedir --windowed --name "SmartZonesPro" ^
   --distpath "%REPO%\dist" --workpath "%REPO%\build" --specpath "%REPO%" ^
   --hidden-import settings_window ^
+  --hidden-import ui_theme ^
   --hidden-import pystray ^
   --hidden-import PIL ^
   --add-data "%REPO%\python_core\brokers.json;." ^

@@ -26,40 +26,36 @@ os.chdir(BASE_DIR)
 # SHA-256 правильного пароля (не сам пароль). Приложение не запустится,
 # пока не введён пароль, чьим хэшем является эта строка.
 # Чтобы сменить пароль — посчитайте SHA-256 нового и впишите сюда.
-# По умолчанию пароль: SmartZones-2026
-EXPECTED_PWD_SHA256 = "ce0902931e9139e1ac2ef11f83f5e7cabfa133d1251ebfddb2846d8802ac4fa9"
+# По умолчанию пароль: Satpayeva82/2
+EXPECTED_PWD_SHA256 = "42459edc1f376dd9b7d045b2f33372a2b775f693a260c591c9d182807b34171f"
 
 
 def ask_password() -> bool:
     """Окно ввода пароля при старте. True — пароль верный, иначе False."""
     import tkinter as tk
+    import ui_theme as ui
 
     state = {"ok": False, "attempts": 0}
 
     root = tk.Tk()
     root.title("Smart Zones Pro")
-    root.overrideredirect(True)
-    root.configure(bg='#0d1117')
+    W, H = 400, 300
+    cv = ui.make_glass_window(root, W, H, radius=24)
 
-    w, h = 380, 230
-    ws, hs = root.winfo_screenwidth(), root.winfo_screenheight()
-    x, y = int((ws / 2) - (w / 2)), int((hs / 2) - (h / 2))
-    root.geometry(f"{w}x{h}+{x}+{y}")
-    root.attributes('-topmost', True)
+    cv.create_text(W / 2, 56, text="Smart Zones Pro", fill=ui.TXT,
+                   font=(ui.FONT, 20, "bold"))
+    cv.create_text(W / 2, 82, text="NoName Trader", fill=ui.GOLD,
+                   font=(ui.FONT, 10, "bold"))
+    cv.create_text(W / 2, 118, text="Введите пароль доступа", fill=ui.TXT_DIM,
+                   font=(ui.FONT, 11))
 
-    tk.Label(root, text="Smart Zones Pro", fg='#58a6ff', bg='#0d1117',
-             font=("Segoe UI", 20, "bold")).pack(pady=(34, 4))
-    tk.Label(root, text="Введите пароль доступа", fg='#8b949e', bg='#0d1117',
-             font=("Segoe UI", 11)).pack()
-
-    entry = tk.Entry(root, show="•", justify='center', width=24,
-                     font=("Segoe UI", 13), bg='#161b22', fg='#e6edf3',
-                     insertbackground='#e6edf3', relief='flat')
-    entry.pack(pady=(18, 6), ipady=6)
+    entry = tk.Entry(root, show="•", justify='center', width=22,
+                     font=(ui.FONT, 13))
+    ui.style_entry(entry)
+    cv.create_window(W / 2, 158, window=entry, height=38)
     entry.focus_set()
 
-    err = tk.Label(root, text="", fg='#f85149', bg='#0d1117', font=("Segoe UI", 9))
-    err.pack()
+    err_id = cv.create_text(W / 2, 192, text="", fill=ui.BAD, font=(ui.FONT, 9))
 
     def submit(event=None):
         pwd = entry.get()
@@ -70,22 +66,20 @@ def ask_password() -> bool:
         state["attempts"] += 1
         entry.delete(0, tk.END)
         if state["attempts"] >= 3:
-            err.config(text="Слишком много попыток. Закрытие…")
+            cv.itemconfigure(err_id, text="Слишком много попыток. Закрытие…")
             root.after(1200, root.destroy)
         else:
-            err.config(text="Неверный пароль. Попробуйте ещё раз.")
+            cv.itemconfigure(err_id, text="Неверный пароль. Попробуйте ещё раз.")
 
     def cancel():
         root.destroy()
 
-    btns = tk.Frame(root, bg='#0d1117')
-    btns.pack(pady=(12, 0))
-    tk.Button(btns, text="Войти", command=submit, width=10, relief='flat',
-              bg='#238636', fg='white', activebackground='#2ea043',
-              font=("Segoe UI", 10, "bold")).pack(side='left', padx=6)
-    tk.Button(btns, text="Выход", command=cancel, width=8, relief='flat',
-              bg='#21262d', fg='#c9d1d9', activebackground='#30363d',
-              font=("Segoe UI", 10)).pack(side='left', padx=6)
+    login_btn = ui.GlassButton(root, "Войти", command=submit, width=140,
+                               height=42, kind="primary")
+    exit_btn = ui.GlassButton(root, "Выход", command=cancel, width=100,
+                              height=42, kind="ghost")
+    cv.create_window(W / 2 - 58, 244, window=login_btn)
+    cv.create_window(W / 2 + 72, 244, window=exit_btn)
 
     entry.bind("<Return>", submit)
     root.bind("<Escape>", lambda e: cancel())
@@ -100,61 +94,47 @@ paths.ensure_dirs()
 
 # ── Сплэш-экран (4 секунды при запуске) ───────────────────────────
 def show_splash():
-    """Показывает заставку с логотипом на 4 секунды."""
+    """Показывает «стеклянную» заставку на 4 секунды."""
     try:
         import tkinter as tk
-        
-        splash_path = None
-        for name in ["splash.gif", "splash.png", "splash.bmp"]:
-            p = os.path.join(BASE_DIR, name)
-            if os.path.exists(p):
-                splash_path = p
-                break
-        
+        import ui_theme as ui
+
         root = tk.Tk()
-        root.overrideredirect(True)
-        root.configure(bg='#0d1117')
-        
-        w, h = 520, 380
-        ws, hs = root.winfo_screenwidth(), root.winfo_screenheight()
-        x, y = int((ws/2) - (w/2)), int((hs/2) - (h/2))
-        root.geometry(f"{w}x{h}+{x}+{y}")
-        
-        if splash_path and splash_path.endswith('.gif'):
-            frames = []
-            try:
-                while True:
-                    frames.append(tk.PhotoImage(file=splash_path, format=f"gif -index {len(frames)}"))
-            except tk.TclError:
-                pass
-            if frames:
-                img_label = tk.Label(root, bg='#0d1117')
-                img_label.pack(expand=True, fill='both')
-                def animate(idx):
-                    img_label.configure(image=frames[idx])
-                    root.after(40, animate, (idx + 1) % len(frames))
-                animate(0)
-        else:
-            # Текстовый сплэш если картинки нет
-            title = tk.Label(root, text="Smart Zones Pro", fg='#58a6ff', bg='#0d1117',
-                           font=("Segoe UI", 28, "bold"))
-            title.pack(pady=(80, 10))
-            ver = tk.Label(root, text="v1.0", fg='#8b949e', bg='#0d1117',
-                          font=("Segoe UI", 14))
-            ver.pack()
-            status = tk.Label(root, text="Starting services...", fg='#f0883e', bg='#0d1117',
-                            font=("Segoe UI", 11))
-            status.pack(pady=(40, 0))
-        
-        # Подпись
-        txt = tk.Label(root, text="NoName Trader", fg='#d4a824', bg='#0d1117',
-                      font=("Segoe UI", 13, "bold"))
-        txt.place(relx=0.5, rely=0.92, anchor='center')
-        
+        W, H = 520, 320
+        cv = ui.make_glass_window(root, W, H, radius=28, draggable=False)
+
+        # Логотип-«ромб» в акцентном свечении
+        cv.create_oval(W / 2 - 46, 66, W / 2 + 46, 158,
+                       fill="", outline=ui.ACCENT, width=2)
+        cv.create_text(W / 2, 112, text="◆", fill=ui.GOLD,
+                       font=(ui.FONT, 34, "bold"))
+
+        cv.create_text(W / 2, 196, text="Smart Zones Pro", fill=ui.TXT,
+                       font=(ui.FONT, 26, "bold"))
+        cv.create_text(W / 2, 228, text="Professional Footprint & Zones",
+                       fill=ui.TXT_DIM, font=(ui.FONT, 11))
+        status_id = cv.create_text(W / 2, 262, text="Starting services…",
+                                   fill=ui.ACCENT, font=(ui.FONT, 10))
+
+        cv.create_text(W / 2, H - 30, text="NoName Trader", fill=ui.GOLD,
+                       font=(ui.FONT, 13, "bold"))
+
+        dots = {"n": 0}
+
+        def tick():
+            dots["n"] = (dots["n"] + 1) % 4
+            cv.itemconfigure(status_id,
+                             text="Starting services" + "." * dots["n"])
+            root.after(350, tick)
+
+        tick()
         root.after(4000, root.destroy)
         root.lift()
-        root.attributes('-topmost', True)
-        root.after_idle(root.attributes, '-topmost', False)
+        try:
+            root.attributes('-topmost', True)
+            root.after_idle(root.attributes, '-topmost', False)
+        except tk.TclError:
+            pass
         root.mainloop()
     except Exception as e:
         print(f"[app] Splash screen skipped: {e}")
