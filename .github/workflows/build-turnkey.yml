@@ -9,7 +9,7 @@ name: Build Turnkey Installer
 
 on:
   push:
-    branches: [ devin/turnkey-ci ]
+    branches: [ devin/turnkey-ci, devin/turnkey-ci-mt4 ]
     tags: [ 'v*' ]
   workflow_dispatch:
 
@@ -88,13 +88,74 @@ jobs:
           }
           if ($failed) { exit 1 }
 
-      - name: Upload compiled .ex5 artifacts
+      # ── 2b. MetaTrader 4 (свой MetaEditor) ──────────────────────────────
+      - name: Install MetaTrader 4 (provides MT4 MetaEditor)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt4/mt4setup.exe'
+          $installer = Join-Path $env:RUNNER_TEMP 'mt4setup.exe'
+          Write-Host "Downloading MT4 setup from $url"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          Write-Host "Running silent install (/auto)…"
+          Start-Process -FilePath $installer -ArgumentList '/auto' -Wait
+          # MT4-редактор называется metaeditor.exe (32-бит), появляется асинхронно.
+          $me = $null
+          foreach ($i in 1..30) {
+            $me = Get-ChildItem 'C:\Program Files (x86)','C:\Program Files' -Recurse -Filter 'metaeditor.exe' -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -notmatch 'MetaTrader 5' } |
+                  Select-Object -First 1
+            if ($me) { break }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $me) {
+            Write-Error 'MT4 metaeditor.exe not found after MT4 install'
+            exit 1
+          }
+          Write-Host "MT4 MetaEditor: $($me.FullName)"
+          "METAEDITOR4=$($me.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # ── 2c. Компиляция MT4 (.mq4 → .ex4) ────────────────────────────────
+      - name: Compile MQL4 components
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(
+            'mql\MT4\Indicators\StrongZones.mq4',
+            'mql\MT4\Experts\SmartZonesCollector.mq4'
+          )
+          $failed = $false
+          foreach ($rel in $files) {
+            $src = Join-Path $PWD $rel
+            $ex  = [System.IO.Path]::ChangeExtension($src, 'ex4')
+            $log = "$src.log"
+            if (Test-Path $ex)  { Remove-Item $ex  -Force }
+            if (Test-Path $log) { Remove-Item $log -Force }
+            Write-Host "::group::Compiling $rel"
+            Start-Process -FilePath $env:METAEDITOR4 `
+              -ArgumentList "/compile:`"$src`"", "/log:`"$log`"" -Wait
+            if (Test-Path $log) {
+              Get-Content -Path $log -Encoding Unicode | ForEach-Object { Write-Host $_ }
+            }
+            Write-Host "::endgroup::"
+            if (-not (Test-Path $ex)) {
+              Write-Error "Compilation FAILED: $ex was not produced"
+              $failed = $true
+            } else {
+              Write-Host "OK: $ex ($((Get-Item $ex).Length) bytes)"
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Upload compiled MT4/MT5 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mt5-compiled
+          name: mql-compiled
           path: |
             mql/MT5/Indicators/StrongZones.ex5
             mql/MT5/Experts/SmartZonesCollector.ex5
+            mql/MT4/Indicators/StrongZones.ex4
+            mql/MT4/Experts/SmartZonesCollector.ex4
           if-no-files-found: error
 
       # ── 3. Сборка приложения (PyInstaller) ──────────────────────────────
