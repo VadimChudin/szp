@@ -9,7 +9,7 @@ name: Build Turnkey Installer
 
 on:
   push:
-    branches: [ devin/turnkey-ci, devin/turnkey-ci-mt4 ]
+    branches: [ devin/turnkey-ci, devin/turnkey-ci-mt4, devin/fix-simplejson-import ]
     tags: [ 'v*' ]
   workflow_dispatch:
 
@@ -175,8 +175,12 @@ jobs:
             '{"active_broker": 0, "brokers": [{"name": "Broker 1", "server": "", "login": 0, "password": "", "path": ""}, {"name": "Broker 2", "server": "", "login": 0, "password": "", "path": ""}, {"name": "Broker 3", "server": "", "login": 0, "password": "", "path": ""}]}' |
               Out-File -FilePath 'python_core\brokers.json' -Encoding ascii
           }
+          # Исключаем simplejson: при частичной упаковке requests падает на
+          # "cannot import name 'JSONDecodeError' from 'simplejson'". Без него
+          # requests использует стандартный json и работает на любом ПК.
           python -m PyInstaller --noconfirm --onedir --windowed --name "SmartZonesPro" `
             --distpath "$repo\dist" --workpath "$repo\build" --specpath "$repo" `
+            --exclude-module simplejson `
             --hidden-import settings_window `
             --hidden-import ui_theme `
             --hidden-import pystray `

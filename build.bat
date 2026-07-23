@@ -20,8 +20,12 @@ if not exist "%REPO%\python_core\brokers.json" (
 REM Вызов через "python -m PyInstaller" не зависит от PATH (Scripts может быть не в PATH).
 REM --distpath/--workpath в корень репо: setup.iss ищет dist\SmartZonesPro там,
 REM а не в python_core\dist (иначе "No files found matching ...\dist\SmartZonesPro\*").
+REM Исключаем simplejson: если он попадёт в сборку частично, requests падает на
+REM "cannot import name 'JSONDecodeError' from 'simplejson'". Без него requests
+REM использует стандартный json — работает на любом ПК.
 python -m PyInstaller --noconfirm --onedir --windowed --name "SmartZonesPro" ^
   --distpath "%REPO%\dist" --workpath "%REPO%\build" --specpath "%REPO%" ^
+  --exclude-module simplejson ^
   --hidden-import settings_window ^
   --hidden-import ui_theme ^
   --hidden-import pystray ^
