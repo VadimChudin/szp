@@ -45,6 +45,9 @@ class Zone:
     # Фитили, сформировавшие зону: [(time, price, wick_type, tf_label), ...]
     wick_points: list = field(default_factory=list)
     label_suffix: str = ""                # Подпись для институциональных объемов
+    # Когда зону последний раз подтвердил свежий расчёт (ISO-строка). Нужна
+    # архивным «вечным» зонам, чтобы протухшие снимались по сроку жизни.
+    archived_at: str = ""
 
     @property
     def top(self) -> float:
@@ -77,6 +80,7 @@ class Zone:
             "touch_count": self.touch_count,
             "wick_points": [_json_safe_wick(w) for w in self.wick_points],
             "label_suffix": self.label_suffix,
+            "archived_at": self.archived_at,
         }
 
     @classmethod
@@ -92,6 +96,7 @@ class Zone:
             is_round_level=d.get("is_round_level", False),
             wick_points=d.get("wick_points", []),
             label_suffix=d.get("label_suffix", ""),
+            archived_at=d.get("archived_at", ""),
         )
 
     def __repr__(self):

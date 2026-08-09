@@ -23,9 +23,10 @@ from datetime import datetime, timedelta
 # Добавляем путь к модулям
 sys.path.insert(0, str(Path(__file__).parent))
 
+import applog
 import config
 import paths
-from data_fetcher import fetch_from_csv, fetch_all_timeframes
+from data_fetcher import DataUnavailableError, fetch_from_csv, fetch_all_timeframes
 from volume_filter import get_volume_flags_all_tf, calculate_delta, get_delta_at_zone
 from zone_detector import detect_zones
 from telegram_bot import send_telegram_message, send_alert_line, send_zones_update
@@ -54,6 +55,9 @@ FOOTPRINT_FLAG = paths.FOOTPRINT_FLAG
 
 # Путь к Common/Files MT4 (EA пишет сюда CSV)
 MT4_COMMON_FILES = paths.MT_COMMON_FILES or Path("")
+
+# Через сколько повторять расчёт, если рыночных данных не было
+DATA_RETRY_SECONDS = 300
 
 # Путь к локальным CSV для zone_detector
 LOCAL_DATA_DIR = paths.LOCAL_DATA_DIR
@@ -127,6 +131,9 @@ def sync_to_mt4():
 def calculate_and_export_zones(refresh_data: bool = True):
     """
     Основная функция: читает данные → считает зоны → пишет JSON для MT4.
+
+    Возвращает список зон, либо None если рыночных данных не было (тогда
+    прошлый zones_output.json остаётся нетронутым и расчёт нужно повторить).
     """
     print(f"\n{'='*50}")
     print(f"  Recalculating zones at {datetime.now().strftime('%H:%M:%S')}")
@@ -137,7 +144,13 @@ def calculate_and_export_zones(refresh_data: bool = True):
         refresh_data_source()
 
     # ── Загрузка данных ──────────────────────────────────────────────
-    data = fetch_all_timeframes(config.SYMBOL)
+    # Если реальных свечей нет — НЕ перезаписываем zones_output.json: лучше
+    # оставить в терминале прошлые зоны, чем уровни по мусорным данным.
+    try:
+        data = fetch_all_timeframes(config.SYMBOL)
+    except DataUnavailableError as e:
+        print(f"[bridge] ERROR: no market data, keeping previous zones. {e}")
+        return None
 
     # ── Фильтр крупного игрока ───────────────────────────────────────
     volume_flags = get_volume_flags_all_tf(data)
@@ -246,15 +259,17 @@ def run_monitor_loop(interval_seconds: int = 5):
     Ждёт появления файла-флага от MT4, пересчитывает зоны.
     Также пересчитывает каждые 4 часа автоматически (на закрытие H4).
     """
+    applog.setup()
     print(f"[bridge] Started monitoring loop (interval: {interval_seconds}s)")
     print(f"[bridge] Watching: {BRIDGE_DIR}")
     print(f"[bridge] Output:   {ZONES_OUTPUT}")
     print(f"[bridge] Press Ctrl+C to stop\n")
 
     # Первый расчёт при старте
-    calculate_and_export_zones()
+    data_ok = calculate_and_export_zones() is not None
 
     last_calc_time = time.time()
+    last_attempt_time = last_calc_time
 
     # Инициализация параметров для Telegram
     mt4_files = get_mt4_local_files_dir()
@@ -338,8 +353,18 @@ def run_monitor_loop(interval_seconds: int = 5):
             if current_h4_slot != run_monitor_loop._last_h4_slot:
                 run_monitor_loop._last_h4_slot = current_h4_slot
                 print(f"\n[bridge] H4 candle closed (broker {broker_now.strftime('%H:%M')}). Recalculating zones...")
-                calculate_and_export_zones()
+                data_ok = calculate_and_export_zones() is not None
                 last_calc_time = time.time()
+                last_attempt_time = last_calc_time
+            elif not data_ok and time.time() - last_attempt_time > DATA_RETRY_SECONDS:
+                # Данных не было (терминал не запущен / не залогинен). Ждать
+                # следующего закрытия H4 нельзя — иначе зоны в терминале
+                # останутся протухшими до 4 часов. Пробуем снова.
+                print("\n[bridge] Retrying zone calculation after data failure...")
+                data_ok = calculate_and_export_zones() is not None
+                last_attempt_time = time.time()
+                if data_ok:
+                    last_calc_time = last_attempt_time
 
             time.sleep(interval_seconds)
 

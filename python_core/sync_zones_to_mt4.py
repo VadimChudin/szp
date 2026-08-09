@@ -40,22 +40,43 @@ def find_mt4_indicators_dir() -> Path | None:
     return None
 
 
+def zone_file_targets() -> list[Path]:
+    """Все папки, откуда индикатор может прочитать зоны.
+
+    Кроме общей Common/Files раскладываем файл и в локальные MQL4/MQL5 Files
+    каждого терминала: если общая папка недоступна (портативная установка,
+    права), индикатор всё равно найдёт свежий JSON.
+    """
+    targets: list[Path] = []
+    common = paths.find_mt_common_files()
+    if common:
+        targets.append(common)
+    for term_type, term_path in paths.find_all_terminals():
+        targets.append(term_path / ("MQL5" if term_type == "MT5" else "MQL4") / "Files")
+    return targets
+
+
 def sync_zones():
-    """Копирует zones_output.json в папку MT4 Common/Files."""
+    """Копирует zones_output.json во все папки Files терминалов MT4/MT5."""
     if not SOURCE.exists():
         print(f"[sync] Source file not found: {SOURCE}")
         print(f"[sync] Run bridge_server.py first!")
         return False
 
-    target_dir = find_mt4_common_files()
-    if target_dir:
-        dest = target_dir / "zones_output.json"
-        shutil.copy2(SOURCE, dest)
-        print(f"[sync] Copied zones to: {dest}")
-        return True
-    else:
-        print("[sync] MT4 Common/Files not found.")
-        return False
+    copied = 0
+    for target_dir in zone_file_targets():
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(SOURCE, target_dir / "zones_output.json")
+            print(f"[sync] Copied zones to: {target_dir}")
+            copied += 1
+        except OSError as e:
+            print(f"[sync] WARN: could not copy zones to {target_dir}: {e}")
+
+    if not copied:
+        print("[sync] ERROR: no MetaTrader Files folder found — indicator will "
+              "keep showing old zones.")
+    return copied > 0
 
 
 def find_all_terminals() -> list[tuple[str, Path]]:

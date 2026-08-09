@@ -141,7 +141,7 @@ class TestProcessPersistentZones:
         assert db[0].price == 2400.0
 
     def test_invalidation_by_breakout(self, tmp_path):
-        """Зона удаляется если пробита H4 свечами >= 2 раза."""
+        """Зона удаляется если её пробило телом H4."""
         fake_db = tmp_path / "zones_db.json"
 
         # Создаём зону в БД
@@ -169,6 +169,56 @@ class TestProcessPersistentZones:
         with patch("persistent_zones.DB_FILE", fake_db):
             remaining = load_db()
         assert len(remaining) == 0
+
+    def test_expired_zone_removed(self, tmp_path):
+        """Архивная зона снимается, если её давно не подтверждал расчёт."""
+        from datetime import datetime, timedelta
+        fake_db = tmp_path / "zones_db.json"
+        old = datetime.now() - timedelta(days=config.PERSISTENT_ZONE_MAX_AGE_DAYS + 1)
+        stale = Zone(price=2400.0, score=14, sources=["H4"],
+                     archived_at=old.isoformat())
+        data = {"H4": pd.DataFrame(columns=["open", "close", "high", "low", "time"])}
+
+        with patch("persistent_zones.DB_FILE", fake_db):
+            save_db([stale])
+            result = process_persistent_zones([], data)
+            remaining = load_db()
+
+        assert remaining == []
+        assert result == []
+
+    def test_far_zone_not_shown(self, tmp_path):
+        """Зона далеко от текущей цены не выводится (график ушёл)."""
+        fake_db = tmp_path / "zones_db.json"
+        far = 2400.0 * (1 + config.MAX_ZONE_DISTANCE_PCT / 100.0 * 2)
+        current = [Zone(price=far, score=15, sources=["H4"]),
+                   Zone(price=2400.0, score=13, sources=["H4"])]
+        data = {"H1": pd.DataFrame({"close": [2400.0], "open": [2400.0],
+                                    "high": [2401.0], "low": [2399.0],
+                                    "time": pd.date_range("2024-01-01", periods=1)})}
+
+        with patch("persistent_zones.DB_FILE", fake_db):
+            result = process_persistent_zones(current, data)
+
+        assert [z.price for z in result] == [2400.0]
+
+    def test_fresh_zones_have_priority_over_historic(self, tmp_path):
+        """Свежие зоны не вытесняются архивными с более высоким score."""
+        from datetime import datetime
+        fake_db = tmp_path / "zones_db.json"
+        archived = [
+            Zone(price=2300.0 + i, score=20, sources=["H4"],
+                 archived_at=datetime.now().isoformat())
+            for i in range(config.MAX_ZONES_ON_CHART)
+        ]
+        current = [Zone(price=2400.0, score=9, sources=["H4"])]
+        data = {"H4": pd.DataFrame(columns=["open", "close", "high", "low", "time"])}
+
+        with patch("persistent_zones.DB_FILE", fake_db):
+            save_db(archived)
+            result = process_persistent_zones(current, data)
+
+        assert 2400.0 in [z.price for z in result]
 
     def test_output_limited_to_max_zones(self, tmp_path):
         """Вывод ограничен config.MAX_ZONES_ON_CHART."""
