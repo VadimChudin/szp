@@ -154,6 +154,18 @@ MAX_DATA_AGE_HOURS = _env_float("MAX_DATA_AGE_HOURS", 12.0)
 PERSISTENT_ZONE_MAX_AGE_DAYS = _env_float("PERSISTENT_ZONE_MAX_AGE_DAYS", 14.0)
 MAX_ZONE_DISTANCE_PCT = _env_float("MAX_ZONE_DISTANCE_PCT", 5.0)
 
+# ── Набор позиции крупным участником ────────────────────────────────
+# Участок набора = аномально большой объём при почти стоящей цене.
+# Рисуется маленькими фиолетовыми прямоугольниками, отключается в настройках
+# индикатора (ShowAccumulation) или через ACCUMULATION_ENABLED=0.
+ACCUMULATION_ENABLED = _env_bool("ACCUMULATION_ENABLED", True)
+ACCUMULATION_TIMEFRAME = _env_str("ACCUMULATION_TIMEFRAME", "H1")
+ACCUMULATION_WINDOW = _env_int("ACCUMULATION_WINDOW", 3)          # свечей в участке
+ACCUMULATION_VOLUME_MULT = _env_float("ACCUMULATION_VOLUME_MULT", 1.8)
+ACCUMULATION_MAX_RANGE_MULT = _env_float("ACCUMULATION_MAX_RANGE_MULT", 0.8)
+ACCUMULATION_LOOKBACK_BARS = _env_int("ACCUMULATION_LOOKBACK_BARS", 200)
+ACCUMULATION_MAX_BOXES = _env_int("ACCUMULATION_MAX_BOXES", 40)
+
 # ── ZeroMQ (для связи с MetaTrader) ─────────────────────────────────
 ZMQ_HOST = _env_str("ZMQ_HOST", "tcp://127.0.0.1")
 ZMQ_PORT = _env_int("ZMQ_PORT", 5555)
