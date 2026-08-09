@@ -56,27 +56,33 @@ def zone_file_targets() -> list[Path]:
     return targets
 
 
-def sync_zones():
-    """Копирует zones_output.json во все папки Files терминалов MT4/MT5."""
-    if not SOURCE.exists():
-        print(f"[sync] Source file not found: {SOURCE}")
-        print(f"[sync] Run bridge_server.py first!")
+def sync_file(source: Path) -> bool:
+    """Копирует произвольный файл во все папки Files терминалов MT4/MT5."""
+    if not source.exists():
+        print(f"[sync] Source file not found: {source}")
         return False
 
     copied = 0
     for target_dir in zone_file_targets():
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(SOURCE, target_dir / "zones_output.json")
-            print(f"[sync] Copied zones to: {target_dir}")
+            shutil.copy2(source, target_dir / source.name)
+            print(f"[sync] Copied {source.name} to: {target_dir}")
             copied += 1
         except OSError as e:
-            print(f"[sync] WARN: could not copy zones to {target_dir}: {e}")
+            print(f"[sync] WARN: could not copy {source.name} to {target_dir}: {e}")
 
     if not copied:
-        print("[sync] ERROR: no MetaTrader Files folder found — indicator will "
-              "keep showing old zones.")
+        print(f"[sync] ERROR: no MetaTrader Files folder found — {source.name} "
+              "not delivered, indicator will keep showing old data.")
     return copied > 0
+
+
+def sync_zones():
+    """Копирует zones_output.json во все папки Files терминалов MT4/MT5."""
+    if not SOURCE.exists():
+        print(f"[sync] Run bridge_server.py first!")
+    return sync_file(SOURCE)
 
 
 def find_all_terminals() -> list[tuple[str, Path]]:

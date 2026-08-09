@@ -25,10 +25,15 @@ input bool     ShowGradient     = false;      // Градиентная визу
 input int      GradientLayers   = 5;          // Кол-во слоёв градиента
 input bool     EnableAlerts     = true;       // Алерты при касании зоны
 input double   AlertDistance    = 5.0;        // Расстояние для алерта ($)
+input bool     ShowAccumulation = true;      // Набор позиции крупным участником
+input string   AccumFilePath    = "accumulation_output.json"; // Файл участков набора
+input color    AccumColor       = C'85,45,140';  // Цвет участков набора (фиолетовый)
 
 //--- Глобальные переменные -------------------------------------------
 string         zonePrefix       = "SZP_";
+string         accumPrefix      = "SZP_ACC_";
 int            currentZoneCount = 0;
+int            accumCount       = 0;
 datetime       lastAlertTime    = 0;
 
 double         zonePrices[];
@@ -46,8 +51,10 @@ int OnInit()
    // подписи/объекты, сохранённые в профиле графика от прежней версии
    // индикатора, «мигают» до первой успешной загрузки JSON.
    DeleteAllZoneObjects();
+   DeleteAccumulationObjects();
    EventSetTimer(RefreshSeconds);
    LoadZonesFromFile();
+   LoadAccumulationFromFile();
    Print("[SmartZones MT5] Initialized. File: ", ZonesFilePath);
    return(INIT_SUCCEEDED);
 }
@@ -56,6 +63,7 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    DeleteAllZoneObjects();
+   DeleteAccumulationObjects();
    EventKillTimer();
 }
 
@@ -80,6 +88,85 @@ int OnCalculate(const int rates_total,
 void OnTimer()
 {
    LoadZonesFromFile();
+   LoadAccumulationFromFile();
+}
+
+//+------------------------------------------------------------------+
+//| Читает файл из Common/Files, иначе из локальной папки Files       |
+//+------------------------------------------------------------------+
+string ReadDataFile(string fileName)
+{
+   int handle = FileOpen(fileName, FILE_READ|FILE_TXT|FILE_COMMON|FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+   {
+      handle = FileOpen(fileName, FILE_READ|FILE_TXT|FILE_ANSI);
+      if(handle == INVALID_HANDLE) return "";
+   }
+
+   string content = "";
+   while(!FileIsEnding(handle))
+      content += FileReadString(handle) + "\n";
+   FileClose(handle);
+   return content;
+}
+
+//+------------------------------------------------------------------+
+//| Участки набора позиции крупным участником                        |
+//| Маленькие фиолетовые прямоугольники за свечами (BACK=true).      |
+//+------------------------------------------------------------------+
+void LoadAccumulationFromFile()
+{
+   if(!ShowAccumulation)
+   {
+      if(accumCount > 0) DeleteAccumulationObjects();
+      return;
+   }
+
+   string content = ReadDataFile(AccumFilePath);
+   if(StringLen(content) < 10) return;
+
+   DeleteAccumulationObjects();
+
+   int searchPos = 0;
+   while(true)
+   {
+      int pos = StringFind(content, "\"t1\":", searchPos);
+      if(pos < 0) break;
+
+      datetime t1 = (datetime)(long)ExtractDouble(content, "\"t1\":", pos);
+      datetime t2 = (datetime)(long)ExtractDouble(content, "\"t2\":", pos);
+      double top    = ExtractDouble(content, "\"top\":", pos);
+      double bottom = ExtractDouble(content, "\"bottom\":", pos);
+      searchPos = pos + 5;
+
+      if(t1 <= 0 || top <= 0 || bottom <= 0) continue;
+
+      // Гарантируем видимую ширину даже для одиночного окна
+      if(t2 <= t1) t2 = t1 + PeriodSeconds();
+
+      string name = accumPrefix + IntegerToString(accumCount);
+      ObjectCreate(0, name, OBJ_RECTANGLE, 0, t1, top, t2, bottom);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, AccumColor);
+      ObjectSetInteger(0, name, OBJPROP_FILL, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, true);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      accumCount++;
+   }
+
+   ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+void DeleteAccumulationObjects()
+{
+   for(int i = ObjectsTotal(0) - 1; i >= 0; i--)
+   {
+      string name = ObjectName(0, i);
+      if(StringFind(name, accumPrefix) == 0)
+         ObjectDelete(0, name);
+   }
+   accumCount = 0;
 }
 
 //+------------------------------------------------------------------+
@@ -410,6 +497,8 @@ void DeleteAllZoneObjects()
    for(int i = total - 1; i >= 0; i--)
    {
       string name = ObjectName(0, i);
+      // Участки набора живут своей жизнью (свой файл и своя перерисовка)
+      if(StringFind(name, accumPrefix) == 0) continue;
       if(StringFind(name, zonePrefix) == 0)
          ObjectDelete(0, name);
    }

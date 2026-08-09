@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 # Добавляем путь к модулям
 sys.path.insert(0, str(Path(__file__).parent))
 
+import accumulation
 import applog
 import config
 import paths
@@ -46,6 +47,10 @@ BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Файл с зонами — MT4 будет его читать
 ZONES_OUTPUT = paths.ZONES_FILE
+
+# Участки набора позиции крупным участником — отдельный файл, чтобы
+# не ломать наивный парсер zones_output.json в индикаторах.
+ACCUM_OUTPUT = ZONES_OUTPUT.parent / "accumulation_output.json"
 
 # Файл-флаг: MT4 создаёт его когда записал новые данные
 TRIGGER_FILE = paths.TRIGGER_FILE
@@ -126,6 +131,20 @@ def sync_to_mt4():
         sync_zones()
     except Exception as e:
         print(f"[bridge] WARN: Could not sync to MT4: {e}")
+
+
+def export_accumulation(data):
+    """Пишет и развозит по терминалам участки набора позиции."""
+    try:
+        output = accumulation.build_output(data)
+        with open(ACCUM_OUTPUT, "w") as f:
+            json.dump(output, f, indent=2)
+        print(f"[bridge] Exported {output['count']} accumulation boxes "
+              f"({output['timeframe']}) to: {ACCUM_OUTPUT}")
+        from sync_zones_to_mt4 import sync_file
+        sync_file(ACCUM_OUTPUT)
+    except Exception as e:
+        print(f"[bridge] WARN: Could not export accumulation boxes: {e}")
 
 
 def calculate_and_export_zones(refresh_data: bool = True):
@@ -243,6 +262,9 @@ def calculate_and_export_zones(refresh_data: bool = True):
 
     # ── Синхронизация в MT4 ──────────────────────────────────────────
     sync_to_mt4()
+
+    # ── Участки набора позиции крупным участником ────────────────────
+    export_accumulation(data)
 
     # ── Telegram: краткая сводка по зонам (если бот настроен) ────────
     try:

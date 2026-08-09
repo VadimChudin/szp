@@ -25,12 +25,17 @@ input bool     EnableAlerts     = true;      // Алерты при касани
 input double   AlertDistance    = 5.0;       // Расстояние до зоны для алерта ($)
 // Имя файла с зонами — лежит в MQL4/Files или Common/Files (положит sync_zones_to_mt4.py).
 input string   ZonesFilePath    = "zones_output.json";
+input bool     ShowAccumulation = true;      // Набор позиции крупным участником
+input string   AccumFilePath    = "accumulation_output.json"; // Файл участков набора
+input color    AccumColor       = C'85,45,140';  // Цвет участков набора (фиолетовый)
 
 //--- Глобальные переменные -------------------------------------------
 datetime       lastFileTime     = 0;         // Время последнего изменения файла
 datetime       lastAlertTime    = 0;         // Время последнего алерта
 string         zonePrefix       = "SZP_";    // Префикс объектов индикатора
+string         accumPrefix      = "SZP_ACC_"; // Префикс участков набора
 int            currentZoneCount = 0;         // Текущее количество зон на графике
+int            accumCount       = 0;         // Количество участков набора
 
 // Храним данные зон в массивах
 double         zonePrices[];
@@ -49,12 +54,14 @@ int OnInit()
    // подписи/объекты, сохранённые в профиле графика от прежней версии
    // индикатора, «мигают» до первой успешной загрузки JSON.
    DeleteAllZoneObjects();
+   DeleteAccumulationObjects();
 
    // Таймер для периодического обновления
    EventSetTimer(RefreshSeconds);
    
    // Первая загрузка зон
    LoadZonesFromFile();
+   LoadAccumulationFromFile();
    
    // ── Создаём кнопку "FP" (Footprint) на графике ──────────────────
    string btnName = zonePrefix + "FP_BTN";
@@ -89,6 +96,7 @@ void OnDeinit(const int reason)
 {
    // Удаляем все объекты индикатора
    DeleteAllZoneObjects();
+   DeleteAccumulationObjects();
    // Удаляем кнопку FP
    ObjectDelete(0, zonePrefix + "FP_BTN");
    EventKillTimer();
@@ -172,6 +180,81 @@ void OnTimer()
       Print("[SmartZones] File updated. Reloading zones...");
       LoadZonesFromFile();
    }
+   LoadAccumulationFromFile();
+}
+
+
+//+------------------------------------------------------------------+
+//| Участки набора позиции крупным участником                        |
+//| Маленькие фиолетовые прямоугольники за свечами (BACK=true).      |
+//+------------------------------------------------------------------+
+void LoadAccumulationFromFile()
+{
+   if(!ShowAccumulation)
+   {
+      if(accumCount > 0) DeleteAccumulationObjects();
+      return;
+   }
+
+   int fileHandle = FileOpen(AccumFilePath, FILE_READ|FILE_TXT|FILE_COMMON);
+   if(fileHandle == INVALID_HANDLE)
+   {
+      fileHandle = FileOpen(AccumFilePath, FILE_READ|FILE_TXT);
+      if(fileHandle == INVALID_HANDLE) return;
+   }
+
+   string content = "";
+   while(!FileIsEnding(fileHandle))
+      content += FileReadString(fileHandle) + "\n";
+   FileClose(fileHandle);
+
+   if(StringLen(content) < 10) return;
+
+   DeleteAccumulationObjects();
+
+   int searchPos = 0;
+   while(true)
+   {
+      int pos = StringFind(content, "\"t1\":", searchPos);
+      if(pos < 0) break;
+
+      datetime t1   = (datetime)(long)ExtractDouble(content, "\"t1\":", pos);
+      datetime t2   = (datetime)(long)ExtractDouble(content, "\"t2\":", pos);
+      double top    = ExtractDouble(content, "\"top\":", pos);
+      double bottom = ExtractDouble(content, "\"bottom\":", pos);
+      searchPos = pos + 5;
+
+      if(t1 <= 0 || top <= 0 || bottom <= 0) continue;
+
+      // Гарантируем видимую ширину даже для одиночного окна
+      if(t2 <= t1) t2 = t1 + PeriodSeconds();
+
+      string name = accumPrefix + IntegerToString(accumCount);
+      ObjectCreate(name, OBJ_RECTANGLE, 0, t1, top, t2, bottom);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, AccumColor);
+      ObjectSetInteger(0, name, OBJPROP_FILL, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, true);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      accumCount++;
+   }
+
+   ChartRedraw();
+}
+
+
+//+------------------------------------------------------------------+
+//| Удаление прямоугольников набора позиции                          |
+//+------------------------------------------------------------------+
+void DeleteAccumulationObjects()
+{
+   for(int i = ObjectsTotal() - 1; i >= 0; i--)
+   {
+      string name = ObjectName(i);
+      if(StringFind(name, accumPrefix) == 0)
+         ObjectDelete(name);
+   }
+   accumCount = 0;
 }
 
 
@@ -538,6 +621,8 @@ void DeleteAllZoneObjects()
    for(int i = totalObjects - 1; i >= 0; i--)
    {
       string name = ObjectName(i);
+      // Участки набора живут своей жизнью (свой файл и своя перерисовка)
+      if(StringFind(name, accumPrefix) == 0) continue;
       if(StringFind(name, zonePrefix) == 0)
       {
          ObjectDelete(name);
