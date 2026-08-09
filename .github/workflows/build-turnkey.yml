@@ -9,7 +9,7 @@ name: Build Turnkey Installer
 
 on:
   push:
-    branches: [ devin/turnkey-ci, devin/turnkey-ci-mt4, devin/fix-simplejson-import ]
+    branches: [ 'devin/**' ]
     tags: [ 'v*' ]
   workflow_dispatch:
 
