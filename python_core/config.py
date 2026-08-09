@@ -57,6 +57,15 @@ SYMBOL = _env_str("SYMBOL", "XAUUSD")        # Символ в MetaTrader (у Ro
 SYMBOL_POINT = 0.01                          # Минимальный шаг цены для золота
 BROKER_UTC_OFFSET = _env_int("BROKER_UTC_OFFSET", 3)  # Смещение времени брокера (Обычно +3)
 
+# У разных брокеров золото называется по-разному: XAUUSD, XAUUSD.m, XAUUSDm,
+# GOLD, GOLD.spot… Если точного совпадения с SYMBOL нет, ищем среди этих
+# базовых имён (с любым суффиксом брокера). Иначе запрос свечей падал с
+# ошибкой и зоны не обновлялись вообще.
+SYMBOL_ALIASES = [
+    s.strip() for s in _env_str("SYMBOL_ALIASES", "XAUUSD,GOLD,XAUUSD.,GOLDSPOT,XAU").split(",")
+    if s.strip()
+]
+
 # ── Таймфреймы для анализа ───────────────────────────────────────────
 TIMEFRAMES = {
     "H1": {"mt5_tf": "TIMEFRAME_H1", "weight": 1, "bars": 200},
@@ -128,6 +137,22 @@ def zone_color_for_score(score: int) -> tuple[str, float]:
 # в скрытом фоновом режиме. "csv" - через EA.
 DATA_SOURCE = _env_str("DATA_SOURCE", "mt5")
 CSV_DIR = str(LOCAL_DATA_DIR)    # Каталог с CSV (вычисляется из BASE_DIR)
+
+# Синтетические (случайные) свечи допустимы ТОЛЬКО для отладки. В продакшене
+# по ним считались зоны «из воздуха» — каждый пересчёт давал другой результат,
+# уровни не совпадали с графиком. Теперь требуется явное разрешение.
+ALLOW_SAMPLE_DATA = _env_bool("ALLOW_SAMPLE_DATA", False)
+
+# Максимальный возраст последней свечи, при котором данные считаем свежими.
+# Если данные старше — пробуем следующий источник и пишем предупреждение
+# (иначе зоны считались по устаревшим CSV и «отставали» от графика).
+MAX_DATA_AGE_HOURS = _env_float("MAX_DATA_AGE_HOURS", 12.0)
+
+# ── Актуальность зон ─────────────────────────────────────────────────
+# «Вечные» (архивные) зоны не должны висеть бесконечно: снимаем их по сроку
+# жизни и по удалению от текущей цены. Свежие зоны всегда приоритетнее.
+PERSISTENT_ZONE_MAX_AGE_DAYS = _env_float("PERSISTENT_ZONE_MAX_AGE_DAYS", 14.0)
+MAX_ZONE_DISTANCE_PCT = _env_float("MAX_ZONE_DISTANCE_PCT", 5.0)
 
 # ── ZeroMQ (для связи с MetaTrader) ─────────────────────────────────
 ZMQ_HOST = _env_str("ZMQ_HOST", "tcp://127.0.0.1")

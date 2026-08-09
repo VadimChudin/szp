@@ -154,3 +154,57 @@ def style_entry(entry: tk.Entry):
     entry.configure(bg=FIELD_BG, fg=TXT, insertbackground=ACCENT,
                     relief="flat", highlightthickness=1,
                     highlightbackground=STROKE_SOFT, highlightcolor=ACCENT)
+    enable_clipboard_shortcuts(entry)
+
+
+# Клавиши «V» и «A» в разных раскладках: штатные биндинги Tk ловят только
+# латиницу, поэтому на русской раскладке Ctrl+V в поле не работал.
+_PASTE_KEYSYMS = {"v", "V", "Cyrillic_em", "Cyrillic_EM"}
+_SELECT_ALL_KEYSYMS = {"a", "A", "Cyrillic_ef", "Cyrillic_EF"}
+_PASTE_KEYCODES = {55, 86}       # 'v': X11 / Windows
+_SELECT_ALL_KEYCODES = {38, 65}  # 'a': X11 / Windows
+
+
+def enable_clipboard_shortcuts(entry: tk.Entry):
+    """Разрешает вставку в поле: Ctrl+V, Shift+Insert и правый клик → «Вставить»."""
+
+    def paste(event=None):
+        try:
+            text = entry.clipboard_get()
+        except tk.TclError:
+            return "break"
+        try:
+            entry.delete("sel.first", "sel.last")
+        except tk.TclError:
+            pass
+        entry.insert("insert", text.strip().replace("\r", "").replace("\n", ""))
+        return "break"
+
+    def select_all(event=None):
+        entry.select_range(0, "end")
+        entry.icursor("end")
+        return "break"
+
+    def on_ctrl_key(event):
+        if event.keysym in _PASTE_KEYSYMS or event.keycode in _PASTE_KEYCODES:
+            return paste()
+        if event.keysym in _SELECT_ALL_KEYSYMS or event.keycode in _SELECT_ALL_KEYCODES:
+            return select_all()
+        return None
+
+    entry.bind("<Control-KeyPress>", on_ctrl_key)
+    entry.bind("<Shift-Insert>", paste)
+
+    menu = tk.Menu(entry, tearoff=0, bg=CARD_FLAT, fg=TXT,
+                   activebackground=ACCENT, activeforeground=ACCENT_TXT,
+                   bd=0)
+    menu.add_command(label="Вставить", command=paste)
+    menu.add_command(label="Выделить всё", command=select_all)
+    menu.add_command(label="Очистить", command=lambda: entry.delete(0, "end"))
+
+    def popup(event):
+        entry.focus_set()
+        menu.tk_popup(event.x_root, event.y_root)
+        return "break"
+
+    entry.bind("<Button-3>", popup)
