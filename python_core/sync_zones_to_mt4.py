@@ -12,9 +12,11 @@ MQL4 может читать файлы только из:
 import shutil
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import paths
+import version
 
 # Источник — JSON от Python Core (разрешается через paths.py).
 SOURCE = paths.ZONES_FILE
@@ -170,18 +172,53 @@ def compile_mq(mq_path: Path, terminal_path: Path, is_mt5: bool) -> bool:
         return False
 
 
+def copy_over_locked(src: Path, dest: Path) -> bool:
+    """Копирует файл, обходя блокировку запущенным терминалом.
+
+    MetaTrader держит загруженные .ex4/.ex5 открытыми, и обычное копирование
+    падает с PermissionError — новая сборка не доезжала до терминала вообще.
+    Переименовать заблокированный файл Windows позволяет, поэтому старый
+    бинарник отводим в сторону и кладём новый на его место.
+    """
+    try:
+        shutil.copy2(src, dest)
+        return True
+    except PermissionError:
+        backup = dest.with_suffix(dest.suffix + ".old")
+        try:
+            if backup.exists():
+                backup.unlink()
+            dest.rename(backup)
+            shutil.copy2(src, dest)
+            print(f"  [OK] {dest.name} replaced (terminal held old file, "
+                  "restart terminal to load it)")
+            return True
+        except OSError as e:
+            print(f"  [FAIL] {dest.name} is locked and could not be replaced: {e}")
+            return False
+    except OSError as e:
+        print(f"  [FAIL] {dest.name}: {e}")
+        return False
+
+
 def deploy_component(src_mq: Path, dest_dir: Path, term_path: Path, is_mt5: bool):
     """Копирует исходник (.mq4/.mq5) и, если рядом лежит уже скомпилированный
     .ex4/.ex5, копирует и его — тогда клиенту не нужен MetaEditor. Компилируем
     через metaeditor только если готового .ex-файла нет."""
     dest = dest_dir / src_mq.name
-    shutil.copy2(src_mq, dest)
-    print(f"  [OK] {src_mq.stem} -> {dest.name}")
+    if copy_over_locked(src_mq, dest):
+        print(f"  [OK] {src_mq.stem} -> {dest.name}")
 
     ex_src = src_mq.with_suffix(".ex5" if is_mt5 else ".ex4")
     if ex_src.exists():
-        shutil.copy2(ex_src, dest_dir / ex_src.name)
-        print(f"  [OK] precompiled -> {ex_src.name}")
+        ex_dest = dest_dir / ex_src.name
+        if copy_over_locked(ex_src, ex_dest):
+            # Размер и дата: по логу видно, встал ли новый бинарник или
+            # терминал продолжает работать со старым.
+            stat = ex_dest.stat()
+            stamp = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
+            print(f"  [OK] precompiled -> {ex_src.name} "
+                  f"({stat.st_size} bytes, {stamp})")
         return
     compile_mq(dest, term_path, is_mt5)
 
@@ -201,8 +238,9 @@ def install_all():
         print("[install] ✗ No MT4/MT5 terminals found!")
         return False
     
-    print(f"[install] Found {len(terminals)} MetaTrader terminal(s)")
-    
+    print(f"[install] Found {len(terminals)} MetaTrader terminal(s), "
+          f"deploying build v{version.app_version()}")
+
     installed = 0
     for term_type, term_path in terminals:
         term_name = term_path.name[:8] + "..."

@@ -10,6 +10,7 @@ import sys
 import os
 import hashlib
 import threading
+import traceback
 import multiprocessing
 
 # ── Определяем базовую директорию ──────────────────────────────────
@@ -44,8 +45,8 @@ def ask_password() -> bool:
 
     cv.create_text(W / 2, 56, text="Smart Zones Pro", fill=ui.TXT,
                    font=(ui.FONT, 20, "bold"))
-    cv.create_text(W / 2, 82, text="NoName Trader", fill=ui.GOLD,
-                   font=(ui.FONT, 10, "bold"))
+    cv.create_text(W / 2, 82, text=f"NoName Trader  •  v{version.app_version()}",
+                   fill=ui.GOLD, font=(ui.FONT, 10, "bold"))
     cv.create_text(W / 2, 118, text="Введите пароль доступа", fill=ui.TXT_DIM,
                    font=(ui.FONT, 11))
 
@@ -89,6 +90,7 @@ def ask_password() -> bool:
 # Создаём необходимые папки в каталоге для записи (в установленной сборке это
 # %LOCALAPPDATA%\SmartZonesPro, а не Program Files — иначе PermissionError).
 import paths
+import version
 paths.ensure_dirs()
 
 
@@ -116,8 +118,9 @@ def show_splash():
         status_id = cv.create_text(W / 2, 262, text="Starting services…",
                                    fill=ui.ACCENT, font=(ui.FONT, 10))
 
-        cv.create_text(W / 2, H - 30, text="NoName Trader", fill=ui.GOLD,
-                       font=(ui.FONT, 13, "bold"))
+        cv.create_text(W / 2, H - 30,
+                       text=f"NoName Trader  •  v{version.app_version()}",
+                       fill=ui.GOLD, font=(ui.FONT, 13, "bold"))
 
         dots = {"n": 0}
 
@@ -197,7 +200,11 @@ def run_tray(bridge_thread):
             pystray.MenuItem("Exit", on_exit),
         )
         
-        icon = pystray.Icon("SmartZonesPro", img, "Smart Zones Pro\nRunning in background", menu)
+        icon = pystray.Icon(
+            "SmartZonesPro", img,
+            f"Smart Zones Pro v{version.app_version()}\nRunning in background",
+            menu,
+        )
         icon.run()
         
     except ImportError:
@@ -211,6 +218,7 @@ def main():
     # (нет данных от терминала, не найден символ и т.п.) увидеть невозможно.
     import applog
     applog.setup()
+    print(f"[app] Smart Zones Pro build v{version.app_version()}")
 
     # Разбор аргументов
     if "--settings" in sys.argv:
@@ -224,10 +232,16 @@ def main():
         idx = sys.argv.index("--footprint")
         tf = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else "4h"
         from footprint_data import get_collector
-        collector = get_collector()
-        collector.load_all()
         from footprint_window import open_footprint_window
-        open_footprint_window(tf)
+        try:
+            collector = get_collector()
+            collector.load_all()
+            open_footprint_window(tf)
+        except Exception as e:
+            # Окно не открывалось «молча»: дочерний процесс падал, а в лог
+            # попадало только сообщение о его запуске.
+            print(f"[footprint] FAILED to open window ({tf}): {e}")
+            print(traceback.format_exc())
         return
     
     if "--once" in sys.argv:

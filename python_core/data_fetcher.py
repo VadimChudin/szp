@@ -21,6 +21,14 @@ except ImportError:
     print("[data_fetcher] WARN: MetaTrader5 package not found. Using CSV mode.")
 
 
+# Длительность свечи по таймфреймам — допуск к возрасту данных.
+TF_BAR_HOURS = {"M1": 1.0, "M5": 1.0, "M15": 1.0, "H1": 1.0, "H4": 4.0, "D1": 24.0}
+
+# Золото торгуется вс. 22:00 UTC → пт. 21:00 UTC.
+MARKET_CLOSE_HOUR_UTC = 21
+MARKET_OPEN_HOUR_UTC = 22
+
+
 class DataUnavailableError(RuntimeError):
     """Ни один источник не дал пригодных свечей.
 
@@ -65,14 +73,45 @@ def resolve_mt5_symbol(symbol: str) -> str:
     )
 
 
-def data_age_hours(df: pd.DataFrame) -> float:
+def market_reference_time(now: datetime) -> datetime:
+    """Момент, от которого считаем свежесть данных.
+
+    Золото не торгуется с вечера пятницы до вечера воскресенья: в выходные
+    последняя свеча «стареет» на десятки часов, и проверка свежести
+    забраковывала совершенно нормальные данные — зоны не обновлялись вообще.
+    Пока рынок закрыт, отсчитываем возраст от закрытия пятницы.
+    """
+    weekday = now.weekday()  # 0 = понедельник
+    closed = (weekday == 5
+              or (weekday == 4 and now.hour >= MARKET_CLOSE_HOUR_UTC)
+              or (weekday == 6 and now.hour < MARKET_OPEN_HOUR_UTC))
+    if not closed:
+        return now
+    friday = (now - timedelta(days=(weekday - 4) % 7)).replace(
+        hour=MARKET_CLOSE_HOUR_UTC, minute=0, second=0, microsecond=0)
+    return min(now, friday)
+
+
+def data_age_hours(df: pd.DataFrame, reference: datetime | None = None) -> float:
     """Возраст последней свечи в часах (по UTC). inf, если времени нет."""
     if df is None or df.empty or "time" not in df.columns:
         return float("inf")
     last = pd.to_datetime(df["time"].iloc[-1])
     if last.tzinfo is not None:
         last = last.tz_convert(None)
-    return (datetime.utcnow() - last.to_pydatetime()).total_seconds() / 3600.0
+    ref = reference if reference is not None else market_reference_time(datetime.utcnow())
+    return (ref - last.to_pydatetime()).total_seconds() / 3600.0
+
+
+def max_age_hours(tf_label: str) -> float:
+    """Допустимый возраст последней свечи для таймфрейма.
+
+    Время свечи — это её ОТКРЫТИЕ, поэтому свежая дневная свеча уже к обеду
+    «старше» 12 часов. Общий лимит на все ТФ отбраковывал нормальные данные
+    во второй половине дня (возраст считался как max по H1/H4/D1), и зоны
+    полдня не пересчитывались вообще.
+    """
+    return config.MAX_DATA_AGE_HOURS + TF_BAR_HOURS.get(tf_label, 1.0)
 
 
 def fetch_from_mt5(symbol: str, timeframe_str: str, bars: int) -> pd.DataFrame:
@@ -246,14 +285,18 @@ def fetch_all_timeframes(symbol: str = None) -> dict[str, pd.DataFrame]:
             print(f"[data_fetcher] Source '{name}' incomplete (missing {missing})")
             continue
 
-        age = max(data_age_hours(df) for df in data.values())
-        if age > config.MAX_DATA_AGE_HOURS:
-            problems.append(f"{name}: stale by {age:.1f}h")
-            print(f"[data_fetcher] Source '{name}' is STALE "
-                  f"(last candle {age:.1f}h old, limit {config.MAX_DATA_AGE_HOURS}h)")
+        reference = market_reference_time(datetime.utcnow())
+        ages = {tf: data_age_hours(df, reference) for tf, df in data.items()}
+        stale = {tf: age for tf, age in ages.items() if age > max_age_hours(tf)}
+        if stale:
+            detail = ", ".join(f"{tf} {age:.1f}h > {max_age_hours(tf):.0f}h"
+                               for tf, age in stale.items())
+            problems.append(f"{name}: stale ({detail})")
+            print(f"[data_fetcher] Source '{name}' is STALE ({detail})")
             continue
 
-        print(f"[data_fetcher] Using source '{name}' (freshest candle {age:.1f}h old)")
+        print(f"[data_fetcher] Using source '{name}' (candle age: " +
+              ", ".join(f"{tf} {age:.1f}h" for tf, age in ages.items()) + ")")
         for tf_label, df in data.items():
             print(f"  {tf_label}: {len(df)} bars "
                   f"({df['time'].iloc[0]} -> {df['time'].iloc[-1]})")

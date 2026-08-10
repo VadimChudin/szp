@@ -12,6 +12,10 @@
 #property strict
 #property indicator_chart_window
 
+// Номер сборки подставляет CI при компиляции: без него нельзя было понять,
+// какая версия индикатора реально загружена в терминале клиента.
+#define SZP_BUILD "dev"
+
 //--- Настройки (Input Parameters) ------------------------------------
 input int      RefreshSeconds   = 10;        // Интервал обновления (сек)
 input color    ZoneColorStrong  = clrGold;   // Цвет сильных зон (Score >= 11)
@@ -37,9 +41,11 @@ datetime       lastFileTime     = 0;         // Время последнего 
 datetime       lastAlertTime    = 0;         // Время последнего алерта
 string         zonePrefix       = "SZP_";    // Префикс объектов индикатора
 string         accumPrefix      = "SZP_ACC_"; // Префикс участков набора
+string         buildPrefix      = "SZP_VER_"; // Префикс метки сборки
 int            currentZoneCount = 0;         // Текущее количество зон на графике
 int            accumCount       = 0;         // Количество участков набора
 int            accumReported    = -1;        // Последнее залогированное количество
+datetime       zonesCalcTime    = 0;         // Когда Python посчитал зоны
 
 // Храним данные зон в массивах
 double         zonePrices[];
@@ -47,6 +53,56 @@ double         zoneTops[];
 double         zoneBottoms[];
 int            zoneScores[];
 string         zoneLabels[];
+
+
+//+------------------------------------------------------------------+
+//| Время вида "2026-06-17T22:25:31.123456" → datetime.               |
+//+------------------------------------------------------------------+
+datetime ParseIsoTime(string iso)
+{
+   if(StringLen(iso) < 19) return 0;
+   string s = StringSubstr(iso, 0, 19);
+   StringReplace(s, "T", " ");
+   return StringToTime(s);
+}
+
+
+//+------------------------------------------------------------------+
+//| Метка в углу графика: версия сборки, число зон/участков и     |
+//| возраст данных. Старый JSON подсвечивается красным: именно так  |
+//| выглядит «зоны те же» — приложение больше не считает.        |
+//+------------------------------------------------------------------+
+void DrawBuildStamp()
+{
+   string text = "SZP v" + SZP_BUILD;
+   color  clr  = C'110,110,110';
+
+   if(zonesCalcTime > 0)
+   {
+      int ageMin = (int)((TimeLocal() - zonesCalcTime) / 60);
+      string age = IntegerToString(ageMin) + "m";
+      if(ageMin >= 60) age = IntegerToString(ageMin / 60) + "h";
+      text = text + "  |  zones: " + IntegerToString(currentZoneCount) +
+             "  acc: " + IntegerToString(accumCount) + "  " + age + " ago";
+      if(ageMin > 360) clr = clrTomato;
+   }
+   else
+      text = text + "  |  no zones file";
+
+   string name = buildPrefix + "STAMP";
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 8);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 6);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 7);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   }
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+}
 
 
 //+------------------------------------------------------------------+
@@ -85,7 +141,10 @@ int OnInit()
    ObjectSetInteger(0, btnName, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, btnName, OBJPROP_STATE, false);
    
-   Print("[SmartZones] Indicator initialized. Reading zones from MQL4/Files/", ZonesFilePath);
+   DrawBuildStamp();
+
+   Print("[SmartZones] Indicator initialized, build v", SZP_BUILD,
+         ". Reading zones from MQL4/Files/", ZonesFilePath);
    Print("[SmartZones] Refresh interval: ", RefreshSeconds, " seconds");
    Print("[SmartZones] Footprint button [FP] created");
    
@@ -101,8 +160,9 @@ void OnDeinit(const int reason)
    // Удаляем все объекты индикатора
    DeleteAllZoneObjects();
    DeleteAccumulationObjects();
-   // Удаляем кнопку FP
+   // Удаляем кнопку FP и метку сборки
    ObjectDelete(0, zonePrefix + "FP_BTN");
+   ObjectDelete(0, buildPrefix + "STAMP");
    EventKillTimer();
    Print("[SmartZones] Indicator removed. Cleaned up ", currentZoneCount, " zones.");
 }
@@ -248,6 +308,7 @@ void LoadAccumulationFromFile()
       Print("[SmartZones] Accumulation boxes drawn: ", accumCount);
       accumReported = accumCount;
    }
+   DrawBuildStamp();
    ChartRedraw();
 }
 
@@ -343,7 +404,10 @@ void LoadZonesFromFile()
    
    // Рисуем зоны
    DrawAllZones();
-   
+
+   zonesCalcTime = ParseIsoTime(ExtractString(content, "\"calculated_at\":", 0));
+   DrawBuildStamp();
+
    ChartRedraw();
    Print("[SmartZones] Loaded and drawn ", currentZoneCount, " zones");
 }
@@ -632,6 +696,7 @@ void DeleteAllZoneObjects()
       string name = ObjectName(i);
       // Участки набора живут своей жизнью (свой файл и своя перерисовка)
       if(StringFind(name, accumPrefix) == 0) continue;
+      if(StringFind(name, buildPrefix) == 0) continue;
       if(StringFind(name, zonePrefix) == 0)
       {
          ObjectDelete(name);
