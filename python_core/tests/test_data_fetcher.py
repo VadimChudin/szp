@@ -37,6 +37,41 @@ class TestDataAgeHours:
         assert data_age_hours(pd.DataFrame()) == float("inf")
 
 
+class TestMaxAgeHours:
+    def test_daily_bar_gets_full_day_of_slack(self):
+        """Время свечи — её открытие: D1 к вечеру «старше» общего лимита."""
+        assert data_fetcher.max_age_hours("D1") == config.MAX_DATA_AGE_HOURS + 24
+        assert data_fetcher.max_age_hours("H1") == config.MAX_DATA_AGE_HOURS + 1
+
+    def test_daily_candle_from_this_morning_is_fresh(self, monkeypatch):
+        """Полдня данные считались протухшими из-за дневной свечи."""
+        monkeypatch.setattr(data_fetcher, "_source_chain", lambda symbol: [
+            ("mt5", lambda: {**_dataset(1), "D1": _frame(20)}),
+        ])
+        assert set(fetch_all_timeframes("XAUUSD")) == set(config.TIMEFRAMES)
+
+
+class TestMarketReferenceTime:
+    def test_trading_day_uses_now(self):
+        now = datetime(2026, 6, 17, 15, 0)  # среда
+        assert data_fetcher.market_reference_time(now) == now
+
+    def test_weekend_falls_back_to_friday_close(self):
+        for now in (datetime(2026, 6, 20, 12, 0),   # суббота
+                    datetime(2026, 6, 21, 12, 0),   # воскресенье
+                    datetime(2026, 6, 19, 23, 0)):  # пятница после закрытия
+            assert data_fetcher.market_reference_time(now) == datetime(2026, 6, 19, 21, 0)
+
+    def test_weekend_data_is_not_stale(self, monkeypatch):
+        """В выходные свечи «стареют» на десятки часов — это не повод не считать."""
+        saturday = datetime(2026, 6, 20, 12, 0)
+        friday_close = datetime(2026, 6, 19, 20, 0)
+        frame = _frame(0)
+        frame["time"] = pd.date_range(end=friday_close, periods=3, freq="1h")
+        assert data_fetcher.data_age_hours(
+            frame, data_fetcher.market_reference_time(saturday)) == pytest.approx(1, abs=0.1)
+
+
 class TestFetchAllTimeframes:
     def test_raises_when_no_source_works(self, monkeypatch):
         """Без реальных данных поднимается ошибка, а не синтетика."""
