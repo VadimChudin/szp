@@ -28,6 +28,30 @@ jobs:
         with:
           python-version: '3.11'
 
+      # ── 0. Номер сборки → приложение, индикаторы, установщик ────────
+      # Без этого все сборки выглядели одинаково (версия 1.1 в установщике),
+      # и проверить, какая версия стоит у клиента, было невозможно.
+      - name: Stamp build version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $ver = $env:GITHUB_REF_NAME -replace '^v', ''
+          } else {
+            $ver = 'dev-' + $env:GITHUB_SHA.Substring(0, 7)
+          }
+          Write-Host "Build version: $ver"
+          "APP_VER=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Set-Content -Path 'python_core\build_version.txt' -Value $ver -Encoding utf8 -NoNewline
+          Get-ChildItem -Path mql -Recurse -Include *.mq4, *.mq5 | ForEach-Object {
+            $text = Get-Content $_.FullName -Raw
+            if ($text -match '#define SZP_BUILD "dev"') {
+              $text.Replace('#define SZP_BUILD "dev"', "#define SZP_BUILD `"$ver`"") |
+                Set-Content $_.FullName -Encoding utf8 -NoNewline
+              Write-Host "Stamped $($_.Name)"
+            }
+          }
+
       # ── 1. MetaEditor (ставится вместе с MetaTrader 5) ──────────────────
       - name: Install MetaTrader 5 (provides MetaEditor)
         shell: pwsh
@@ -186,6 +210,7 @@ jobs:
             --hidden-import pystray `
             --hidden-import PIL `
             --add-data "$repo\python_core\brokers.json;." `
+            --add-data "$repo\python_core\build_version.txt;." `
             --add-data "$repo\data_bridge\footprint_1h.html;data_bridge" `
             --add-data "$repo\data_bridge\footprint_4h.html;data_bridge" `
             --add-data "$repo\data_bridge\footprint_1d.html;data_bridge" `
@@ -209,18 +234,19 @@ jobs:
             $found = Get-ChildItem 'C:\Program Files (x86)','C:\Program Files' -Recurse -Filter 'ISCC.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($found) { $iscc = $found.FullName } else { Write-Error 'ISCC.exe not found'; exit 1 }
           }
-          & $iscc "$PWD\setup.iss"
-          if (-not (Test-Path "$PWD\Output\SmartZonesPro_Setup.exe")) {
+          & $iscc "/DAppVer=$env:APP_VER" "$PWD\setup.iss"
+          $out = "$PWD\Output\SmartZonesPro_Setup_v$env:APP_VER.exe"
+          if (-not (Test-Path $out)) {
             Write-Error 'Installer output missing'
             exit 1
           }
-          Write-Host "Installer built: Output\SmartZonesPro_Setup.exe ($((Get-Item "$PWD\Output\SmartZonesPro_Setup.exe").Length) bytes)"
+          Write-Host "Installer built: $out ($((Get-Item $out).Length) bytes)"
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: SmartZonesPro_Setup
-          path: Output/SmartZonesPro_Setup.exe
+          path: Output/SmartZonesPro_Setup_*.exe
           if-no-files-found: error
 
       # ── 5. Публикация в Releases (только по тегу v*) ─────────────────────
@@ -228,5 +254,5 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: Output/SmartZonesPro_Setup.exe
+          files: Output/SmartZonesPro_Setup_*.exe
           fail_on_unmatched_files: true

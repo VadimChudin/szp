@@ -31,6 +31,7 @@ python -m PyInstaller --noconfirm --onedir --windowed --name "SmartZonesPro" ^
   --hidden-import pystray ^
   --hidden-import PIL ^
   --add-data "%REPO%\python_core\brokers.json;." ^
+  --add-data "%REPO%\python_core\build_version.txt;." ^
   --add-data "%REPO%\data_bridge\footprint_1h.html;data_bridge" ^
   --add-data "%REPO%\data_bridge\footprint_4h.html;data_bridge" ^
   --add-data "%REPO%\data_bridge\footprint_1d.html;data_bridge" ^
@@ -60,7 +61,9 @@ if "%ISCC%"=="" (
 :have_iscc
 echo Using ISCC: %ISCC%
 
-"%ISCC%" "%REPO%\setup.iss"
+REM Версию можно задать: set "APP_VER=1.5" перед запуском (по умолчанию dev).
+if "%APP_VER%"=="" set "APP_VER=dev"
+"%ISCC%" "/DAppVer=%APP_VER%" "%REPO%\setup.iss"
 
 echo ==============================================
 echo DONE! Check 'Output' folder for SmartZonesPro_Setup.exe

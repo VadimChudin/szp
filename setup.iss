@@ -4,17 +4,25 @@
 
 #define RepoDir SourcePath
 
+; Версия сборки: CI передаёт её как /DAppVer=1.5. Раньше номер был захардкожен
+; и все установщики выглядели как 1.1 — клиент не мог отличить новую сборку от
+; старой, а мы не могли проверить, что у него стоит.
+#ifndef AppVer
+  #define AppVer "dev"
+#endif
+
 [Setup]
 AppId={{7B4C9E2A-3F1D-4A6B-9C2E-5D8F0A1B2C3D}
 AppName=Smart Zones Pro
-AppVersion=1.1
+AppVersion={#AppVer}
+AppVerName=Smart Zones Pro {#AppVer}
 DefaultDirName={autopf}\SmartZonesPro
 DefaultGroupName=Smart Zones Pro
 UninstallDisplayIcon={app}\SmartZonesPro.exe
 Compression=lzma2
 SolidCompression=yes
 OutputDir={#RepoDir}Output
-OutputBaseFilename=SmartZonesPro_Setup
+OutputBaseFilename=SmartZonesPro_Setup_v{#AppVer}
 
 [Files]
 Source: "{#RepoDir}dist\SmartZonesPro\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

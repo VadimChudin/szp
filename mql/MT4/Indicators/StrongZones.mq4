@@ -12,6 +12,10 @@
 #property strict
 #property indicator_chart_window
 
+// Номер сборки подставляет CI при компиляции: без него нельзя было понять,
+// какая версия индикатора реально загружена в терминале клиента.
+#define SZP_BUILD "dev"
+
 //--- Настройки (Input Parameters) ------------------------------------
 input int      RefreshSeconds   = 10;        // Интервал обновления (сек)
 input color    ZoneColorStrong  = clrGold;   // Цвет сильных зон (Score >= 11)
@@ -37,6 +41,7 @@ datetime       lastFileTime     = 0;         // Время последнего 
 datetime       lastAlertTime    = 0;         // Время последнего алерта
 string         zonePrefix       = "SZP_";    // Префикс объектов индикатора
 string         accumPrefix      = "SZP_ACC_"; // Префикс участков набора
+string         buildPrefix      = "SZP_VER_"; // Префикс метки сборки
 int            currentZoneCount = 0;         // Текущее количество зон на графике
 int            accumCount       = 0;         // Количество участков набора
 int            accumReported    = -1;        // Последнее залогированное количество
@@ -47,6 +52,25 @@ double         zoneTops[];
 double         zoneBottoms[];
 int            zoneScores[];
 string         zoneLabels[];
+
+
+//+------------------------------------------------------------------+
+//| Метка сборки в углу графика: клиент видит, какая версия работает. |
+//+------------------------------------------------------------------+
+void DrawBuildStamp()
+{
+   string name = buildPrefix + "STAMP";
+   ObjectDelete(0, name);
+   ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_LOWER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 8);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 6);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, C'110,110,110');
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 7);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetString(0, name, OBJPROP_TEXT, "SZP v" + SZP_BUILD);
+}
 
 
 //+------------------------------------------------------------------+
@@ -85,7 +109,10 @@ int OnInit()
    ObjectSetInteger(0, btnName, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, btnName, OBJPROP_STATE, false);
    
-   Print("[SmartZones] Indicator initialized. Reading zones from MQL4/Files/", ZonesFilePath);
+   DrawBuildStamp();
+
+   Print("[SmartZones] Indicator initialized, build v", SZP_BUILD,
+         ". Reading zones from MQL4/Files/", ZonesFilePath);
    Print("[SmartZones] Refresh interval: ", RefreshSeconds, " seconds");
    Print("[SmartZones] Footprint button [FP] created");
    
@@ -101,8 +128,9 @@ void OnDeinit(const int reason)
    // Удаляем все объекты индикатора
    DeleteAllZoneObjects();
    DeleteAccumulationObjects();
-   // Удаляем кнопку FP
+   // Удаляем кнопку FP и метку сборки
    ObjectDelete(0, zonePrefix + "FP_BTN");
+   ObjectDelete(0, buildPrefix + "STAMP");
    EventKillTimer();
    Print("[SmartZones] Indicator removed. Cleaned up ", currentZoneCount, " zones.");
 }
@@ -632,6 +660,7 @@ void DeleteAllZoneObjects()
       string name = ObjectName(i);
       // Участки набора живут своей жизнью (свой файл и своя перерисовка)
       if(StringFind(name, accumPrefix) == 0) continue;
+      if(StringFind(name, buildPrefix) == 0) continue;
       if(StringFind(name, zonePrefix) == 0)
       {
          ObjectDelete(name);
