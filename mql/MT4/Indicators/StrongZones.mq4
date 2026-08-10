@@ -18,7 +18,10 @@ input color    ZoneColorStrong  = clrGold;   // Цвет сильных зон (
 input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон (Score 9-10)
 input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
 input int      ZoneLineWidth    = 2;         // Толщина линии зоны
-input bool     ShowLabels       = true;      // Показывать только цену зоны
+// Параметр переименован из ShowLabels: терминал хранит значения инпутов в
+// профиле графика, и у клиентов оставался ShowLabels=false из старой сборки —
+// цены на уровнях не появлялись даже после обновления индикатора.
+input bool     ShowPriceLabels  = true;      // Показывать только цену зоны
 input bool     ShowRectangles   = true;      // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;     // Показывать бейдж со скором зоны
 input bool     EnableAlerts     = true;      // Алерты при касании зоны
@@ -36,6 +39,7 @@ string         zonePrefix       = "SZP_";    // Префикс объектов 
 string         accumPrefix      = "SZP_ACC_"; // Префикс участков набора
 int            currentZoneCount = 0;         // Текущее количество зон на графике
 int            accumCount       = 0;         // Количество участков набора
+int            accumReported    = -1;        // Последнее залогированное количество
 
 // Храним данные зон в массивах
 double         zonePrices[];
@@ -239,6 +243,11 @@ void LoadAccumulationFromFile()
       accumCount++;
    }
 
+   if(accumCount != accumReported)
+   {
+      Print("[SmartZones] Accumulation boxes drawn: ", accumCount);
+      accumReported = accumCount;
+   }
    ChartRedraw();
 }
 
@@ -517,7 +526,7 @@ void DrawSingleZone(int index)
    }
    
    // ── 3. Текстовая подпись зоны ────────────────────────────────────
-   if(ShowLabels)
+   if(ShowPriceLabels)
    {
       string textName = baseName + "_text";
       datetime labelTime = Time[0] + PeriodSeconds() * 12;

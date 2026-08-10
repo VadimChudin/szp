@@ -187,8 +187,25 @@ class TestProcessPersistentZones:
         assert remaining == []
         assert result == []
 
-    def test_far_zone_not_shown(self, tmp_path):
-        """Зона далеко от текущей цены не выводится (график ушёл)."""
+    def test_far_archived_zone_not_shown(self, tmp_path):
+        """Архивная зона далеко от текущей цены не выводится (график ушёл)."""
+        from datetime import datetime, timedelta
+        fake_db = tmp_path / "zones_db.json"
+        far = 2400.0 * (1 + config.MAX_ZONE_DISTANCE_PCT / 100.0 * 2)
+        seen = (datetime.now() - timedelta(days=1)).isoformat()
+        archived = Zone(price=far, score=15, sources=["H4"], archived_at=seen)
+        data = {"H1": pd.DataFrame({"close": [2400.0], "open": [2400.0],
+                                    "high": [2401.0], "low": [2399.0],
+                                    "time": pd.date_range("2024-01-01", periods=1)})}
+
+        with patch("persistent_zones.DB_FILE", fake_db):
+            save_db([archived])
+            result = process_persistent_zones([Zone(price=2400.0, score=13, sources=["H4"])], data)
+
+        assert [z.price for z in result] == [2400.0]
+
+    def test_far_fresh_zone_is_shown(self, tmp_path):
+        """Свежую зону детектора нельзя отбрасывать по удалённости от цены."""
         fake_db = tmp_path / "zones_db.json"
         far = 2400.0 * (1 + config.MAX_ZONE_DISTANCE_PCT / 100.0 * 2)
         current = [Zone(price=far, score=15, sources=["H4"]),
@@ -200,7 +217,7 @@ class TestProcessPersistentZones:
         with patch("persistent_zones.DB_FILE", fake_db):
             result = process_persistent_zones(current, data)
 
-        assert [z.price for z in result] == [2400.0]
+        assert [z.price for z in result] == [far, 2400.0]
 
     def test_fresh_zones_have_priority_over_historic(self, tmp_path):
         """Свежие зоны не вытесняются архивными с более высоким score."""

@@ -90,3 +90,19 @@ class TestBuildOutput:
 
     def test_missing_timeframe_is_safe(self):
         assert build_output({})["count"] == 0
+
+
+class TestBoxGeometry:
+    def test_box_covers_last_candle_and_has_height(self):
+        """Правый край — конец последней свечи, высота не нулевая."""
+        n = config.VOLUME_LOOKBACK + 20
+        volumes = [1000.0] * n
+        ranges = [2.0] * n
+        for i in (n - 3, n - 2, n - 1):
+            volumes[i] = 3000.0
+            ranges[i] = 0.4
+        df = _candles(volumes, ranges)
+        box = detect_accumulations(df)[0]
+        bar = pd.Timedelta(hours=1)
+        assert box.time_to == pd.Timestamp(df["time"].iloc[-1]) + bar
+        assert box.top > box.bottom

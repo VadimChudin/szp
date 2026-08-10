@@ -152,19 +152,29 @@ MAX_DATA_AGE_HOURS = _env_float("MAX_DATA_AGE_HOURS", 12.0)
 # «Вечные» (архивные) зоны не должны висеть бесконечно: снимаем их по сроку
 # жизни и по удалению от текущей цены. Свежие зоны всегда приоритетнее.
 PERSISTENT_ZONE_MAX_AGE_DAYS = _env_float("PERSISTENT_ZONE_MAX_AGE_DAYS", 14.0)
-MAX_ZONE_DISTANCE_PCT = _env_float("MAX_ZONE_DISTANCE_PCT", 5.0)
+# Фильтр удалённости применяется только к архивным зонам: свежие зоны детектор
+# только что нашёл по реальным свечам, отбрасывать их по расстоянию нельзя —
+# иначе на графике вместо MAX_ZONES_ON_CHART остаётся 2-3 уровня.
+MAX_ZONE_DISTANCE_PCT = _env_float("MAX_ZONE_DISTANCE_PCT", 10.0)
+# Пробой архивной зоны ищем только в недавней истории и требуем повторности:
+# при проверке по всей истории любая зона «сгорала» в том же пересчёте, в котором
+# была добавлена, и архив зон не работал вообще.
+PERSISTENT_BREAKOUT_LOOKBACK = _env_int("PERSISTENT_BREAKOUT_LOOKBACK", 60)
+PERSISTENT_BREAKOUT_MIN = _env_int("PERSISTENT_BREAKOUT_MIN", 2)
 
 # ── Набор позиции крупным участником ────────────────────────────────
 # Участок набора = аномально большой объём при почти стоящей цене.
 # Рисуется маленькими фиолетовыми прямоугольниками, отключается в настройках
 # индикатора (ShowAccumulation) или через ACCUMULATION_ENABLED=0.
 ACCUMULATION_ENABLED = _env_bool("ACCUMULATION_ENABLED", True)
-ACCUMULATION_TIMEFRAME = _env_str("ACCUMULATION_TIMEFRAME", "H1")
+# Считаем на H4: клиент смотрит H4, а участки по H1 занимали меньше одной свечи
+# графика и были не видны.
+ACCUMULATION_TIMEFRAME = _env_str("ACCUMULATION_TIMEFRAME", "H4")
 ACCUMULATION_WINDOW = _env_int("ACCUMULATION_WINDOW", 3)          # свечей в участке
-ACCUMULATION_VOLUME_MULT = _env_float("ACCUMULATION_VOLUME_MULT", 1.8)
+ACCUMULATION_VOLUME_MULT = _env_float("ACCUMULATION_VOLUME_MULT", 1.4)
 ACCUMULATION_MAX_RANGE_MULT = _env_float("ACCUMULATION_MAX_RANGE_MULT", 0.8)
 ACCUMULATION_LOOKBACK_BARS = _env_int("ACCUMULATION_LOOKBACK_BARS", 200)
-ACCUMULATION_MAX_BOXES = _env_int("ACCUMULATION_MAX_BOXES", 40)
+ACCUMULATION_MAX_BOXES = _env_int("ACCUMULATION_MAX_BOXES", 12)
 
 # ── ZeroMQ (для связи с MetaTrader) ─────────────────────────────────
 ZMQ_HOST = _env_str("ZMQ_HOST", "tcp://127.0.0.1")

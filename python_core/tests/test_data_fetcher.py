@@ -77,3 +77,15 @@ class TestFetchAllTimeframes:
 
         data = fetch_all_timeframes("XAUUSD")
         assert set(data) == set(config.TIMEFRAMES)
+
+
+class TestCsvEncoding:
+    def test_detects_utf16_from_mt5_collector(self, tmp_path):
+        path = tmp_path / "XAUUSD_H4.csv"
+        path.write_bytes("# broker=RoboForex\ntime,open\n".encode("utf-16"))
+        assert data_fetcher.csv_encoding(path) == "utf-16"
+
+    def test_plain_utf8_csv(self, tmp_path):
+        path = tmp_path / "XAUUSD_H4.csv"
+        path.write_text("time,open\n")
+        assert data_fetcher.csv_encoding(path) == "utf-8"
