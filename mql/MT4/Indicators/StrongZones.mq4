@@ -45,6 +45,7 @@ string         buildPrefix      = "SZP_VER_"; // Префикс метки сб�
 int            currentZoneCount = 0;         // Текущее количество зон на графике
 int            accumCount       = 0;         // Количество участков набора
 int            accumReported    = -1;        // Последнее залогированное количество
+datetime       zonesCalcTime    = 0;         // Когда Python посчитал зоны
 
 // Храним данные зон в массивах
 double         zonePrices[];
@@ -55,21 +56,52 @@ string         zoneLabels[];
 
 
 //+------------------------------------------------------------------+
-//| Метка сборки в углу графика: клиент видит, какая версия работает. |
+//| Время вида "2026-06-17T22:25:31.123456" → datetime.               |
+//+------------------------------------------------------------------+
+datetime ParseIsoTime(string iso)
+{
+   if(StringLen(iso) < 19) return 0;
+   string s = StringSubstr(iso, 0, 19);
+   StringReplace(s, "T", " ");
+   return StringToTime(s);
+}
+
+
+//+------------------------------------------------------------------+
+//| Метка в углу графика: версия сборки, число зон/участков и     |
+//| возраст данных. Старый JSON подсвечивается красным: именно так  |
+//| выглядит «зоны те же» — приложение больше не считает.        |
 //+------------------------------------------------------------------+
 void DrawBuildStamp()
 {
+   string text = "SZP v" + SZP_BUILD;
+   color  clr  = C'110,110,110';
+
+   if(zonesCalcTime > 0)
+   {
+      int ageMin = (int)((TimeLocal() - zonesCalcTime) / 60);
+      string age = IntegerToString(ageMin) + "m";
+      if(ageMin >= 60) age = IntegerToString(ageMin / 60) + "h";
+      text = text + "  |  zones: " + IntegerToString(currentZoneCount) +
+             "  acc: " + IntegerToString(accumCount) + "  " + age + " ago";
+      if(ageMin > 360) clr = clrTomato;
+   }
+   else
+      text = text + "  |  no zones file";
+
    string name = buildPrefix + "STAMP";
-   ObjectDelete(0, name);
-   ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_LOWER);
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 8);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 6);
-   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, C'110,110,110');
-   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 7);
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-   ObjectSetString(0, name, OBJPROP_TEXT, "SZP v" + SZP_BUILD);
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 8);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 6);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 7);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   }
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
 }
 
 
@@ -276,6 +308,7 @@ void LoadAccumulationFromFile()
       Print("[SmartZones] Accumulation boxes drawn: ", accumCount);
       accumReported = accumCount;
    }
+   DrawBuildStamp();
    ChartRedraw();
 }
 
@@ -371,7 +404,10 @@ void LoadZonesFromFile()
    
    // Рисуем зоны
    DrawAllZones();
-   
+
+   zonesCalcTime = ParseIsoTime(ExtractString(content, "\"calculated_at\":", 0));
+   DrawBuildStamp();
+
    ChartRedraw();
    Print("[SmartZones] Loaded and drawn ", currentZoneCount, " zones");
 }

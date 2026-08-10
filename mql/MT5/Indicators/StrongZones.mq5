@@ -43,6 +43,7 @@ string         buildPrefix      = "SZP_VER_";
 int            currentZoneCount = 0;
 int            accumCount       = 0;
 int            accumReported    = -1;
+datetime       zonesCalcTime    = 0;
 datetime       lastAlertTime    = 0;
 
 double         zonePrices[];
@@ -54,21 +55,52 @@ bool           zoneBigPlayer[];
 
 
 //+------------------------------------------------------------------+
-//| Метка сборки в углу графика: клиент видит, какая версия работает. |
+//| Время вида "2026-06-17T22:25:31.123456" → datetime.               |
+//+------------------------------------------------------------------+
+datetime ParseIsoTime(string iso)
+{
+   if(StringLen(iso) < 19) return 0;
+   string s = StringSubstr(iso, 0, 19);
+   StringReplace(s, "T", " ");
+   return StringToTime(s);
+}
+
+//+------------------------------------------------------------------+
+//| Метка в углу графика: версия сборки, число зон/участков и  |
+//| возраст данных. Старый JSON подсвечивается красным: именно   |
+//| так выглядит "зоны те же" — приложение больше не считает.  |
 //+------------------------------------------------------------------+
 void DrawBuildStamp()
 {
+   string text = "SZP v" + SZP_BUILD;
+   color  clr  = C'110,110,110';
+
+   if(zonesCalcTime > 0)
+   {
+      int ageMin = (int)((TimeLocal() - zonesCalcTime) / 60);
+      string age = ageMin < 60 ? IntegerToString(ageMin) + "m"
+                              : IntegerToString(ageMin / 60) + "h";
+      text += "  |  zones: " + IntegerToString(currentZoneCount) +
+              "  acc: " + IntegerToString(accumCount) +
+              "  " + age + " ago";
+      if(ageMin > 360) clr = clrTomato;
+   }
+   else
+      text += "  |  no zones file";
+
    string name = buildPrefix + "STAMP";
-   ObjectDelete(0, name);
-   ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_LOWER);
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 8);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 6);
-   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, C'110,110,110');
-   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 7);
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-   ObjectSetString(0, name, OBJPROP_TEXT, "SZP v" + SZP_BUILD);
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 8);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 6);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 7);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   }
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
 }
 
 //+------------------------------------------------------------------+
@@ -189,6 +221,7 @@ void LoadAccumulationFromFile()
       Print("[SmartZones MT5] Accumulation boxes drawn: ", accumCount);
       accumReported = accumCount;
    }
+   DrawBuildStamp();
    ChartRedraw(0);
 }
 
@@ -229,7 +262,9 @@ void LoadZonesFromFile()
 
    DeleteAllZoneObjects();
    ParseZonesJSON(content);
+   zonesCalcTime = ParseIsoTime(ExtractString(content, "\"calculated_at\":", 0));
    DrawAllZones();
+   DrawBuildStamp();
    ChartRedraw(0);
 }
 
