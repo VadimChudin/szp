@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import accumulation
 import applog
 import config
+import data_fetcher
 import paths
 from data_fetcher import DataUnavailableError, fetch_from_csv, fetch_all_timeframes
 from volume_filter import get_volume_flags_all_tf, calculate_delta, get_delta_at_zone
@@ -91,15 +92,37 @@ def sync_mt4_broker_data() -> bool:
         
         if src.exists():
             shutil.copy2(src, dst)
-            # Читаем заголовок для логирования
-            with open(src, 'r') as f:
-                header = f.readline().strip()
+            # Читаем заголовок для логирования (MT5 пишет CSV в UTF-16)
+            with open(src, 'r', encoding=data_fetcher.csv_encoding(src)) as f:
+                header = f.readline().strip().lstrip('\ufeff')
             print(f"[bridge] {tf}: Synced from MT4 broker ({header})")
             found = True
         else:
             print(f"[bridge] {tf}: Not found in Common/Files/ ({src.name})")
     
     return found
+
+
+def read_footprint_timeframe(flag_file: Path) -> str:
+    """Читает ТФ из флага кнопки FP.
+
+    MT5-советник пишет файл в UTF-16 (BOM + нулевые байты между символами),
+    из-за чего запуск падал с «embedded null character». Декодируем оба
+    варианта и оставляем только известные значения.
+    """
+    try:
+        raw = flag_file.read_bytes()
+    except OSError as e:
+        print(f"[bridge] WARN: Cannot read footprint flag: {e}")
+        return "1h"
+
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in raw:
+        text = raw.decode("utf-16", errors="ignore")
+    else:
+        text = raw.decode("utf-8", errors="ignore")
+
+    text = text.replace("\x00", "").replace("\ufeff", "").strip().lower()
+    return text if text in ("1h", "4h", "1d") else "1h"
 
 
 def refresh_data_source():
@@ -334,9 +357,7 @@ def run_monitor_loop(interval_seconds: int = 5):
             
             if common_fp_flag.exists():
                 print(f"\n[bridge] MT4 requested Footprint window.")
-                with open(common_fp_flag, 'r') as f:
-                    tf = f.read().strip()
-                if not tf: tf = "1h"
+                tf = read_footprint_timeframe(common_fp_flag)
                 common_fp_flag.unlink()
                 
                 global is_fp_downloading

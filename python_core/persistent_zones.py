@@ -40,13 +40,13 @@ def save_db(zones: list[Zone]):
         print(f"[persistent] ERROR: Failed to save DB to {DB_FILE}")
 
 def get_h4_closes(all_data: dict[str, pd.DataFrame]) -> list[tuple[float, float]]:
-    """(open, close) по ВСЕЙ доступной истории H4.
+    """(open, close) по недавней истории H4.
 
-    Раньше смотрели только последние 15 свечей, поэтому зона, пробитая раньше,
-    никогда не снималась и висела на графике вечно.
+    По всей истории считать нельзя: зона сгорала сразу в том же пересчёте,
+    в котором была архивирована — цена когда-то проходила через любой уровень.
     """
     if "H4" in all_data and not all_data["H4"].empty:
-        df = all_data["H4"]
+        df = all_data["H4"].tail(config.PERSISTENT_BREAKOUT_LOOKBACK)
         return list(zip(df['open'], df['close']))
     return []
 
@@ -104,6 +104,11 @@ def process_persistent_zones(current_zones: list[Zone], all_data: dict[str, pd.D
     valid_db_zones = []
 
     for dz in db_zones:
+        # Зона, подтверждённая детектором в этом пересчёте, актуальна по определению.
+        if dz.archived_at == now_iso:
+            valid_db_zones.append(dz)
+            continue
+
         if not dz.archived_at:
             # Зоны из старых версий БД без метки времени — считаем увиденными
             # сейчас, иначе они никогда не протухнут.
@@ -120,7 +125,7 @@ def process_persistent_zones(current_zones: list[Zone], all_data: dict[str, pd.D
             elif op > zone_top and cl < zone_bottom:    # Full body breakout Down
                 breakouts += 1
 
-        if breakouts >= 1:
+        if breakouts >= config.PERSISTENT_BREAKOUT_MIN:
             print(f"[persistent] Zone at ${dz.price:.2f} burned (H4 body broke it {breakouts}x)")
             continue
 
@@ -138,10 +143,9 @@ def process_persistent_zones(current_zones: list[Zone], all_data: dict[str, pd.D
     # 3. Свежие зоны всегда приоритетнее архивных: раньше общий список
     # сортировался по score и резался до MAX_ZONES_ON_CHART, поэтому старые
     # архивные зоны вытесняли свежие и на графике оставались только протухшие.
-    fresh = sorted(
-        (z for z in current_zones if not is_too_far(z, current_price)),
-        key=lambda z: z.score, reverse=True,
-    )
+    # Свежие зоны не фильтруем по удалённости: детектор только что посчитал их
+    # по текущим свечам, и отброс по 5% съедал половину уровней.
+    fresh = sorted(current_zones, key=lambda z: z.score, reverse=True)
 
     historic = []
     for dz in valid_db_zones:

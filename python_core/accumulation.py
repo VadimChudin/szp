@@ -62,7 +62,15 @@ def detect_accumulations(df: pd.DataFrame) -> list[AccumulationBox]:
     candle_range = (data["high"] - data["low"]).astype(float)
     typical_range = candle_range.rolling(config.VOLUME_LOOKBACK, min_periods=2).median()
 
+    # Ширина свечи: правый край прямоугольника должен закрывать последнюю
+    # свечу участка, а не заканчиваться на её открытии.
+    bar_delta = pd.to_datetime(data["time"]).diff().median()
+    if pd.isna(bar_delta):
+        bar_delta = pd.Timedelta(0)
+
     raw: list[AccumulationBox] = []
+    best_vol_ratio = 0.0
+    best_range_ratio = 0.0
     for end in range(window - 1, len(data)):
         start = end - window + 1
         chunk = data.iloc[start:end + 1]
@@ -73,24 +81,41 @@ def detect_accumulations(df: pd.DataFrame) -> list[AccumulationBox]:
             continue
 
         chunk_volume = float(volume.iloc[start:end + 1].sum())
-        if chunk_volume < expected_volume * config.ACCUMULATION_VOLUME_MULT:
-            continue
-
+        vol_ratio = chunk_volume / expected_volume
         chunk_range = float(chunk["high"].max() - chunk["low"].min())
-        if chunk_range > typical * window * config.ACCUMULATION_MAX_RANGE_MULT:
+        range_ratio = chunk_range / (typical * window)
+        best_vol_ratio = max(best_vol_ratio, vol_ratio)
+        if best_range_ratio == 0.0 or range_ratio < best_range_ratio:
+            best_range_ratio = range_ratio
+
+        if vol_ratio < config.ACCUMULATION_VOLUME_MULT:
+            continue
+        if range_ratio > config.ACCUMULATION_MAX_RANGE_MULT:
             continue
 
         bodies_top = float(chunk[["open", "close"]].max(axis=1).max())
         bodies_bottom = float(chunk[["open", "close"]].min(axis=1).min())
+        # Плоский участок даёт прямоугольник нулевой высоты (невидим на графике).
+        min_height = typical * 0.35
+        if bodies_top - bodies_bottom < min_height:
+            mid = (bodies_top + bodies_bottom) / 2.0
+            bodies_top = mid + min_height / 2.0
+            bodies_bottom = mid - min_height / 2.0
         raw.append(AccumulationBox(
             time_from=chunk["time"].iloc[0],
-            time_to=chunk["time"].iloc[-1],
+            time_to=pd.Timestamp(chunk["time"].iloc[-1]) + bar_delta,
             top=bodies_top,
             bottom=bodies_bottom,
-            volume_ratio=chunk_volume / expected_volume,
+            volume_ratio=vol_ratio,
         ))
 
-    return _merge(raw)[-config.ACCUMULATION_MAX_BOXES:]
+    boxes = _merge(raw)[-config.ACCUMULATION_MAX_BOXES:]
+    # Диагностика в клиентский лог: без неё непонятно, пороги строгие или
+    # участков набора действительно нет.
+    print(f"[accumulation] {len(data)} bars, candidates={len(raw)}, boxes={len(boxes)} "
+          f"(best vol x{best_vol_ratio:.2f} >= x{config.ACCUMULATION_VOLUME_MULT}, "
+          f"tightest range x{best_range_ratio:.2f} <= x{config.ACCUMULATION_MAX_RANGE_MULT})")
+    return boxes
 
 
 def _merge(boxes: Iterable[AccumulationBox]) -> list[AccumulationBox]:

@@ -130,6 +130,15 @@ def fetch_from_mt5(symbol: str, timeframe_str: str, bars: int) -> pd.DataFrame:
     return df
 
 
+def csv_encoding(csv_path: Path) -> str:
+    """MT5-советник пишет CSV в UTF-16 — без этого файл не парсится."""
+    with open(csv_path, "rb") as f:
+        head = f.read(4)
+    if head.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return "utf-16"
+    return "utf-8"
+
+
 def fetch_from_csv(symbol: str, timeframe_label: str) -> pd.DataFrame:
     """
     Загружает свечи из CSV-файла.
@@ -143,11 +152,13 @@ def fetch_from_csv(symbol: str, timeframe_label: str) -> pd.DataFrame:
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
 
+    encoding = csv_encoding(csv_path)
+
     # Читаем с пропуском комментариев (# broker=..., # symbol=...)
-    df = pd.read_csv(csv_path, parse_dates=['time'], comment='#')
-    
+    df = pd.read_csv(csv_path, parse_dates=['time'], comment='#', encoding=encoding)
+
     # Логируем источник данных
-    with open(csv_path, 'r') as f:
+    with open(csv_path, 'r', encoding=encoding) as f:
         first_line = f.readline().strip()
     if first_line.startswith('#'):
         print(f"  {timeframe_label}: Loaded from BROKER ({first_line})")
