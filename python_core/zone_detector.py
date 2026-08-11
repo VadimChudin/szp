@@ -430,13 +430,77 @@ def detect_zones(
 
     strong_zones.sort(key=lambda z: z.score, reverse=True)
 
-    # Ограничиваем количество зон
-    strong_zones = strong_zones[:config.MAX_ZONES_ON_CHART]
+    # ── Шаг 4.7: Зоны нужны и над ценой, и под ней ─────────────────────
+    weak_pool = [z for z in zones
+                 if config.FALLBACK_MIN_ZONE_SCORE <= z.score < config.MIN_ZONE_SCORE]
+    if config.REQUIRE_H4_ANCHOR:
+        weak_pool = [z for z in weak_pool if config.PRIMARY_TIMEFRAME in z.sources]
+    selected = balance_around_price(strong_zones, weak_pool, current_price(data))
 
     print(f"[zone_detector] Found {len(zones)} raw clusters -> "
-          f"{len(strong_zones)} strong zones (score >= {config.MIN_ZONE_SCORE})")
+          f"{len(selected)} strong zones (score >= {config.MIN_ZONE_SCORE})")
 
-    return strong_zones
+    return selected
+
+
+def current_price(data: dict) -> float | None:
+    """Последняя цена закрытия (H1 точнее всего отражает текущий рынок)."""
+    for tf in ("H1", config.PRIMARY_TIMEFRAME, "D1"):
+        df = data.get(tf)
+        if df is not None and not df.empty and "close" in df.columns:
+            return float(df["close"].iloc[-1])
+    return None
+
+
+def balance_around_price(strong: list[Zone], weak: list[Zone],
+                         price: float | None) -> list[Zone]:
+    """Отбирает зоны так, чтобы уровни были и выше, и ниже текущей цены.
+
+    Отбор только по score оставлял все зоны позади цены: после сильного
+    движения вверх сверху не было ни одного уровня, и клиент видел «все зоны
+    внизу». Сначала резервируем места под каждую сторону (при нехватке сильных
+    зон добираем лучших слабых кандидатов), затем добиваем список по score.
+    """
+    limit = config.MAX_ZONES_ON_CHART
+    if price is None or price <= 0:
+        return strong[:limit]
+
+    def side(zones: list[Zone], above: bool) -> list[Zone]:
+        picked = [z for z in zones if (z.price > price) == above]
+        picked.sort(key=lambda z: (z.score, -abs(z.price - price)), reverse=True)
+        return picked
+
+    merge_dist = config.CLUSTER_TOLERANCE * 3.0
+
+    def add(zone: Zone, into: list[Zone]) -> bool:
+        # Слабые кандидаты не проходили слияние близких уровней, поэтому
+        # проверяем расстояние вручную — иначе рядом появятся два одинаковых.
+        if any(abs(zone.price - z.price) <= merge_dist for z in into):
+            return False
+        into.append(zone)
+        return True
+
+    selected: list[Zone] = []
+    quota = min(config.MIN_ZONES_PER_SIDE, limit // 2)
+    for above in (True, False):
+        strong_side = side(strong, above)
+        # Слабые кандидаты идут в дело, только если сильных зон с этой стороны
+        # нет вовсе: иначе они просто добавляют шум, которого клиент не хочет.
+        candidates = strong_side if strong_side else side(weak, above)
+        taken = 0
+        for zone in candidates:
+            if taken >= quota:
+                break
+            if add(zone, selected):
+                taken += 1
+
+    for zone in strong:
+        if len(selected) >= limit:
+            break
+        add(zone, selected)
+
+    selected.sort(key=lambda z: z.score, reverse=True)
+    return selected[:limit]
 
 
 if __name__ == "__main__":

@@ -114,6 +114,13 @@ ROUND_LEVEL_STEP = 50.0          # Шаг круглого уровня ($50 д�
 
 # ── Ограничение вывода ────────────────────────────────────────────────
 MAX_ZONES_ON_CHART = _env_int("MAX_ZONES_ON_CHART", 5)
+# Сколько зон гарантированно показывать по каждую сторону от цены. После
+# сильного движения все сильные уровни остаются позади цены, и график выглядит
+# пустым сверху — торговать не от чего.
+MIN_ZONES_PER_SIDE = _env_int("MIN_ZONES_PER_SIDE", 2)
+# Запасной порог: если с одной стороны сильных зон нет, берём лучшие из более
+# слабых кандидатов (только чтобы заполнить пустую сторону).
+FALLBACK_MIN_ZONE_SCORE = _env_int("FALLBACK_MIN_ZONE_SCORE", 7)
 ZONE_COLOR_STRONG = "#FF0000"    # Ярко-красный для сильных зон (score >= 9)
 ZONE_COLOR_MEDIUM = "#FF4D4D"    # Средне-красный (score 7-8)
 ZONE_COLOR_WEAK   = "#FF9999"    # Бледно-красный (score < 7)
@@ -175,6 +182,11 @@ ACCUMULATION_VOLUME_MULT = _env_float("ACCUMULATION_VOLUME_MULT", 1.4)
 ACCUMULATION_MAX_RANGE_MULT = _env_float("ACCUMULATION_MAX_RANGE_MULT", 0.8)
 ACCUMULATION_LOOKBACK_BARS = _env_int("ACCUMULATION_LOOKBACK_BARS", 200)
 ACCUMULATION_MAX_BOXES = _env_int("ACCUMULATION_MAX_BOXES", 12)
+# Если ни один участок не прошёл пороги (у разных брокеров совершенно разный
+# характер tick_volume), показываем лучшие участки по отношению объёма к ходу
+# цены — иначе фиолетовых прямоугольников у клиента не появляется вообще.
+ACCUMULATION_FALLBACK_BOXES = _env_int("ACCUMULATION_FALLBACK_BOXES", 3)
+ACCUMULATION_FALLBACK_MIN_VOL = _env_float("ACCUMULATION_FALLBACK_MIN_VOL", 1.05)
 
 # ── ZeroMQ (для связи с MetaTrader) ─────────────────────────────────
 ZMQ_HOST = _env_str("ZMQ_HOST", "tcp://127.0.0.1")

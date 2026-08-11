@@ -69,6 +69,9 @@ def detect_accumulations(df: pd.DataFrame) -> list[AccumulationBox]:
         bar_delta = pd.Timedelta(0)
 
     raw: list[AccumulationBox] = []
+    # Кандидаты «почти прошедшие» пороги: у разных брокеров tick_volume ведёт
+    # себя по-разному, и фиксированные пороги давали ровно 0 участков.
+    runners_up: list[tuple[float, AccumulationBox]] = []
     best_vol_ratio = 0.0
     best_range_ratio = 0.0
     for end in range(window - 1, len(data)):
@@ -88,9 +91,11 @@ def detect_accumulations(df: pd.DataFrame) -> list[AccumulationBox]:
         if best_range_ratio == 0.0 or range_ratio < best_range_ratio:
             best_range_ratio = range_ratio
 
-        if vol_ratio < config.ACCUMULATION_VOLUME_MULT:
-            continue
+        # Цена обязана стоять на месте: широкий ход на объёме — это импульс,
+        # а не набор позиции, послаблений тут быть не может.
         if range_ratio > config.ACCUMULATION_MAX_RANGE_MULT:
+            continue
+        if vol_ratio < config.ACCUMULATION_FALLBACK_MIN_VOL:
             continue
 
         bodies_top = float(chunk[["open", "close"]].max(axis=1).max())
@@ -101,18 +106,34 @@ def detect_accumulations(df: pd.DataFrame) -> list[AccumulationBox]:
             mid = (bodies_top + bodies_bottom) / 2.0
             bodies_top = mid + min_height / 2.0
             bodies_bottom = mid - min_height / 2.0
-        raw.append(AccumulationBox(
+        box = AccumulationBox(
             time_from=chunk["time"].iloc[0],
             time_to=pd.Timestamp(chunk["time"].iloc[-1]) + bar_delta,
             top=bodies_top,
             bottom=bodies_bottom,
             volume_ratio=vol_ratio,
-        ))
+        )
+
+        if vol_ratio >= config.ACCUMULATION_VOLUME_MULT:
+            raw.append(box)
+        else:
+            runners_up.append((vol_ratio / max(range_ratio, 0.01), box))
+
+    fallback = 0
+    if not raw and runners_up:
+        # Лучше показать самые «объёмные при стоящей цене» участки, чем не
+        # показать ничего: пороги подобраны на одних данных, а брокеры разные.
+        runners_up.sort(key=lambda item: item[0], reverse=True)
+        best = [box for _, box in runners_up[:config.ACCUMULATION_FALLBACK_BOXES]]
+        best.sort(key=lambda b: b.time_from)
+        raw = best
+        fallback = len(best)
 
     boxes = _merge(raw)[-config.ACCUMULATION_MAX_BOXES:]
     # Диагностика в клиентский лог: без неё непонятно, пороги строгие или
     # участков набора действительно нет.
-    print(f"[accumulation] {len(data)} bars, candidates={len(raw)}, boxes={len(boxes)} "
+    print(f"[accumulation] {len(data)} bars, candidates={len(raw)}, boxes={len(boxes)}"
+          f"{' (fallback)' if fallback else ''} "
           f"(best vol x{best_vol_ratio:.2f} >= x{config.ACCUMULATION_VOLUME_MULT}, "
           f"tightest range x{best_range_ratio:.2f} <= x{config.ACCUMULATION_MAX_RANGE_MULT})")
     return boxes

@@ -7,7 +7,8 @@ import pandas as pd
 import pytest
 
 import config
-from zone_detector import Zone, extract_wick_levels, cluster_levels, detect_zones
+from zone_detector import (Zone, balance_around_price, cluster_levels, detect_zones,
+                           extract_wick_levels)
 
 
 # ── Zone dataclass ────────────────────────────────────────────────────────
@@ -224,3 +225,41 @@ class TestDetectZones:
         }
         zones = detect_zones(empty)
         assert zones == []
+
+# ── Балансировка вокруг цены ──────────────────────────────────────────────
+
+class TestBalanceAroundPrice:
+    def _zone(self, price, score):
+        return Zone(price=price, width=1.0, score=score, sources=["H4"])
+
+    def test_levels_kept_on_both_sides(self):
+        """После роста все сильные зоны остались внизу — сверху было пусто."""
+        strong = [self._zone(p, s) for p, s in
+                  ((4086.0, 21), (4111.0, 18), (4137.0, 15), (4223.0, 12))]
+        weak = [self._zone(4350.0, 9), self._zone(4420.0, 8)]
+
+        selected = balance_around_price(strong, weak, price=4390.0)
+
+        assert len(selected) == config.MAX_ZONES_ON_CHART
+        assert sum(1 for z in selected if z.price > 4390.0) >= 1
+        assert sum(1 for z in selected if z.price < 4390.0) >= 2
+
+    def test_strong_zones_preferred_over_weak(self):
+        strong = [self._zone(4500.0, 20), self._zone(4100.0, 19)]
+        weak = [self._zone(4520.0, 8)]
+
+        selected = balance_around_price(strong, weak, price=4300.0)
+
+        assert weak[0] not in selected
+
+    def test_duplicate_levels_are_not_added_twice(self):
+        strong = [self._zone(4100.0, 20)]
+        weak = [self._zone(4100.0 + config.CLUSTER_TOLERANCE, 9)]
+
+        selected = balance_around_price(strong, weak, price=4300.0)
+
+        assert len(selected) == 1
+
+    def test_without_price_falls_back_to_score_order(self):
+        strong = [self._zone(4100.0, 20), self._zone(4500.0, 12)]
+        assert balance_around_price(strong, [], price=None) == strong
