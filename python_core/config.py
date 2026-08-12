@@ -121,6 +121,12 @@ MIN_ZONES_PER_SIDE = _env_int("MIN_ZONES_PER_SIDE", 2)
 # Запасной порог: если с одной стороны сильных зон нет, берём лучшие из более
 # слабых кандидатов (только чтобы заполнить пустую сторону).
 FALLBACK_MIN_ZONE_SCORE = _env_int("FALLBACK_MIN_ZONE_SCORE", 7)
+# Когда цена на историческом максимуме, над ней теней просто нет — детектор
+# физически не может найти уровень, и график остаётся пустым сверху. В этом
+# случае проецируем ближайшие круглые уровни (шаг ROUND_LEVEL_STEP).
+PROJECT_ROUND_LEVELS = _env_bool("PROJECT_ROUND_LEVELS", True)
+# Ближе этого расстояния (в % от цены) круглый уровень бесполезен.
+PROJECTED_LEVEL_MIN_DISTANCE_PCT = _env_float("PROJECTED_LEVEL_MIN_DISTANCE_PCT", 0.25)
 ZONE_COLOR_STRONG = "#FF0000"    # Ярко-красный для сильных зон (score >= 9)
 ZONE_COLOR_MEDIUM = "#FF4D4D"    # Средне-красный (score 7-8)
 ZONE_COLOR_WEAK   = "#FF9999"    # Бледно-красный (score < 7)

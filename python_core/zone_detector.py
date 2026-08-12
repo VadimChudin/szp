@@ -7,6 +7,8 @@ zone_detector.py — Ядро алгоритма.
   3. Подсчёт количества касаний каждой зоны из разных таймфреймов
 """
 
+import math
+
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
@@ -487,6 +489,11 @@ def balance_around_price(strong: list[Zone], weak: list[Zone],
         # Слабые кандидаты идут в дело, только если сильных зон с этой стороны
         # нет вовсе: иначе они просто добавляют шум, которого клиент не хочет.
         candidates = strong_side if strong_side else side(weak, above)
+        # Круглые уровни проецируем только когда реальные зоны найдены, но все
+        # оказались с одной стороны: на пустых/битых данных рисовать уровни
+        # «из воздуха» нельзя — этим уже обжигались на синтетике.
+        if not candidates and strong:
+            candidates = projected_levels(price, above, quota)
         taken = 0
         for zone in candidates:
             if taken >= quota:
@@ -501,6 +508,36 @@ def balance_around_price(strong: list[Zone], weak: list[Zone],
 
     selected.sort(key=lambda z: z.score, reverse=True)
     return selected[:limit]
+
+
+def projected_levels(price: float, above: bool, count: int) -> list[Zone]:
+    """Ближайшие круглые уровни за ценой.
+
+    На историческом максимуме теней над ценой нет физически, и любой отбор
+    оставляет верх графика пустым. Круглые уровни ($XX00/$XX50) — то, от чего
+    рынок реально реагирует в такой ситуации.
+    """
+    if not config.PROJECT_ROUND_LEVELS or count <= 0:
+        return []
+
+    step = config.ROUND_LEVEL_STEP
+    gap = price * config.PROJECTED_LEVEL_MIN_DISTANCE_PCT / 100.0
+    levels = []
+    edge = price + gap if above else price - gap
+    start = math.ceil(edge / step) if above else math.floor(edge / step)
+    for i in range(count):
+        level = (start + i if above else start - i) * step
+        if level <= 0:
+            break
+        levels.append(Zone(
+            price=round(level, 2),
+            width=config.ZONE_WIDTH,
+            score=config.FALLBACK_MIN_ZONE_SCORE,
+            sources=[config.PRIMARY_TIMEFRAME],
+            is_round_level=True,
+            label_suffix=" PROJ",
+        ))
+    return levels
 
 
 if __name__ == "__main__":

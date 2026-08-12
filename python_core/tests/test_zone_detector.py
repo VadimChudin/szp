@@ -8,6 +8,7 @@ import pytest
 
 import config
 from zone_detector import (Zone, balance_around_price, cluster_levels, detect_zones,
+                           projected_levels,
                            extract_wick_levels)
 
 
@@ -252,7 +253,8 @@ class TestBalanceAroundPrice:
 
         assert weak[0] not in selected
 
-    def test_duplicate_levels_are_not_added_twice(self):
+    def test_duplicate_levels_are_not_added_twice(self, monkeypatch):
+        monkeypatch.setattr(config, "PROJECT_ROUND_LEVELS", False)
         strong = [self._zone(4100.0, 20)]
         weak = [self._zone(4100.0 + config.CLUSTER_TOLERANCE, 9)]
 
@@ -263,3 +265,29 @@ class TestBalanceAroundPrice:
     def test_without_price_falls_back_to_score_order(self):
         strong = [self._zone(4100.0, 20), self._zone(4500.0, 12)]
         assert balance_around_price(strong, [], price=None) == strong
+
+
+class TestProjectedLevels:
+    def test_empty_side_gets_round_levels(self):
+        """Цена на историческом максимуме — сверху теней нет вообще."""
+        strong = [Zone(price=4100.0, width=1.0, score=20, sources=["H4"]),
+                  Zone(price=4200.0, width=1.0, score=18, sources=["H4"])]
+
+        selected = balance_around_price(strong, [], price=4475.0)
+        above = [z for z in selected if z.price > 4475.0]
+
+        assert len(above) == config.MIN_ZONES_PER_SIDE
+        assert all(z.price % config.ROUND_LEVEL_STEP == 0 for z in above)
+        assert all("PROJ" in z.label for z in above)
+
+    def test_projection_skips_level_glued_to_price(self):
+        levels = projected_levels(4499.0, above=True, count=1)
+        assert levels[0].price == 4550.0
+
+    def test_no_projection_without_real_zones(self):
+        """Пустые/битые данные — рисовать уровни «из воздуха» нельзя."""
+        assert balance_around_price([], [], price=4475.0) == []
+
+    def test_projection_can_be_disabled(self, monkeypatch):
+        monkeypatch.setattr(config, "PROJECT_ROUND_LEVELS", False)
+        assert projected_levels(4475.0, above=True, count=2) == []
