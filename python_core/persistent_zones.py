@@ -59,6 +59,8 @@ def get_current_price(all_data: dict[str, pd.DataFrame]) -> float | None:
 
 def is_too_far(zone: Zone, current_price: float | None) -> bool:
     """Зона слишком далеко от текущей цены (график ушёл) — не показываем."""
+    if config.MAX_ZONE_DISTANCE_PCT <= 0:
+        return False
     if current_price is None or current_price <= 0:
         return False
     return abs(zone.price - current_price) / current_price * 100.0 > config.MAX_ZONE_DISTANCE_PCT
@@ -130,7 +132,7 @@ def process_persistent_zones(current_zones: list[Zone], all_data: dict[str, pd.D
             continue
 
         age = _age_days(dz)
-        if age > config.PERSISTENT_ZONE_MAX_AGE_DAYS:
+        if 0 < config.PERSISTENT_ZONE_MAX_AGE_DAYS < age:
             print(f"[persistent] Zone at ${dz.price:.2f} expired "
                   f"(not confirmed for {age:.1f} days)")
             continue
