@@ -10,7 +10,9 @@ name: Build Turnkey Installer
 on:
   push:
     branches: [ 'devin/**' ]
-    tags: [ 'v*' ]
+    # Теги регистрозависимы: тег V1.8 не запускал сборку вообще, и релиз
+    # оставался без установщика.
+    tags: [ 'v*', 'V*' ]
   workflow_dispatch:
 
 permissions:
@@ -35,8 +37,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if ($env:GITHUB_REF -like 'refs/tags/v*') {
-            $ver = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($env:GITHUB_REF -like 'refs/tags/*') {
+            $ver = $env:GITHUB_REF_NAME -replace '^[vV]', ''
           } else {
             $ver = 'dev-' + $env:GITHUB_SHA.Substring(0, 7)
           }
@@ -251,7 +253,7 @@ jobs:
 
       # ── 5. Публикация в Releases (только по тегу v*) ─────────────────────
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: Output/SmartZonesPro_Setup_*.exe
