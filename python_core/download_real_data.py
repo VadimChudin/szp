@@ -51,7 +51,7 @@ def download_and_save():
     # ── H1 (1h) — yfinance дает максимум 730 дней для часовых ──
     print("\n[H1] Downloading hourly data...")
     try:
-        h1 = yf.download(SYMBOL, period="60d", interval="1h", progress=False)
+        h1 = yf.download(SYMBOL, period="180d", interval="1h", progress=False)
     except Exception as e:
         print(f"[download] ERROR: Failed to download H1 data: {e}")
         h1 = pd.DataFrame()
@@ -78,10 +78,10 @@ def download_and_save():
         h4_df.to_csv(OUTPUT_DIR / "XAUUSD_H4.csv", index=False)
         print(f"  H4: {len(h4_df)} bars saved ({h4_df['time'].iloc[0]} -> {h4_df['time'].iloc[-1]})")
 
-    # ── D1 (1d) — берем за полгода ──
+    # ── D1 (1d) — берём за 2 года (config.TIMEFRAMES["D1"]["bars"]) ──
     print("\n[D1] Downloading daily data...")
     try:
-        d1 = yf.download(SYMBOL, period="6mo", interval="1d", progress=False)
+        d1 = yf.download(SYMBOL, period="2y", interval="1d", progress=False)
     except Exception as e:
         print(f"[download] ERROR: Failed to download D1 data: {e}")
         d1 = pd.DataFrame()
