@@ -170,9 +170,10 @@ class TestProcessPersistentZones:
             remaining = load_db()
         assert len(remaining) == 0
 
-    def test_expired_zone_removed(self, tmp_path):
+    def test_expired_zone_removed(self, tmp_path, monkeypatch):
         """Архивная зона снимается, если её давно не подтверждал расчёт."""
         from datetime import datetime, timedelta
+        monkeypatch.setattr(config, "PERSISTENT_ZONE_MAX_AGE_DAYS", 14.0)
         fake_db = tmp_path / "zones_db.json"
         old = datetime.now() - timedelta(days=config.PERSISTENT_ZONE_MAX_AGE_DAYS + 1)
         stale = Zone(price=2400.0, score=14, sources=["H4"],
@@ -187,9 +188,10 @@ class TestProcessPersistentZones:
         assert remaining == []
         assert result == []
 
-    def test_far_archived_zone_not_shown(self, tmp_path):
+    def test_far_archived_zone_not_shown(self, tmp_path, monkeypatch):
         """Архивная зона далеко от текущей цены не выводится (график ушёл)."""
         from datetime import datetime, timedelta
+        monkeypatch.setattr(config, "MAX_ZONE_DISTANCE_PCT", 10.0)
         fake_db = tmp_path / "zones_db.json"
         far = 2400.0 * (1 + config.MAX_ZONE_DISTANCE_PCT / 100.0 * 2)
         seen = (datetime.now() - timedelta(days=1)).isoformat()
@@ -204,8 +206,9 @@ class TestProcessPersistentZones:
 
         assert [z.price for z in result] == [2400.0]
 
-    def test_far_fresh_zone_is_shown(self, tmp_path):
+    def test_far_fresh_zone_is_shown(self, tmp_path, monkeypatch):
         """Свежую зону детектора нельзя отбрасывать по удалённости от цены."""
+        monkeypatch.setattr(config, "MAX_ZONE_DISTANCE_PCT", 10.0)
         fake_db = tmp_path / "zones_db.json"
         far = 2400.0 * (1 + config.MAX_ZONE_DISTANCE_PCT / 100.0 * 2)
         current = [Zone(price=far, score=15, sources=["H4"]),
