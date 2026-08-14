@@ -203,7 +203,13 @@ def fetch_from_csv(symbol: str, timeframe_label: str) -> pd.DataFrame:
         print(f"  {timeframe_label}: Loaded from BROKER ({first_line})")
     else:
         print(f"  {timeframe_label}: Loaded from CSV (yfinance/other)")
-    
+
+    # Ограничиваем той же глубиной, что и запрос к терминалу, иначе CSV и MT5
+    # дают разные зоны на одном и том же символе.
+    bars = config.TIMEFRAMES.get(timeframe_label, {}).get("bars")
+    if bars:
+        df = df.tail(bars).reset_index(drop=True)
+
     return df
 
 
