@@ -97,7 +97,7 @@ class SettingsWindow(tk.Tk):
         self.title("Smart Zones Pro — Settings")
         self.geometry("560x780")
         self.minsize(520, 640)
-        self.configure(bg=ui.CARD_BOT, padx=18, pady=18)
+        self.configure(bg=ui.CARD_BOT, padx=22, pady=20)
         self._style_ttk()
 
         self._brokers = load_brokers()
@@ -125,10 +125,10 @@ class SettingsWindow(tk.Tk):
 
     def _build_ui(self):
         tk.Label(self, text="Smart Zones Pro", fg=ui.TXT, bg=ui.CARD_BOT,
-                 font=(ui.FONT, 17, "bold")).pack(anchor="w")
-        tk.Label(self, text="NONAME TRADER · SETTINGS",
-                 fg=ui.TXT_MUTE, bg=ui.CARD_BOT,
-                 font=(ui.FONT, 8, "bold")).pack(anchor="w", pady=(2, 14))
+                 font=(ui.FONT, 19, "bold")).pack(anchor="w")
+        tk.Label(self, text="MARKET DATA  /  SETTINGS",
+                 fg=ui.AQUA, bg=ui.CARD_BOT,
+                 font=(ui.FONT, 8, "bold")).pack(anchor="w", pady=(3, 18))
 
         # ── Data source ──
         ds_frame = tk.Frame(self, bg=ui.CARD_BOT)
@@ -147,7 +147,7 @@ class SettingsWindow(tk.Tk):
                        height=40, kind="ghost", bg=ui.CARD_BOT).pack(side="right")
 
         # ── Telegram (also pinned above the buttons) ──
-        tg_box = tk.LabelFrame(self, text=" TELEGRAM ALERTS ", fg=ui.TXT_MUTE,
+        tg_box = tk.LabelFrame(self, text="  TELEGRAM ALERTS  ", fg=ui.AQUA,
                                bg=ui.CARD_BOT, font=(ui.FONT, 8, "bold"),
                                bd=1, relief="solid", padx=10, pady=10)
         tg_box.pack(side="bottom", fill="x", pady=8)
@@ -163,7 +163,7 @@ class SettingsWindow(tk.Tk):
         self._row(tg_box, "Chat id", self._tg_chat)
 
         # ── Brokers (takes the remaining space) ──
-        brokers_box = tk.LabelFrame(self, text=" MT5 BROKERS ", fg=ui.TXT_MUTE,
+        brokers_box = tk.LabelFrame(self, text="  MT5 BROKERS  ", fg=ui.AQUA,
                                     bg=ui.CARD_BOT, font=(ui.FONT, 8, "bold"),
                                     bd=1, relief="solid", padx=10, pady=10)
         brokers_box.pack(fill="both", expand=True, pady=8)
@@ -175,7 +175,7 @@ class SettingsWindow(tk.Tk):
             # Обёртка + зелёная «свечащаяся» полоса слева у активного слота.
             wrap = tk.Frame(brokers_box, bg=ui.CARD_BOT)
             wrap.pack(fill="x", pady=5)
-            tk.Frame(wrap, bg=ui.ACCENT if is_active else ui.STROKE_SOFT,
+            tk.Frame(wrap, bg=ui.AQUA if is_active else ui.STROKE_SOFT,
                      width=3).pack(side="left", fill="y")
             slot = tk.Frame(wrap, bg=slot_bg, padx=10, pady=8,
                             highlightthickness=1,
@@ -184,8 +184,8 @@ class SettingsWindow(tk.Tk):
             top = tk.Frame(slot, bg=slot_bg)
             top.pack(fill="x")
             tk.Radiobutton(top, text="Active", variable=self._active_var, value=i,
-                           fg=ui.ACCENT, bg=slot_bg, selectcolor=ui.FIELD_BG,
-                           activebackground=slot_bg, activeforeground=ui.ACCENT,
+                           fg=ui.AQUA, bg=slot_bg, selectcolor=ui.FIELD_BG,
+                           activebackground=slot_bg, activeforeground=ui.AQUA,
                            font=(ui.FONT, 8, "bold")).pack(side="right")
             vars_ = {
                 "name": tk.StringVar(value=str(b.get("name", ""))),

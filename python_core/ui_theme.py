@@ -15,28 +15,29 @@ import tkinter as tk
 # ── Палитра ────────────────────────────────────────────────────────────
 CHROMA        = "#ff00ff"          # цвет-ключ для прозрачных углов (Windows)
 
-BG_BASE       = "#0a0b0d"          # фон «пустоты» вокруг карточки (почти чёрный)
-CARD_TOP      = "#17191d"          # верх «приподнятой» карточки
-CARD_BOT      = "#0e0f11"          # низ / базовый цвет панели
-CARD_FLAT     = "#141518"          # усреднённый матовый цвет карточки
-CARD_HI       = "#1c1e22"          # активная «пилюля» (чуть светлее)
-FIELD_BG      = "#0b0c0e"          # фон полей ввода
-STROKE        = "#26282d"          # тонкая обводка
-STROKE_SOFT   = "#1a1c1f"
+BG_BASE       = "#070b12"          # фон «пустоты» вокруг карточки
+CARD_TOP      = "#182330"          # верхний слой стеклянной панели
+CARD_BOT      = "#0d151f"          # базовый слой панели
+CARD_FLAT     = "#111c28"          # нейтральная стеклянная карточка
+CARD_HI       = "#1b2a39"          # активная карточка / hover
+FIELD_BG      = "#09121c"          # фон полей ввода
+STROKE        = "#2a4054"          # видимая граница стекла
+STROKE_SOFT   = "#1b2b3a"          # мягкая граница
 
-TXT           = "#f2f4f5"          # основной текст (почти белый)
-TXT_DIM       = "#8b9096"          # вторичный текст
-TXT_MUTE      = "#5f646a"          # подписи секций (капс)
-ACCENT        = "#a6e22e"          # основной акцент (лаймово-зелёный)
-ACCENT_DK     = "#8fce1f"          # акцент при наведении
-ACCENT_GLOW   = "#3f5a12"          # тёмно-зелёное «свечение» для tk
-ACCENT_TXT    = "#0b0e08"          # тёмный текст на зелёной кнопке
-GOLD          = "#a6e22e"          # бренд-акцент (совместимость → зелёный)
-OK            = "#a6e22e"
-BAD           = "#f2556b"
+TXT           = "#f4f8fb"          # основной текст
+TXT_DIM       = "#9aabb9"          # вторичный текст
+TXT_MUTE      = "#607688"          # подписи секций
+ACCENT        = "#b8f35a"          # основной акцент
+ACCENT_DK     = "#d0ff78"          # hover-акцент
+ACCENT_GLOW   = "#496e2b"          # мягкое свечение
+ACCENT_TXT    = "#0a1309"          # текст на ярком акценте
+AQUA          = "#77e4d0"          # вторичный glass-акцент
+GOLD          = "#f3c969"          # редкий акцент для POC/важных значений
+OK            = "#8ee6b0"
+BAD           = "#ff7186"
 
 FONT          = "Segoe UI"
-FONT_MONO     = "Consolas"
+FONT_MONO     = "Cascadia Mono"
 
 
 def round_rect(cv: tk.Canvas, x1, y1, x2, y2, r, **kw):
@@ -126,8 +127,8 @@ class GlassButton(tk.Canvas):
         # (fill, hover_fill, text, outline)
         self._fills = {
             "primary": (ACCENT, ACCENT_DK, ACCENT_TXT, ""),
-            "ghost":   (CARD_HI, "#24262b", TXT, STROKE),
-            "danger":  (BAD, "#d8465a", "#ffffff", ""),
+            "ghost":   (CARD_HI, "#263b4d", TXT, STROKE),
+            "danger":  (BAD, "#d94f69", "#ffffff", ""),
         }
         self.bind("<Enter>", lambda e: self._render(True))
         self.bind("<Leave>", lambda e: self._render(False))
@@ -153,7 +154,8 @@ def style_entry(entry: tk.Entry):
     """Единый стиль для tk.Entry (тёмное поле, светлый текст)."""
     entry.configure(bg=FIELD_BG, fg=TXT, insertbackground=ACCENT,
                     relief="flat", highlightthickness=1,
-                    highlightbackground=STROKE_SOFT, highlightcolor=ACCENT)
+                    highlightbackground=STROKE_SOFT, highlightcolor=AQUA,
+                    selectbackground="#31516a", selectforeground=TXT)
     enable_clipboard_shortcuts(entry)
 
 

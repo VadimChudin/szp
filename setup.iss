@@ -10,19 +10,27 @@
 #ifndef AppVer
   #define AppVer "dev"
 #endif
+#ifndef AppChannel
+  #define AppChannel "Stable"
+#endif
+#if AppChannel == "Experimental"
+  #define ChannelAppId "{{A1B2C3D4-5E6F-47A8-9B0C-1D2E3F4A5B6C}"
+#else
+  #define ChannelAppId "{{7B4C9E2A-3F1D-4A6B-9C2E-5D8F0A1B2C3D}"
+#endif
 
 [Setup]
-AppId={{7B4C9E2A-3F1D-4A6B-9C2E-5D8F0A1B2C3D}
-AppName=Smart Zones Pro
+AppId={#ChannelAppId}
+AppName=Smart Zones Pro {#AppChannel}
 AppVersion={#AppVer}
-AppVerName=Smart Zones Pro {#AppVer}
-DefaultDirName={autopf}\SmartZonesPro
-DefaultGroupName=Smart Zones Pro
+AppVerName=Smart Zones Pro {#AppChannel} {#AppVer}
+DefaultDirName={autopf}\SmartZonesPro\{#AppChannel}
+DefaultGroupName=Smart Zones Pro {#AppChannel}
 UninstallDisplayIcon={app}\SmartZonesPro.exe
 Compression=lzma2
 SolidCompression=yes
 OutputDir={#RepoDir}Output
-OutputBaseFilename=SmartZonesPro_Setup_v{#AppVer}
+OutputBaseFilename=SmartZonesPro_Setup_{#AppChannel}_v{#AppVer}
 
 [Files]
 Source: "{#RepoDir}dist\SmartZonesPro\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -33,8 +41,8 @@ Source: "{#RepoDir}mql\MT5\Experts\*"; DestDir: "{app}\mql\MT5\Experts"; Flags: 
 Source: "{#RepoDir}mql\MT5\Indicators\*"; DestDir: "{app}\mql\MT5\Indicators"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
-Name: "{group}\Smart Zones Pro"; Filename: "{app}\SmartZonesPro.exe"
-Name: "{autodesktop}\Smart Zones Pro"; Filename: "{app}\SmartZonesPro.exe"
+Name: "{group}\Smart Zones Pro {#AppChannel}"; Filename: "{app}\SmartZonesPro.exe"
+Name: "{autodesktop}\Smart Zones Pro {#AppChannel}"; Filename: "{app}\SmartZonesPro.exe"
 Name: "{userstartup}\Smart Zones Pro"; Filename: "{app}\SmartZonesPro.exe"; Tasks: autostart
 
 [Tasks]
@@ -149,9 +157,16 @@ begin
     Exec(ExpandConstant('{cmd}'), '/C taskkill /IM SmartZonesPro.exe /F', '',
          SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Sleep(800);
-    { Сносим старые версии: новая (с AppId) и старая (по имени, без AppId). }
+    { Сносим только предыдущую версию текущего канала. }
+#if AppChannel == "Experimental"
+    RunUninstaller('{A1B2C3D4-5E6F-47A8-9B0C-1D2E3F4A5B6C}_is1');
+#else
     RunUninstaller('{7B4C9E2A-3F1D-4A6B-9C2E-5D8F0A1B2C3D}_is1');
+#endif
+#if AppChannel == "Stable"
+    { Однократно удаляем старую версию до введения каналов. }
     RunUninstaller('Smart Zones Pro_is1');
+#endif
   end
   else if CurStep = ssPostInstall then
   begin

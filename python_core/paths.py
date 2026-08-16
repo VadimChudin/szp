@@ -164,15 +164,49 @@ def load_json_file(path: Path, default=None):
         return default
 
 
-def save_json_file(path: Path, data, *, indent: int = 2, default=None) -> bool:
-    """Безопасно сохраняет данные в JSON-файл. Возвращает True при успехе."""
+def save_json_file(path: Path, data, *, indent: int = 2, default=None,
+                   backup: bool = True) -> bool:
+    """Атомарно сохраняет JSON-файл и, при возможности, оставляет backup.
+
+    Данные сначала записываются во временный файл в том же каталоге, затем
+    заменяют целевой файл одной операцией ``os.replace``. Это не даёт
+    MetaTrader прочитать обрезанный JSON во время записи.
+    """
     try:
         import json
+        import os
+        import tempfile
+
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=indent, default=default)
-        return True
-    except Exception:
+        tmp_name = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=path.parent,
+                prefix=f".{path.name}.", suffix=".tmp", delete=False,
+            ) as tmp:
+                json.dump(data, tmp, indent=indent, ensure_ascii=False, default=default)
+                tmp.write("\n")
+                tmp.flush()
+                os.fsync(tmp.fileno())
+                tmp_name = tmp.name
+
+            if backup and path.exists():
+                backup_path = path.with_suffix(path.suffix + ".bak")
+                try:
+                    backup_path.write_bytes(path.read_bytes())
+                except OSError:
+                    pass
+
+            os.replace(tmp_name, path)
+            tmp_name = None
+            return True
+        finally:
+            if tmp_name:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+    except (OSError, TypeError, ValueError):
         return False
 
 
