@@ -214,7 +214,7 @@ canvas { display:block; cursor:crosshair; }
   <button class="nav-btn" onclick="zm(-2)" title="Zoom In">🔍+</button>
   <button class="nav-btn" onclick="zm(2)" title="Zoom Out">🔍−</button>
   <span class="sep"></span>
-  <button class="nav-btn" onclick="refreshData()" title="Refresh" style="color:#a6e22e">⟳</button>
+  <button class="nav-btn" onclick="refreshData()" title="Refresh" style="color:#b8f35a">⟳</button>
   <button class="nav-btn" onclick="openSettings()" title="Data Center (MT5 Brokers)">⚙</button>
   <span id="status">●</span>
   <span id="info">Loading...</span>
@@ -255,7 +255,7 @@ const autoBtn = document.getElementById('auto-btn');
 
 async function loadData(tf) {
   try {
-    document.getElementById('status').style.color = '#ff9800';
+    document.getElementById('status').style.color = '#f3c969';
     document.getElementById('status').textContent = '◌';
     const raw = await pywebview.api.get_data(tf || currentTF);
     DATA = JSON.parse(raw);
@@ -263,7 +263,7 @@ async function loadData(tf) {
     scrollPos = Math.max(0, DATA.candles.length - visibleCount);
     autoScaleY = true;
     draw();
-    document.getElementById('status').style.color = '#a6e22e';
+    document.getElementById('status').style.color = '#b8f35a';
     document.getElementById('status').textContent = '●';
   } catch(e) { console.error('Load error:', e); }
 }
@@ -290,7 +290,7 @@ async function refreshData() {
     }
     
     draw();
-    document.getElementById('status').style.color = '#a6e22e';
+    document.getElementById('status').style.color = '#b8f35a';
     document.getElementById('status').textContent = '●';
   } catch(e) { console.error(e); }
 }
@@ -389,9 +389,9 @@ function draw() {
   // cellH это высота одной ячейки в пикселях
   const cellH = (step / (maxP - minP)) * chartH;
 
-  const bgCol = '#0a0b0d';
-  const gridCol = 'rgba(255,255,255,0.045)';
-  const textCol = '#8b9096';
+  const bgCol = '#08111b';
+  const gridCol = 'rgba(170,205,222,0.10)';
+  const textCol = '#9aabb9';
 
   // === Background ===
   ctx.fillStyle = bgCol;
@@ -424,17 +424,17 @@ function draw() {
 
     // Цвет: лаймово-зелёный по умолчанию (акцент бренда),
     // bull/bear оттенки если есть лейбл.
-    let bgFill   = 'rgba(166,226,46,0.10)';
-    let edgeCol  = 'rgba(166,226,46,0.55)';
-    let textCol2 = '#a6e22e';
+    let bgFill   = 'rgba(184,243,90,0.10)';
+    let edgeCol  = 'rgba(184,243,90,0.58)';
+    let textCol2 = '#c8f77a';
     if (z.label && z.label.includes('Bull')) {
-      bgFill   = 'rgba(8,153,129,0.14)';
-      edgeCol  = 'rgba(8,153,129,0.70)';
-      textCol2 = '#089981';
+      bgFill   = 'rgba(95,224,190,0.13)';
+      edgeCol  = 'rgba(95,224,190,0.72)';
+      textCol2 = '#78e8ca';
     } else if (z.label && z.label.includes('Bear')) {
-      bgFill   = 'rgba(242,54,69,0.14)';
-      edgeCol  = 'rgba(242,54,69,0.70)';
-      textCol2 = '#f23645';
+      bgFill   = 'rgba(239,117,132,0.13)';
+      edgeCol  = 'rgba(239,117,132,0.72)';
+      textCol2 = '#ff9aa8';
     }
 
     // Полупрозрачная заливка по всей ширине графика
@@ -465,7 +465,7 @@ function draw() {
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(badgeX, badgeY, badgeW, badgeH, r);
     else ctx.rect(badgeX, badgeY, badgeW, badgeH);
-    ctx.fillStyle = 'rgba(12,15,22,0.72)';
+    ctx.fillStyle = 'rgba(8,17,27,0.82)';
     ctx.fill();
     ctx.strokeStyle = edgeCol;
     ctx.lineWidth = 1;
@@ -520,12 +520,12 @@ function draw() {
       // POC cell — золотой full-fill фон под ячейкой максимального объёма
       const isPocCell = (maxPr !== null && Math.abs(p - maxPr) < step * 0.1 && maxT > mx * 0.1);
       if (isPocCell) {
-        ctx.fillStyle = 'rgba(255,215,0,0.55)'; // густое золото
+        ctx.fillStyle = 'rgba(243,201,105,0.46)'; // champagne POC
         ctx.fillRect(xBuyL, yTop, halfW * 2, h);
       }
 
       // Рамки
-      ctx.strokeStyle = 'rgba(60,65,80,1)';
+      ctx.strokeStyle = 'rgba(158,195,214,0.16)';
       ctx.lineWidth = 0.5;
       ctx.strokeRect(xBuyL, yTop, halfW, h);
       ctx.strokeRect(xMid, yTop, halfW, h);
@@ -534,26 +534,26 @@ function draw() {
       if (buy > 0) {
         // Минимальная видимая толщина 2 пикселя
         const fw = Math.max(2, halfW * (buy / candleMaxSide)); 
-        ctx.fillStyle = 'rgba(8,153,129, 0.8)'; // Густой цвет
+        ctx.fillStyle = 'rgba(72,205,174,0.72)'; // emerald buy
         ctx.fillRect(xBuyL, yTop, fw, h);
       }
 
       // Sell fill (f23645) - Линейно пропорционально ширине ячейки
       if (sell > 0) {
         const fw = Math.max(2, halfW * (sell / candleMaxSide));
-        ctx.fillStyle = 'rgba(242,54,69, 0.8)';
+        ctx.fillStyle = 'rgba(224,103,120,0.72)'; // ruby sell
         ctx.fillRect(xSellR - fw, yTop, fw, h);
       }
 
       // 🟡 Макс объём
       if (Math.abs(p - maxPr) < step*0.1 && maxT > mx * 0.1) {
-        ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 2;
+        ctx.strokeStyle = '#f3c969'; ctx.lineWidth = 2;
         ctx.strokeRect(xBuyL, yTop, halfW * 2, h);
       }
       
       // 🔵 Мин объём
       if (Math.abs(p - minPr) < step*0.1 && minPr !== maxPr && lvlsCount > 2) {
-        ctx.strokeStyle = '#2196f3'; ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#77b8d6'; ctx.lineWidth = 1.5;
         ctx.strokeRect(xBuyL, yTop, halfW * 2, h);
       }
 
@@ -564,13 +564,13 @@ function draw() {
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         if (buy > 0) {
           ctx.font = `${buy > candleMaxSide * 0.5 ? 'bold ' : ''}${fs}px Courier New`;
-          ctx.fillStyle = buy > candleMaxSide * 0.5 ? '#ffffff' : '#a3a6af';
+          ctx.fillStyle = buy > candleMaxSide * 0.5 ? '#f1fff9' : '#9fc4c5';
           const txt = buy >= 10 ? Math.round(buy).toString() : buy.toFixed(1);
           ctx.fillText(txt, xBuyL + halfW/2, ty);
         }
         if (sell > 0) {
           ctx.font = `${sell > candleMaxSide * 0.5 ? 'bold ' : ''}${fs}px Courier New`;
-          ctx.fillStyle = sell > candleMaxSide * 0.5 ? '#ffffff' : '#a3a6af';
+          ctx.fillStyle = sell > candleMaxSide * 0.5 ? '#fff5f5' : '#c9aeb4';
           const txt = sell >= 10 ? Math.round(sell).toString() : sell.toFixed(1);
           ctx.fillText(txt, xMid + halfW/2, ty);
         }
@@ -578,7 +578,7 @@ function draw() {
     }
 
     // Тело свечи сбоку (TradingView colors)
-    const bullCol = '#089981'; const bearCol = '#f23645';
+    const bullCol = '#55d6b0'; const bearCol = '#e87988';
     const colCol = candle.bull ? bullCol : bearCol;
 
     ctx.strokeStyle = colCol; ctx.lineWidth = 1.5; ctx.globalAlpha = 1.0;
@@ -593,7 +593,7 @@ function draw() {
 
     // LIVE indicator: зелёная точка если данные реальные (из тиков)
     if (candle.real) {
-      ctx.fillStyle = '#00e676';
+      ctx.fillStyle = '#b8f35a';
       ctx.beginPath();
       ctx.arc(xMid, py(candle.h) - 6, 3, 0, Math.PI * 2);
       ctx.fill();
@@ -602,8 +602,8 @@ function draw() {
     // POC line (Point of Control) — оранжевая пунктирная линия
     if (candle.poc && candle.poc >= candle.l && candle.poc <= candle.h) {
       const pocY = py(candle.poc);
-      ctx.strokeStyle = '#FF9800';
-      ctx.lineWidth = 2;
+            ctx.strokeStyle = '#f3c969'; ctx.lineWidth = 2;
+
       ctx.setLineDash([4, 3]);
       ctx.beginPath();
       ctx.moveTo(xBuyL, pocY);
@@ -613,7 +613,7 @@ function draw() {
 
       // Подпись POC справа
       ctx.font = '9px Courier New';
-      ctx.fillStyle = '#FF9800';
+      ctx.fillStyle = '#f3c969';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText('POC ' + candle.poc.toFixed(0), xSellR + 2, pocY);
@@ -628,14 +628,14 @@ function draw() {
   ctx.beginPath(); ctx.moveTo(0, deltaY0); ctx.lineTo(W, deltaY0); ctx.stroke();
 
   const dMid = deltaY0 + deltaH / 2;
-  ctx.strokeStyle = '#363c4e'; ctx.lineWidth = 0.5;
+  ctx.strokeStyle = 'rgba(119,228,208,0.24)'; ctx.lineWidth = 0.5;
   ctx.beginPath(); ctx.moveTo(ml, dMid); ctx.lineTo(chartW, dMid); ctx.stroke();
 
   vis.forEach((c, j) => {
     const x = ml + j * colW + colW * 0.12;
     const bw = colW * 0.76;
     const bh = (Math.abs(c.d) / maxD) * (deltaH / 2 - 6);
-    ctx.fillStyle = c.d >= 0 ? '#089981' : '#f23645';
+    ctx.fillStyle = c.d >= 0 ? '#55d6b0' : '#e87988';
     ctx.fillRect(x, c.d >= 0 ? dMid - bh : dMid, bw, bh);
   });
 
@@ -649,7 +649,7 @@ function draw() {
   // === Price Axis Bar ===
   ctx.fillStyle = bgCol;
   ctx.fillRect(chartW, 0, priceAxisW, H);
-  ctx.strokeStyle = '#2a2e39'; ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(167,207,231,0.16)'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(chartW, 0); ctx.lineTo(chartW, chartH); ctx.stroke();
 
   gp = Math.ceil(minP / priceGridStep) * priceGridStep;
@@ -661,16 +661,16 @@ function draw() {
 
   // === Crosshair ===
   if (mouseX > ml && mouseX < chartW && mouseY > 0 && mouseY < chartH) {
-    ctx.strokeStyle = 'rgba(120,123,134,0.4)';
+    ctx.strokeStyle = 'rgba(119,228,208,0.42)';
     ctx.lineWidth = 0.5; ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.moveTo(mouseX, 0); ctx.lineTo(mouseX, chartH); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(ml, mouseY); ctx.lineTo(chartW, mouseY); ctx.stroke();
     ctx.setLineDash([]);
 
     const crossPrice = minP + (1 - mouseY / chartH) * (maxP - minP);
-    ctx.fillStyle = '#a6e22e';
+    ctx.fillStyle = '#b8f35a';
     ctx.fillRect(chartW + 2, mouseY - 10, priceAxisW - 2, 20);
-    ctx.fillStyle = '#0b0e08'; ctx.font = 'bold 11px Courier New';
+    ctx.fillStyle = '#0a1309'; ctx.font = 'bold 11px Courier New';
     ctx.fillText(crossPrice.toFixed(2), W - 6, mouseY);
   }
 
@@ -794,7 +794,7 @@ async function openSettings() {
     const isActive = (brokersData.active_broker === i);
     container.innerHTML += `
       <div class="broker-slot ${isActive ? 'active' : ''}">
-        ${!isActive ? `<button class="btn-activate" onclick="activateBroker(${i})">SET ACTIVE</button>` : `<span style="position:absolute;top:10px;right:10px;color:#089981;font-size:11px;font-weight:bold;">● ACTIVE</span>`}
+        ${!isActive ? `<button class="btn-activate" onclick="activateBroker(${i})">SET ACTIVE</button>` : `<span style="position:absolute;top:10px;right:10px;color:#78e8ca;font-size:11px;font-weight:bold;">● ACTIVE</span>`}
         <label>Broker Name</label>
         <input type="text" id="b-name-${i}" value="${b.name}">
         <div style="display:flex;gap:5px;">
@@ -872,7 +872,7 @@ def open_footprint_window(interval="4h"):
         "Smart Zones Pro — Footprint",
         html=HTML, js_api=api,
         width=1500, height=920, resizable=True,
-        background_color="#0a0b0d",
+        background_color="#08111b",
     )
     
     # Обработчик закрытия (прячем в трей вместо уничтожения)
