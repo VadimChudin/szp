@@ -58,6 +58,8 @@ class Zone:
     invalidated_at: str = ""
     invalidation_reason: str = ""
     last_seen_h4: str = ""
+    display_side: str = ""             # ABOVE | BELOW относительно текущей цены
+    is_fallback: bool = False           # слабый, но реальный уровень для заполнения 3+3
 
     @property
     def top(self) -> float:
@@ -98,6 +100,8 @@ class Zone:
             "invalidated_at": self.invalidated_at,
             "invalidation_reason": self.invalidation_reason,
             "last_seen_h4": self.last_seen_h4,
+            "display_side": self.display_side,
+            "is_fallback": self.is_fallback,
         }
 
     @classmethod
@@ -121,6 +125,8 @@ class Zone:
             invalidated_at=d.get("invalidated_at", ""),
             invalidation_reason=d.get("invalidation_reason", ""),
             last_seen_h4=d.get("last_seen_h4", ""),
+            display_side=d.get("display_side", ""),
+            is_fallback=d.get("is_fallback", False),
         )
 
     def __repr__(self):
@@ -540,20 +546,23 @@ def balance_around_price(strong: list[Zone], weak: list[Zone],
     quota = min(config.MIN_ZONES_PER_SIDE, limit // 2)
     for above in (True, False):
         strong_side = side(strong, above)
-        # Слабые кандидаты идут в дело, только если сильных зон с этой стороны
-        # нет вовсе: иначе они просто добавляют шум, которого клиент не хочет.
-        candidates = strong_side if strong_side else side(weak, above)
-        # Круглые уровни проецируем только когда реальные зоны найдены, но все
-        # оказались с одной стороны: на пустых/битых данных рисовать уровни
-        # «из воздуха» нельзя — этим уже обжигались на синтетике.
-        if not candidates and strong:
-            candidates = projected_levels(price, above, quota)
+        # First strong levels, then real weak fallback levels. This preserves
+        # side coverage without sacrificing the score-first ordering.
+        candidates = strong_side + side(weak, above)
         taken = 0
         for zone in candidates:
             if taken >= quota:
                 break
             if add(zone, selected):
                 taken += 1
+        # A projected round level is a last-resort legacy fallback only. The
+        # active H4 snapshot deliberately filters PROJ levels out.
+        if taken < quota and (strong or weak):
+            for zone in projected_levels(price, above, quota - taken):
+                if taken >= quota:
+                    break
+                if add(zone, selected):
+                    taken += 1
 
     for zone in strong:
         if len(selected) >= limit:
