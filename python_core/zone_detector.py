@@ -50,6 +50,14 @@ class Zone:
     # Когда зону последний раз подтвердил свежий расчёт (ISO-строка). Нужна
     # архивным «вечным» зонам, чтобы протухшие снимались по сроку жизни.
     archived_at: str = ""
+    # Инкрементальный H4 lifecycle для отображаемого snapshot.
+    state: str = "ACTIVE"                 # ACTIVE | TESTED | INVALIDATED
+    test_count: int = 0
+    created_at: str = ""
+    last_test_at: str = ""
+    invalidated_at: str = ""
+    invalidation_reason: str = ""
+    last_seen_h4: str = ""
 
     @property
     def top(self) -> float:
@@ -83,6 +91,13 @@ class Zone:
             "wick_points": [_json_safe_wick(w) for w in self.wick_points],
             "label_suffix": self.label_suffix,
             "archived_at": self.archived_at,
+            "state": self.state,
+            "test_count": self.test_count,
+            "created_at": self.created_at,
+            "last_test_at": self.last_test_at,
+            "invalidated_at": self.invalidated_at,
+            "invalidation_reason": self.invalidation_reason,
+            "last_seen_h4": self.last_seen_h4,
         }
 
     @classmethod
@@ -99,6 +114,13 @@ class Zone:
             wick_points=d.get("wick_points", []),
             label_suffix=d.get("label_suffix", ""),
             archived_at=d.get("archived_at", ""),
+            state=d.get("state", "ACTIVE"),
+            test_count=d.get("test_count", 0),
+            created_at=d.get("created_at", ""),
+            last_test_at=d.get("last_test_at", ""),
+            invalidated_at=d.get("invalidated_at", ""),
+            invalidation_reason=d.get("invalidation_reason", ""),
+            last_seen_h4=d.get("last_seen_h4", ""),
         )
 
     def __repr__(self):
@@ -208,9 +230,33 @@ def cluster_levels(levels: np.ndarray, tolerance: float = None) -> list[dict]:
     return clusters
 
 
+def adaptive_zone_width(data: dict[str, pd.DataFrame]) -> float:
+    """Return a bounded width based on closed H4 volatility."""
+    base = float(config.ZONE_WIDTH)
+    if config.ZONE_WIDTH_MODE == "fixed":
+        return base
+    frame = data.get(config.PRIMARY_TIMEFRAME)
+    if frame is None or frame.empty or not {"high", "low", "close"}.issubset(frame.columns):
+        return base
+    tr = pd.concat([
+        frame["high"] - frame["low"],
+        (frame["high"] - frame["close"].shift(1)).abs(),
+        (frame["low"] - frame["close"].shift(1)).abs(),
+    ], axis=1).max(axis=1).dropna()
+    if tr.empty:
+        return base
+    atr = float(tr.tail(config.ATR_PERIOD).mean())
+    if config.ZONE_WIDTH_MODE == "regime":
+        regime_mult = 0.75 if atr <= config.REGIME_ATR_LOW else 1.25 if atr >= config.REGIME_ATR_HIGH else 1.0
+        atr *= regime_mult
+    width = atr * float(config.ATR_MULTIPLIER)
+    return max(float(config.ZONE_WIDTH_MIN), min(float(config.ZONE_WIDTH_MAX), width))
+
+
 def detect_zones(
     data: dict[str, pd.DataFrame],
     volume_flags: dict[str, np.ndarray] | None = None,
+    limit_output: bool = True,
 ) -> list[Zone]:
     """
     Главная функция поиска зон.
@@ -318,6 +364,7 @@ def detect_zones(
 
     # ── Шаг 3: Скоринг каждого кластера ──────────────────────────────
     zones = []
+    detected_width = adaptive_zone_width(data)
     for cluster in clusters:
         center = cluster['center']
         tolerance = config.CLUSTER_TOLERANCE
@@ -330,7 +377,7 @@ def detect_zones(
         if members.empty:
             continue
 
-        zone = Zone(price=round(center, 2))
+        zone = Zone(price=round(center, 2), width=detected_width)
         zone.touch_count = len(members)
 
         # Сохраняем точки фитилей для визуализации
@@ -409,7 +456,7 @@ def detect_zones(
                     prev.price = round((prev.price + z.price) / 2.0, 2)
                 
                 # Запрещаем зоне "разбухать"! Оставляем фиксированную толщину.
-                prev.width = config.ZONE_WIDTH
+                prev.width = detected_width
                 prev.score = prev.score + z.score // 2  # Складываем баллы
                 prev.touch_count += z.touch_count
                 prev.sources = list(set(prev.sources + z.sources))
@@ -437,7 +484,14 @@ def detect_zones(
                  if config.FALLBACK_MIN_ZONE_SCORE <= z.score < config.MIN_ZONE_SCORE]
     if config.REQUIRE_H4_ANCHOR:
         weak_pool = [z for z in weak_pool if config.PRIMARY_TIMEFRAME in z.sources]
-    selected = balance_around_price(strong_zones, weak_pool, current_price(data))
+    if not limit_output:
+        # Для incremental snapshot bridge нужен полный pool кандидатов.
+        # Иначе ранний лимит в пять зон мог скрыть новый сильный уровень.
+        candidates = strong_zones + weak_pool
+        candidates.sort(key=lambda z: z.score, reverse=True)
+        selected = candidates
+    else:
+        selected = balance_around_price(strong_zones, weak_pool, current_price(data))
 
     print(f"[zone_detector] Found {len(zones)} raw clusters -> "
           f"{len(selected)} strong zones (score >= {config.MIN_ZONE_SCORE})")
@@ -531,7 +585,7 @@ def projected_levels(price: float, above: bool, count: int) -> list[Zone]:
             break
         levels.append(Zone(
             price=round(level, 2),
-            width=config.ZONE_WIDTH,
+            width=float(config.ZONE_WIDTH),
             score=config.FALLBACK_MIN_ZONE_SCORE,
             sources=[config.PRIMARY_TIMEFRAME],
             is_round_level=True,

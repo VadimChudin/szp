@@ -104,9 +104,17 @@ CLUSTER_TOLERANCE = 5.0          # В долларах (для XAU/USD). ~50 п�
 
 # ── Ширина зоны ──────────────────────────────────────────────────────
 ZONE_WIDTH = 1.0                 # ±$1.0 от центра кластера
-ZONE_WIDTH_MODE = "fixed"        # "fixed" | "atr" — динамическая через ATR(14)
-ATR_PERIOD = 14
-ATR_MULTIPLIER = 0.5             # zone_width = ATR * multiplier
+ZONE_WIDTH_MODE = _env_str("ZONE_WIDTH_MODE", "atr")  # fixed | atr | regime
+ATR_PERIOD = _env_int("ATR_PERIOD", 14)
+ATR_MULTIPLIER = _env_float("ATR_MULTIPLIER", 0.5)
+ZONE_WIDTH_MIN = _env_float("ZONE_WIDTH_MIN", 0.50)
+ZONE_WIDTH_MAX = _env_float("ZONE_WIDTH_MAX", 8.00)
+REGIME_ATR_LOW = _env_float("REGIME_ATR_LOW", 2.0)
+REGIME_ATR_HIGH = _env_float("REGIME_ATR_HIGH", 6.0)
+
+# ── Жизненный цикл active H4-зон ─────────────────────────────────────
+TEST_INVALIDATES_ZONE = _env_bool("TEST_INVALIDATES_ZONE", True)
+ZONE_EVENT_LOG_ENABLED = _env_bool("ZONE_EVENT_LOG_ENABLED", True)
 
 # ── Фильтр "Крупный игрок" (Volume) ─────────────────────────────────
 # Свеча считается "крупной", если её тиковый объём превышает 

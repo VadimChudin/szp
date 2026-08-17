@@ -28,6 +28,15 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Run Python tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --upgrade pip
+          python -m pip install -r python_core/requirements.txt
+          python -m pip install pytest pystray Pillow termcolor
+          python -m pytest -q python_core/tests
+
       # ── 0. Канал и номер сборки → приложение, индикаторы, установщик ──
       # Stable и Experimental используют один Output/, но разные AppId,
       # каталоги установки, имена файлов и GitHub Actions artifacts.

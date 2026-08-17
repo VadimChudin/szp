@@ -31,6 +31,7 @@ import paths
 from data_fetcher import DataUnavailableError, fetch_from_csv, fetch_all_timeframes
 from volume_filter import get_volume_flags_all_tf, calculate_delta, get_delta_at_zone
 from zone_detector import detect_zones
+from active_zones import update_snapshot
 from telegram_bot import send_telegram_message, send_alert_line, send_zones_update
 from footprint_data import get_collector as get_fp_collector
 # footprint_window импортируется лениво (содержит webview, блокирует headless)
@@ -198,14 +199,17 @@ def calculate_and_export_zones(refresh_data: bool = True):
     volume_flags = get_volume_flags_all_tf(data)
 
     # ── Поиск зон ────────────────────────────────────────────────────
-    zones = detect_zones(data, volume_flags)
+    zones = detect_zones(data, volume_flags, limit_output=False)
     
-    # ── Подмешивание "Вечных" исторических зон (и их инвалидация) ────
+    # ── Active H4 snapshot ───────────────────────────────────────────
+    # Архивная БД обновляется для истории, но displayed zones живут в
+    # incremental snapshot: для того же H4 bar список не пересоздаётся.
     try:
         from persistent_zones import process_persistent_zones
-        zones = process_persistent_zones(zones, data)
+        process_persistent_zones(zones, data)
     except Exception as e:
-        print(f"[bridge] WARN: Could not process persistent zones: {e}")
+        print(f"[bridge] WARN: Could not update persistent archive: {e}")
+    zones = update_snapshot(zones, data)
 
     # ── Дельта-анализ (Футпринт Dukascopy/MT4) ──────
     flow_delta = None
