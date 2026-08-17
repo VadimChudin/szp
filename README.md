@@ -100,3 +100,12 @@ calibration = calibrate(outcomes, bucket_size=2, min_samples=10)
 ```
 
 Backtest требует реальный исторический экспорт свечей. Синтетические данные разрешены только для unit-тестов и не должны использоваться для оценки торгового качества.
+
+
+## Line-only zones and possible SL levels
+
+The chart now renders each active zone as one actionable horizontal price line at `zone.price`. The stored `top`, `bottom`, and `width` fields remain available for lifecycle, invalidation and risk calculations, but they are no longer painted as a broad rectangle. MT4/MT5 and the Footprint window use the same line-first visual language.
+
+Possible SL levels are informational liquidity candidates; the application does not place orders. For a support zone below the current price, the candidate is below the zone. For a resistance zone above the current price, the candidate is above the zone. The level combines the zone edge, a bounded ATR buffer and the nearest recent structural swing. The JSON includes `sl.side`, `sl.price`, `sl.probability`, `sl.buffer`, `sl.atr` and `sl.rationale`; the chart shows it as a separate dashed line. The probability is a heuristic ranking of liquidity exposure, not a win-rate guarantee.
+
+The MQL indicators independently apply the same structural/ATR principle at render time, so the line remains available even when the terminal reads a legacy JSON file. Old rectangle and SL-cloud objects are no longer created for active zones. Accumulation boxes remain separate visual objects and are not zone ranges.

@@ -64,3 +64,13 @@ def test_snapshot_persists_between_calls(tmp_path):
     raw = json.loads(snap.read_text())
     assert raw["version"] == "2.0"
     assert raw["zones"][0]["state"] == "ACTIVE"
+
+
+def test_initial_snapshot_balances_both_sides(tmp_path):
+    snap = tmp_path / "snapshot.json"
+    events = tmp_path / "events.jsonl"
+    data = {"H4": bars(("2024-01-01T04:00:00", 100, 101, 99, 100))}
+    candidates = [z(90 + i, 20 - i) for i in range(8)] + [z(110 + i, 12 - i) for i in range(8)]
+    result = update_snapshot(candidates, data, snap, events)
+    assert any(item.price < 100 for item in result)
+    assert any(item.price > 100 for item in result)
