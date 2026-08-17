@@ -46,6 +46,7 @@ int            accumCount       = 0;
 int            accumReported    = -1;
 datetime       zonesCalcTime    = 0;
 datetime       lastAlertTime    = 0;
+double         referencePrice   = 0;
 
 double         zonePrices[];
 double         zoneTops[];
@@ -85,6 +86,8 @@ void DrawBuildStamp()
       text += "  |  zones: " + IntegerToString(currentZoneCount) +
               "  acc: " + IntegerToString(accumCount) +
               "  " + age + " ago";
+      if(referencePrice > 0)
+         text += "  |  ref: " + DoubleToString(referencePrice, _Digits);
       if(ageMin > 360) clr = clrTomato;
    }
    else
@@ -94,11 +97,11 @@ void DrawBuildStamp()
    if(ObjectFind(0, name) < 0)
    {
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 8);
-      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 6);
-      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
-      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 7);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 25);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    }
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
@@ -265,6 +268,7 @@ void LoadZonesFromFile()
    DeleteAllZoneObjects();
    ParseZonesJSON(content);
    zonesCalcTime = ParseIsoTime(ExtractString(content, "\"calculated_at\":", 0));
+   referencePrice = ExtractDouble(content, "\"reference_price\":", 0);
    DrawAllZones();
    DrawBuildStamp();
    ChartRedraw(0);

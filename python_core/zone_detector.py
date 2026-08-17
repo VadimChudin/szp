@@ -573,14 +573,14 @@ def balance_around_price(strong: list[Zone], weak: list[Zone],
     return selected[:limit]
 
 
-def projected_levels(price: float, above: bool, count: int) -> list[Zone]:
+def projected_levels(price: float, above: bool, count: int, *, force: bool = False) -> list[Zone]:
     """Ближайшие круглые уровни за ценой.
 
     На историческом максимуме теней над ценой нет физически, и любой отбор
     оставляет верх графика пустым. Круглые уровни ($XX00/$XX50) — то, от чего
     рынок реально реагирует в такой ситуации.
     """
-    if not config.PROJECT_ROUND_LEVELS or count <= 0:
+    if count <= 0 or (not force and not config.PROJECT_ROUND_LEVELS):
         return []
 
     step = config.ROUND_LEVEL_STEP

@@ -15,11 +15,11 @@ import pandas as pd
 
 import config
 import paths
-from zone_detector import Zone, current_price
+from zone_detector import Zone, current_price, projected_levels
 
 SNAPSHOT_FILE = paths.DATA_BRIDGE_DIR / "active_zones_snapshot.json"
 EVENT_LOG_FILE = paths.DATA_BRIDGE_DIR / "zone_events.jsonl"
-SNAPSHOT_VERSION = "3.0"
+SNAPSHOT_VERSION = "3.1"
 
 
 class Side:
@@ -211,13 +211,34 @@ def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
             _mark_display(candidate, side, h4, new=True)
             current.append(candidate)
 
+    # The visible contract is absolute: exactly three lines must remain on
+    # each side. At a new high/low the detector may have no historical wick
+    # beyond price, so derive only the missing slots from projected round
+    # levels. They are explicitly marked fallback and therefore render red.
+    if len(current) < slots:
+        for fallback in projected_levels(
+            price,
+            above=(side == Side.ABOVE),
+            count=slots - len(current),
+            force=True,
+        ):
+            if any(_same_zone(fallback, known) for known in current):
+                continue
+            _mark_display(fallback, side, h4, new=True)
+            fallback.is_fallback = True
+            current.append(fallback)
+            append_event("zone_projected_fallback", fallback, h4)
+            if len(current) >= slots:
+                break
+
     for zone in current:
         _mark_display(zone, side, h4)
     return sorted(current, key=lambda zone: _rank(zone, price), reverse=True)[:slots]
 
 
 def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FILE,
-                    event_path: Path = EVENT_LOG_FILE) -> list[Zone]:
+                    event_path: Path = EVENT_LOG_FILE,
+                    reference_price: float | None = None) -> list[Zone]:
     """Update a six-line snapshot only once per newly closed H4 candle."""
     global EVENT_LOG_FILE
     previous_event_path = EVENT_LOG_FILE
@@ -225,11 +246,20 @@ def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FI
     try:
         h4 = latest_closed_h4(data)
         state = load_snapshot(path)
+        snapshot_contract_changed = state.get("version") != SNAPSHOT_VERSION
         current = [_hydrate(item) for item in state.get("zones", [])]
-        if h4 and h4 == state.get("last_h4", ""):
+        if h4 and h4 == state.get("last_h4", "") and not snapshot_contract_changed:
             return current[:config.MAX_ZONES_ON_CHART]
+        if snapshot_contract_changed and current:
+            append_event(
+                "snapshot_contract_rebuilt",
+                h4=h4,
+                previous_version=str(state.get("version", "unknown")),
+                new_version=SNAPSHOT_VERSION,
+            )
+            current = []
 
-        price = current_price(data)
+        price = reference_price if reference_price is not None and reference_price > 0 else current_price(data)
         if price is None:
             save_snapshot(current[:config.MAX_ZONES_ON_CHART], h4, path)
             return current[:config.MAX_ZONES_ON_CHART]

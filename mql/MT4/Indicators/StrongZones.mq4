@@ -47,6 +47,7 @@ int            currentZoneCount = 0;         // Текущее количест�
 int            accumCount       = 0;         // Количество участков набора
 int            accumReported    = -1;        // Последнее залогированное количество
 datetime       zonesCalcTime    = 0;         // Когда Python посчитал зоны
+double         referencePrice   = 0;         // Цена, относительно которой выбран snapshot
 
 // Храним данные зон в массивах
 double         zonePrices[];
@@ -86,6 +87,8 @@ void DrawBuildStamp()
       if(ageMin >= 60) age = IntegerToString(ageMin / 60) + "h";
       text = text + "  |  zones: " + IntegerToString(currentZoneCount) +
              "  acc: " + IntegerToString(accumCount) + "  " + age + " ago";
+      if(referencePrice > 0)
+         text = text + "  |  ref: " + DoubleToString(referencePrice, Digits);
       if(ageMin > 360) clr = clrTomato;
    }
    else
@@ -95,11 +98,11 @@ void DrawBuildStamp()
    if(ObjectFind(0, name) < 0)
    {
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 8);
-      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 6);
-      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
-      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 7);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 25);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    }
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
@@ -408,6 +411,7 @@ void LoadZonesFromFile()
    DrawAllZones();
 
    zonesCalcTime = ParseIsoTime(ExtractString(content, "\"calculated_at\":", 0));
+   referencePrice = ExtractDouble(content, "\"reference_price\":", 0);
    DrawBuildStamp();
 
    ChartRedraw();

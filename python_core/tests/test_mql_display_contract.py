@@ -51,3 +51,23 @@ def test_installer_deploys_compiled_mql_in_an_isolated_channel_folder():
     assert "StrongZones.ex5" in source
     assert "SmartZonesCollector.ex5" in source
     assert "SmartZonesPro\\{#AppChannel}" in source
+
+
+def test_collectors_export_live_chart_quote_and_actual_symbol():
+    for relative in (
+        "mql/MT4/Experts/SmartZonesCollector.mq4",
+        "mql/MT5/Experts/SmartZonesCollector.mq5",
+    ):
+        source = _source(relative)
+        assert "ExportLiveQuote();" in source
+        assert '"smartzones_quote_" + g_symbolName' in source
+        assert '"smartzones_symbol.txt"' in source
+
+
+def test_indicators_show_reference_price_in_a_visible_upper_stamp():
+    for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
+        source = _source(relative)
+        assert '\\"reference_price\\":' in source
+        assert "referencePrice" in source
+        assert "CORNER_RIGHT_UPPER" in source
+        assert "OBJPROP_YDISTANCE, 25" in source

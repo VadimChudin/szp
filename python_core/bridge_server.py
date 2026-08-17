@@ -30,7 +30,7 @@ import data_fetcher
 import paths
 from data_fetcher import DataUnavailableError, fetch_from_csv, fetch_all_timeframes
 from volume_filter import get_volume_flags_all_tf, calculate_delta, get_delta_at_zone
-from zone_detector import detect_zones
+from zone_detector import current_price, detect_zones
 from active_zones import update_snapshot
 from sl_model import possible_stop
 from telegram_bot import send_telegram_message, send_alert_line, send_zones_update
@@ -70,6 +70,29 @@ DATA_RETRY_SECONDS = 300
 # Путь к локальным CSV для zone_detector
 LOCAL_DATA_DIR = paths.LOCAL_DATA_DIR
 LOCAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _read_common_text(path: Path) -> str:
+    """Read MT4 ANSI and MT5 UTF-16 text files without leaking null bytes."""
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return ""
+    encoding = "utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in raw else "utf-8"
+    return raw.decode(encoding, errors="ignore").replace("\x00", "").replace("\ufeff", "").strip()
+
+
+def collector_live_quote() -> tuple[float | None, str]:
+    """Return the live Bid and actual symbol exported by SmartZonesCollector."""
+    if not MT4_COMMON_FILES or not MT4_COMMON_FILES.exists():
+        return None, ""
+    symbol = _read_common_text(MT4_COMMON_FILES / "smartzones_symbol.txt") or config.SYMBOL
+    value = _read_common_text(MT4_COMMON_FILES / f"smartzones_quote_{symbol}.txt")
+    try:
+        quote = float(value.replace(",", "."))
+    except (TypeError, ValueError):
+        return None, symbol
+    return (quote if quote > 0 else None), symbol
 
 
 def sync_mt4_broker_data() -> bool:
@@ -201,6 +224,19 @@ def calculate_and_export_zones(refresh_data: bool = True):
 
     # ── Поиск зон ────────────────────────────────────────────────────
     zones = detect_zones(data, volume_flags, limit_output=False)
+
+    # The H1 close can lag the open chart by up to one hour. Collector writes
+    # the chart's Bid every 30 seconds, so it is the authoritative reference
+    # for the visible three-above / three-below contract.
+    reference_price, collector_symbol = collector_live_quote()
+    reference_source = "collector_bid" if reference_price is not None else "h1_close"
+    if reference_price is None:
+        reference_price = current_price(data)
+        print(f"[bridge] Live Collector quote unavailable; using H1 close: {reference_price}")
+    else:
+        print(f"[bridge] Live Collector Bid: {reference_price:.2f} ({collector_symbol})")
+        if collector_symbol != config.SYMBOL:
+            print(f"[bridge] WARN: Collector symbol {collector_symbol} differs from configured {config.SYMBOL}")
     
     # ── Active H4 snapshot ───────────────────────────────────────────
     # Архивная БД обновляется для истории, но displayed zones живут в
@@ -210,7 +246,7 @@ def calculate_and_export_zones(refresh_data: bool = True):
         process_persistent_zones(zones, data)
     except Exception as e:
         print(f"[bridge] WARN: Could not update persistent archive: {e}")
-    zones = update_snapshot(zones, data)
+    zones = update_snapshot(zones, data, reference_price=reference_price)
 
     # ── Дельта-анализ (Футпринт Dukascopy/MT4) ──────
     flow_delta = None
@@ -276,6 +312,8 @@ def calculate_and_export_zones(refresh_data: bool = True):
         "calculated_at": datetime.now().isoformat(),
         "zone_count": len(zones_for_mt4),
         "min_score": config.MIN_ZONE_SCORE,
+        "reference_price": round(reference_price, 2) if reference_price else None,
+        "reference_source": reference_source,
         "fp_status": current_fp_status,
         "zones": zones_for_mt4,
     }

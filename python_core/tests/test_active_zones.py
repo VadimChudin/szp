@@ -72,5 +72,41 @@ def test_snapshot_persists_between_calls(tmp_path):
     data = {"H4": bars(("2024-01-01T00:00:00", 100, 101, 99, 100))}
     update_snapshot([z(70, 15)], data, snap, events)
     raw = json.loads(snap.read_text())
-    assert raw["version"] == "3.0"
+    assert raw["version"] == "3.1"
     assert raw["zones"][0]["state"] == "ACTIVE"
+
+
+def test_missing_upper_side_is_completed_by_red_projected_fallbacks(tmp_path):
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
+    data = {"H4": bars(("2024-01-01T04:00:00", 1000, 1001, 999, 1000))}
+    candidates = [z(700, 18), z(800, 16), z(900, 14)]
+
+    result = update_snapshot(candidates, data, snap, events)
+    above = [item for item in result if item.price > 1000]
+    below = [item for item in result if item.price < 1000]
+
+    assert len(result) == 6
+    assert len(above) == 3
+    assert len(below) == 3
+    assert all(item.is_fallback for item in above)
+    assert all("PROJ" in item.label_suffix for item in above)
+
+
+def test_snapshot_contract_upgrade_rebuilds_unbalanced_legacy_snapshot_immediately(tmp_path):
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
+    legacy_zones = [z(700, 18), z(800, 16), z(900, 14), z(850, 13), z(750, 12), z(650, 11)]
+    snap.write_text(json.dumps({
+        "version": "3.0",
+        "last_h4": "2024-01-01T04:00:00",
+        "zones": [zone.to_dict() for zone in legacy_zones],
+    }))
+    data = {"H4": bars(("2024-01-01T04:00:00", 1000, 1001, 999, 1000))}
+
+    result = update_snapshot([], data, snap, events)
+
+    assert len(result) == 6
+    assert len([item for item in result if item.price > 1000]) == 3
+    assert len([item for item in result if item.price < 1000]) == 3
+    assert json.loads(snap.read_text())["version"] == "3.1"
+    assert any(json.loads(line)["event"] == "snapshot_contract_rebuilt"
+               for line in events.read_text().splitlines())

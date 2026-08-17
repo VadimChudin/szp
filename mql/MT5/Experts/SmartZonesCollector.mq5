@@ -267,6 +267,7 @@ void ExportAllOHLCV()
    ExportOHLCV(PERIOD_H1, "H1", H1_Bars);
    ExportOHLCV(PERIOD_H4, "H4", H4_Bars);
    ExportOHLCV(PERIOD_D1, "D1", D1_Bars);
+   ExportLiveQuote();
 
    g_lastOHLCV = TimeCurrent();
 
@@ -276,6 +277,29 @@ void ExportAllOHLCV()
    {
       FileWriteString(fh, TimeToString(TimeCurrent()));
       FileClose(fh);
+   }
+}
+
+
+//+------------------------------------------------------------------+
+//| Живая цена и имя фактического символа для Python Core             |
+//+------------------------------------------------------------------+
+void ExportLiveQuote()
+{
+   int quoteHandle = FileOpen("smartzones_quote_" + g_symbolName + ".txt",
+                              FILE_WRITE|FILE_TXT|FILE_COMMON|FILE_SHARE_READ);
+   if(quoteHandle != INVALID_HANDLE)
+   {
+      FileWriteString(quoteHandle, DoubleToString(SymbolInfoDouble(g_symbolName, SYMBOL_BID), _Digits));
+      FileClose(quoteHandle);
+   }
+
+   int symbolHandle = FileOpen("smartzones_symbol.txt",
+                               FILE_WRITE|FILE_TXT|FILE_COMMON|FILE_SHARE_READ);
+   if(symbolHandle != INVALID_HANDLE)
+   {
+      FileWriteString(symbolHandle, g_symbolName);
+      FileClose(symbolHandle);
    }
 }
 
