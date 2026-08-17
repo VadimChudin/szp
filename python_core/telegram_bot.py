@@ -117,10 +117,10 @@ def send_zones_update(zones: Iterable[dict], *, symbol: Optional[str] = None) ->
     head = f"📊 <b>{sym} — Zones updated</b> ({len(zlist)})"
     rows = []
     for z in zlist[: config.MAX_ZONES_ON_CHART]:
-        price = z.get("price", 0)
-        score = z.get("score", 0)
-        sources = z.get("sources") or z.get("label") or ""
-        bp = " 🐋" if z.get("has_big_player") or z.get("big_player") else ""
+        price = z.get("zone_price", 0)
+        score = z.get("zone_score", 0)
+        sources = z.get("zone_sources") or z.get("zone_label") or ""
+        bp = " 🐋" if z.get("zone_has_big_player") else ""
         rows.append(f"• <b>{price:.2f}</b>  S:{score}  <i>{sources}</i>{bp}")
 
     body = "\n".join(rows)

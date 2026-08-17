@@ -13,9 +13,15 @@ from footprint_data import get_collector
 ZONES_FILE = paths.ZONES_FILE
 BROKERS_FILE = paths.BROKERS_FILE
 
-def _load_zones():
+def _load_zone_payload():
+    """Load the same schema-versioned payload used by MT4 and MT5."""
     data = paths.load_json_file(ZONES_FILE, default={})
-    return data.get("zones", [])
+    return {
+        "schema_version": data.get("schema_version", ""),
+        "producer_build": data.get("producer_build", ""),
+        "reference_price": data.get("reference_price"),
+        "zones": data.get("zones", []),
+    }
 
 def _candles_to_json(candles, interval):
     mx = 1
@@ -35,9 +41,11 @@ def _candles_to_json(candles, interval):
             "real": getattr(c, 'is_real', False),
             "poc": round(getattr(c, 'poc_price', (c.high + c.low) / 2), 2),
         })
+    payload = _load_zone_payload()
     return json.dumps({"candles": data, "mx": round(mx, 2),
                         "step": candles[0].price_step, "tf": interval,
-                        "zones": _load_zones()})
+                        "zone_payload": payload,
+                        "zones": payload["zones"]})
 
 class API:
     def __init__(self, collector):
@@ -412,38 +420,25 @@ function draw() {
   // === Зоны (SZP) — золотой полупрозрачный фон + бейдж со score ===
   const zonesList = DATA.zones || [];
   zonesList.forEach(z => {
-    // Actionable line: the center price is the display level. The width is
-    // retained in JSON for SL/risk calculations but no longer obscures data.
-    const zPrice = (z.price !== undefined && z.price !== null)
-                   ? Number(z.price)
-                   : ((Number(z.top || 0) + Number(z.bottom || 0)) / 2);
+    // Schema 4: unique zone_* keys keep the Footprint view aligned with MT4/MT5.
+    const zPrice = Number(z.zone_price || 0);
+    if (!zPrice) return;
     const zy = py(zPrice);
-
-    const score = z.score || 0;
-
-    // Цвет: лаймово-зелёный по умолчанию (акцент бренда),
-    // bull/bear оттенки если есть лейбл.
+    const score = Number(z.zone_score || 0);
+    const isFallback = Boolean(z.zone_fallback);
     let bgFill   = 'rgba(184,243,90,0.10)';
     let edgeCol  = 'rgba(184,243,90,0.58)';
     let textCol2 = '#c8f77a';
-    if (z.is_fallback) {
+    if (isFallback) {
       bgFill   = 'rgba(239,117,132,0.10)';
       edgeCol  = 'rgba(239,117,132,0.82)';
-      textCol2 = '#ff9aa8';
-    } else if (z.label && z.label.includes('Bull')) {
-      bgFill   = 'rgba(95,224,190,0.13)';
-      edgeCol  = 'rgba(95,224,190,0.72)';
-      textCol2 = '#78e8ca';
-    } else if (z.label && z.label.includes('Bear')) {
-      bgFill   = 'rgba(239,117,132,0.13)';
-      edgeCol  = 'rgba(239,117,132,0.72)';
       textCol2 = '#ff9aa8';
     }
 
     // Одна тонкая линия вместо прямоугольного диапазона.
     ctx.strokeStyle = edgeCol;
-    ctx.lineWidth = z.is_fallback ? 1.1 : (score >= 13 ? 2.4 : score >= 11 ? 1.8 : 1.15);
-    ctx.setLineDash(z.is_fallback || score < 11 ? [5, 4] : []);
+    ctx.lineWidth = isFallback ? 1.1 : (score >= 13 ? 2.4 : score >= 11 ? 1.8 : 1.15);
+    ctx.setLineDash(isFallback || score < 11 ? [5, 4] : []);
     ctx.beginPath(); ctx.moveTo(ml, zy); ctx.lineTo(chartW, zy); ctx.stroke();
     ctx.setLineDash([]);
     // Subtle glow keeps strong levels readable without filling the chart.
@@ -454,7 +449,7 @@ function draw() {
     ctx.restore();
 
     // Подпись зоны — ТОЛЬКО цена (без источников/скора), в стеклянной «пилюле».
-    const label = zPrice.toFixed(2) + (z.is_fallback ? ' · F' : '');
+    const label = zPrice.toFixed(2) + (isFallback ? ' · F' : '');
     ctx.font = 'bold 11px "JetBrains Mono", "Courier New", monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
@@ -476,24 +471,31 @@ function draw() {
     ctx.fillStyle = textCol2;
     ctx.fillText(label, badgeX + badgeW - padX, badgeY + badgeH / 2);
 
-    // Possible SL is shown as a separate structural liquidity line.
-    if (z.sl && z.sl.price !== undefined) {
-      const slPrice = Number(z.sl.price);
-      const slY = py(slPrice);
-      const slCol = '#bda7ff'; // SL is violet; red is reserved for fallback zones.
+    // Structural SL cloud from the same Python payload as MT4/MT5.
+    if (z.stop && z.stop.stop_price !== undefined) {
+      const slPrice = Number(z.stop.stop_price);
+      const isLong = z.stop.stop_side === 'BELOW_SUPPORT';
+      const slCol = isLong ? '#5fe0be' : '#ef7584';
+      const spread = Math.max(Number(z.stop.stop_buffer || 0) * 0.55, step * 2);
+      const points = 9;
+      const cloudX = chartW - 108;
       ctx.save();
-      ctx.strokeStyle = slCol;
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 5]);
-      ctx.globalAlpha = 0.78;
-      ctx.beginPath(); ctx.moveTo(ml, slY); ctx.lineTo(chartW, slY); ctx.stroke();
+      for (let dot = 0; dot < points; dot++) {
+        const norm = dot / (points - 1) - 0.5;
+        const x = cloudX + dot * 9;
+        const y = py(slPrice + norm * spread);
+        ctx.globalAlpha = dot === Math.floor(points / 2) ? 1 : 0.68;
+        ctx.fillStyle = slCol;
+        ctx.beginPath(); ctx.arc(x, y, dot === Math.floor(points / 2) ? 3.1 : 2.1, 0, Math.PI * 2); ctx.fill();
+      }
       ctx.restore();
-      const slLabel = 'SL ' + slPrice.toFixed(2) + ' · ' + (z.sl.probability || 0) + '%';
+      const slLabel = (isLong ? 'LONG SL cloud ' : 'SHORT SL cloud ') + slPrice.toFixed(2) +
+                      ' · ' + Number(z.stop.stop_probability || 0) + '%';
       ctx.font = '10px "JetBrains Mono", "Courier New", monospace';
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = slCol;
-      ctx.fillText(slLabel, chartW - 10, slY - 7);
+      ctx.fillText(slLabel, chartW - 10, py(slPrice) - 8);
     }
   });
 

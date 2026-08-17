@@ -10,10 +10,21 @@ def _source(relative: str) -> str:
 def test_mt4_mt5_cap_active_json_at_six():
     for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
         source = _source(relative)
-        assert "currentZoneCount < 6" in source
+        assert "currentZoneCount >= 6" in source
+        assert "currentZoneCount != 6" in source
         assert "currentZoneCount < 20" not in source
         assert "zoneFallback" in source
         assert "ZoneColorFallback" in source
+
+
+def test_mql_uses_schema_four_unique_zone_keys_and_checks_three_plus_three():
+    for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
+        source = _source(relative)
+        assert '"\\"schema_version\\":' in source
+        assert '"\\"zone_price\\":' in source
+        assert 'StringFind(json, "\\"price\\":", searchPos)' not in source
+        assert "display contract is not 3+3" in source
+        assert "incompatible payload schema" in source
 
 
 def test_active_zone_drawers_use_horizontal_lines_not_rectangle_ranges():
@@ -24,11 +35,23 @@ def test_active_zone_drawers_use_horizontal_lines_not_rectangle_ranges():
         assert "OBJ_RECTANGLE" not in section
 
 
-def test_sl_is_violet_and_separate_from_red_fallback():
+def test_sl_cloud_uses_python_stop_payload_and_long_short_colors():
     for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
         source = _source(relative)
-        assert "C'189,167,255'" in source
-        assert '"_sl_line"' in source
+        assert '"\\"stop_price\\":' in source
+        assert '"_sl_cloud_"' in source
+        assert "C'95,224,190'" in source
+        assert "C'239,117,132'" in source
+        assert '"_sl_line"' not in source
+
+
+def test_footprint_uses_the_same_schema_and_stop_cloud():
+    source = _source("python_core/footprint_window.py")
+    assert "zone_price" in source
+    assert "zone_fallback" in source
+    assert "stop_price" in source
+    assert "LONG SL cloud" in source
+    assert "SHORT SL cloud" in source
 
 
 def test_collectors_export_the_same_history_depth_as_the_detector():

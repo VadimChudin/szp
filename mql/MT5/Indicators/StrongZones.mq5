@@ -36,6 +36,8 @@ input double   AlertDistance    = 5.0;        // Расстояние для а�
 input bool     ShowAccumulation = true;      // Набор позиции крупным участником
 input string   AccumFilePath    = "accumulation_output.json"; // Файл участков набора
 input color    AccumColor       = C'85,45,140';  // Цвет участков набора (фиолетовый)
+input bool     ShowSLCloud      = true;          // Облако структурного SL из Python Core
+input int      SLCloudPoints    = 9;             // Количество точек в облаке SL
 
 //--- Глобальные переменные -------------------------------------------
 string         zonePrefix       = "SZP_";
@@ -47,6 +49,9 @@ int            accumReported    = -1;
 datetime       zonesCalcTime    = 0;
 datetime       lastAlertTime    = 0;
 double         referencePrice   = 0;
+string         payloadProducerBuild = "";
+string         payloadId       = "";
+string         payloadError    = "";
 
 double         zonePrices[];
 double         zoneTops[];
@@ -55,6 +60,10 @@ int            zoneScores[];
 string         zoneLabels[];
 bool           zoneBigPlayer[];
 bool           zoneFallback[];
+double         stopPrices[];
+double         stopBuffers[];
+int            stopProbabilities[];
+string         stopSides[];
 
 
 //+------------------------------------------------------------------+
@@ -77,6 +86,13 @@ void DrawBuildStamp()
 {
    string text = "SZP v" + SZP_BUILD;
    color  clr  = C'110,110,110';
+   if(payloadProducerBuild != "") text += "  |  src: " + payloadProducerBuild;
+   if(payloadId != "") text += "  |  payload: " + StringSubstr(payloadId, 0, 8);
+   if(payloadError != "")
+   {
+      text += "  |  ERROR: " + payloadError;
+      clr = clrTomato;
+   }
 
    if(zonesCalcTime > 0)
    {
@@ -265,60 +281,120 @@ void LoadZonesFromFile()
 
    if(StringLen(content) < 10) return;
 
-   DeleteAllZoneObjects();
-   ParseZonesJSON(content);
+   payloadError = "";
+   if(!ValidatePayloadHeader(content))
+   {
+      DeleteAllZoneObjects();
+      DrawBuildStamp();
+      ChartRedraw(0);
+      return;
+   }
    zonesCalcTime = ParseIsoTime(ExtractString(content, "\"calculated_at\":", 0));
    referencePrice = ExtractDouble(content, "\"reference_price\":", 0);
-   DrawAllZones();
+   payloadProducerBuild = ExtractString(content, "\"producer_build\":", 0);
+   payloadId = ExtractString(content, "\"payload_id\":", 0);
+
+   DeleteAllZoneObjects();
+   if(!ParseZonesJSON(content))
+   {
+      DeleteAllZoneObjects();
+      currentZoneCount = 0;
+   }
+   else
+      DrawAllZones();
    DrawBuildStamp();
    ChartRedraw(0);
 }
 
 //+------------------------------------------------------------------+
-void ParseZonesJSON(string json)
+bool ValidatePayloadHeader(string json)
+{
+   string schema = ExtractString(json, "\"schema_version\":", 0);
+   string kind = ExtractString(json, "\"payload_kind\":", 0);
+   if(schema != "4.0" || kind != "szp_active_zones")
+   {
+      payloadError = "incompatible payload schema";
+      Print("[SmartZones MT5] ", payloadError, ": ", schema, " / ", kind);
+      return false;
+   }
+   if(ExtractDouble(json, "\"reference_price\":", 0) <= 0)
+   {
+      payloadError = "missing reference price";
+      return false;
+   }
+   return true;
+}
+
+// Strict parser: only unique top-level `zone_*` keys are accepted. Nested
+// `stop_price` and any unrelated object cannot consume a display slot.
+bool ParseZonesJSON(string json)
 {
    currentZoneCount = 0;
    int searchPos = 0;
+   int above = 0;
+   int below = 0;
 
    while(true)
    {
-      int pricePos = StringFind(json, "\"price\":", searchPos);
+      int pricePos = StringFind(json, "\"zone_price\":", searchPos);
       if(pricePos < 0) break;
+      int nextZone = StringFind(json, "\"zone_price\":", pricePos + 13);
 
-      double price  = ExtractDouble(json, "\"price\":", pricePos);
-      double top    = ExtractDouble(json, "\"top\":", pricePos);
-      double bottom = ExtractDouble(json, "\"bottom\":", pricePos);
-      int    score  = (int)ExtractDouble(json, "\"score\":", pricePos);
-      string label  = ExtractString(json, "\"label\":", pricePos);
-      bool   bp     = (StringFind(json, "\"has_big_player\": true", pricePos) > 0 &&
-                        StringFind(json, "\"has_big_player\": true", pricePos) < pricePos + 700);
-      bool   fallback = (StringFind(json, "\"is_fallback\": true", pricePos) > 0 &&
-                         StringFind(json, "\"is_fallback\": true", pricePos) < pricePos + 900);
+      double price  = ExtractDouble(json, "\"zone_price\":", pricePos);
+      double top    = ExtractDouble(json, "\"zone_top\":", pricePos);
+      double bottom = ExtractDouble(json, "\"zone_bottom\":", pricePos);
+      int    score  = (int)ExtractDouble(json, "\"zone_score\":", pricePos);
+      string label  = ExtractString(json, "\"zone_label\":", pricePos);
+      double stopPrice = ExtractDouble(json, "\"stop_price\":", pricePos);
+      double stopBuffer = ExtractDouble(json, "\"stop_buffer\":", pricePos);
+      int stopProbability = (int)ExtractDouble(json, "\"stop_probability\":", pricePos);
+      string stopSide = ExtractString(json, "\"stop_side\":", pricePos);
+      int flagPos   = StringFind(json, "\"zone_fallback\": true", pricePos);
+      bool fallback = (flagPos >= pricePos && (nextZone < 0 || flagPos < nextZone));
+      int bpPos     = StringFind(json, "\"zone_has_big_player\": true", pricePos);
+      bool bp       = (bpPos >= pricePos && (nextZone < 0 || bpPos < nextZone));
 
-      // Hard UI guard: never draw more than six active levels.
-      if(price > 0 && currentZoneCount < 6)
+      if(price <= 0 || top < price || bottom > price || stopPrice <= 0 || currentZoneCount >= 6)
       {
-         ArrayResize(zonePrices, currentZoneCount + 1);
-         ArrayResize(zoneTops, currentZoneCount + 1);
-         ArrayResize(zoneBottoms, currentZoneCount + 1);
-         ArrayResize(zoneScores, currentZoneCount + 1);
-         ArrayResize(zoneLabels, currentZoneCount + 1);
-         ArrayResize(zoneBigPlayer, currentZoneCount + 1);
-         ArrayResize(zoneFallback, currentZoneCount + 1);
-
-         zonePrices[currentZoneCount]    = price;
-         zoneTops[currentZoneCount]      = top;
-         zoneBottoms[currentZoneCount]   = bottom;
-         zoneScores[currentZoneCount]    = score;
-         zoneLabels[currentZoneCount]    = label;
-         zoneBigPlayer[currentZoneCount] = bp;
-         zoneFallback[currentZoneCount]  = fallback;
-
-         currentZoneCount++;
+         payloadError = "invalid zone record";
+         return false;
       }
-      searchPos = pricePos + 10;
+      ArrayResize(zonePrices, currentZoneCount + 1);
+      ArrayResize(zoneTops, currentZoneCount + 1);
+      ArrayResize(zoneBottoms, currentZoneCount + 1);
+      ArrayResize(zoneScores, currentZoneCount + 1);
+      ArrayResize(zoneLabels, currentZoneCount + 1);
+      ArrayResize(zoneBigPlayer, currentZoneCount + 1);
+      ArrayResize(zoneFallback, currentZoneCount + 1);
+      ArrayResize(stopPrices, currentZoneCount + 1);
+      ArrayResize(stopBuffers, currentZoneCount + 1);
+      ArrayResize(stopProbabilities, currentZoneCount + 1);
+      ArrayResize(stopSides, currentZoneCount + 1);
+      zonePrices[currentZoneCount] = price;
+      zoneTops[currentZoneCount] = top;
+      zoneBottoms[currentZoneCount] = bottom;
+      zoneScores[currentZoneCount] = score;
+      zoneLabels[currentZoneCount] = label;
+      zoneBigPlayer[currentZoneCount] = bp;
+      zoneFallback[currentZoneCount] = fallback;
+      stopPrices[currentZoneCount] = stopPrice;
+      stopBuffers[currentZoneCount] = stopBuffer;
+      stopProbabilities[currentZoneCount] = stopProbability;
+      stopSides[currentZoneCount] = stopSide;
+      currentZoneCount++;
+      if(price > referencePrice) above++;
+      if(price < referencePrice) below++;
+      if(nextZone < 0) break;
+      searchPos = nextZone;
    }
-   Print("[SmartZones MT5] Parsed ", currentZoneCount, " zones");
+   if(currentZoneCount != 6 || above != 3 || below != 3)
+   {
+      payloadError = "display contract is not 3+3";
+      Print("[SmartZones MT5] ", payloadError, ": ", above, " above / ", below, " below");
+      return false;
+   }
+   Print("[SmartZones MT5] Parsed six schema-4 zones: 3 above / 3 below");
+   return true;
 }
 
 //+------------------------------------------------------------------+
@@ -425,67 +501,47 @@ void DrawSingleZone(int index)
       ObjectSetInteger(0, badgeName, OBJPROP_HIDDEN, true);
    }
 
-   // ── 4. Structural SL Pool ─────────────────────────────────────────
-   // SL is placed outside the zone using a bounded ATR buffer and the nearest
-   // recent swing. It is a possible liquidity/stop level, not a trade signal.
-   int lookback = (int)MathMin(Bars(_Symbol, PERIOD_CURRENT) - 2, 40);
-   if(lookback < 5) lookback = 5;
-   double atr = 0.0;
-   int atrBars = (int)MathMin(Bars(_Symbol, PERIOD_CURRENT) - 2, 14);
-   for(int i = 1; i <= atrBars; i++)
-   {
-      double hi = iHigh(_Symbol, PERIOD_CURRENT, i);
-      double lo = iLow(_Symbol, PERIOD_CURRENT, i);
-      double prevClose = iClose(_Symbol, PERIOD_CURRENT, i+1);
-      atr += MathMax(hi - lo, MathMax(MathAbs(hi - prevClose), MathAbs(lo - prevClose)));
-   }
-   atr = atrBars > 0 ? atr / atrBars : (top - bottom);
-   double zoneWidth = MathMax(MathAbs(top - bottom), _Point * 10.0);
-   double buffer = MathMax(atr * 0.25, zoneWidth * 0.35);
-   double swingLow = DBL_MAX;
-   double swingHigh = -DBL_MAX;
-   for(int i = 1; i <= lookback; i++)
-   {
-      swingLow = MathMin(swingLow, iLow(_Symbol, PERIOD_CURRENT, i));
-      swingHigh = MathMax(swingHigh, iHigh(_Symbol, PERIOD_CURRENT, i));
-   }
-   double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   bool support = currentPrice > price;
-   double zoneSL = support ? bottom - buffer : top + buffer;
-   double structureSL = support ? swingLow - atr * 0.15 : swingHigh + atr * 0.15;
-   // Choose the nearer valid structural level; never place SL inside the zone.
-   double slLevel = support ? MathMax(zoneSL, structureSL) : MathMin(zoneSL, structureSL);
-   slLevel = NormalizeDouble(slLevel, _Digits);
+   if(ShowSLCloud)
+      DrawStopCloud(baseName, index);
 
-   int touchesFound = 0;
-   for(int b = 1; b < (int)MathMin(Bars(_Symbol, PERIOD_CURRENT) - 1, 120); b++)
-   {
-      if(iLow(_Symbol, PERIOD_CURRENT, b) <= top && iHigh(_Symbol, PERIOD_CURRENT, b) >= bottom)
-         touchesFound++;
-   }
-   int slProb = 35 + (int)MathMin(touchesFound * 4, 24);
-   slProb += score >= 13 ? 16 : score >= 11 ? 11 : score >= 9 ? 6 : 0;
-   slProb = (int)MathMin(slProb, 92);
-   color slColor = C'189,167,255'; // violet SL; red is reserved for fallback zones
-   string slLineName = baseName + "_sl_line";
-   ObjectCreate(0, slLineName, OBJ_HLINE, 0, 0, slLevel);
-   ObjectSetInteger(0, slLineName, OBJPROP_COLOR, slColor);
-   ObjectSetInteger(0, slLineName, OBJPROP_WIDTH, 1);
-   ObjectSetInteger(0, slLineName, OBJPROP_STYLE, STYLE_DASH);
-   ObjectSetInteger(0, slLineName, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, slLineName, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, slLineName, OBJPROP_BACK, true);
-   string slTextName = baseName + "_sl_label";
-   datetime slTextTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 80;
-   ObjectCreate(0, slTextName, OBJ_TEXT, 0, slTextTime, slLevel);
-   ObjectSetString(0, slTextName, OBJPROP_TEXT, " SL Pool " + DoubleToString(slLevel, _Digits) + " ~" + IntegerToString(slProb) + "%");
-   ObjectSetInteger(0, slTextName, OBJPROP_COLOR, slColor);
-   ObjectSetString(0, slTextName, OBJPROP_FONT, "Consolas");
-   ObjectSetInteger(0, slTextName, OBJPROP_FONTSIZE, 8);
-   ObjectSetInteger(0, slTextName, OBJPROP_ANCHOR, ANCHOR_LEFT);
-   ObjectSetInteger(0, slTextName, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, slTextName, OBJPROP_HIDDEN, true);
+}
 
+//+------------------------------------------------------------------+
+//| Structural SL cloud from Python Core: green = long, red = short |
+//+------------------------------------------------------------------+
+void DrawStopCloud(string baseName, int index)
+{
+   double stopPrice = stopPrices[index];
+   if(stopPrice <= 0) return;
+   bool isLong = (stopSides[index] == "BELOW_SUPPORT");
+   color cloudColor = isLong ? C'95,224,190' : C'239,117,132';
+   double spread = MathMax(stopBuffers[index] * 0.55, _Point * 12.0);
+   int points = MathMax(5, MathMin(15, SLCloudPoints));
+   datetime anchor = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 7;
+   for(int dot = 0; dot < points; dot++)
+   {
+      double normalized = points > 1 ? ((double)dot / (points - 1) - 0.5) : 0.0;
+      double dotPrice = stopPrice + normalized * spread;
+      datetime dotTime = anchor + dot * (int)MathMax(1, PeriodSeconds() / 3);
+      string dotName = baseName + "_sl_cloud_" + IntegerToString(dot);
+      ObjectCreate(0, dotName, OBJ_ARROW, 0, dotTime, dotPrice);
+      ObjectSetInteger(0, dotName, OBJPROP_ARROWCODE, 159);
+      ObjectSetInteger(0, dotName, OBJPROP_COLOR, cloudColor);
+      ObjectSetInteger(0, dotName, OBJPROP_WIDTH, dot == points / 2 ? 2 : 1);
+      ObjectSetInteger(0, dotName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, dotName, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, dotName, OBJPROP_BACK, false);
+   }
+   string labelName = baseName + "_sl_cloud_label";
+   ObjectCreate(0, labelName, OBJ_TEXT, 0, anchor + (points + 1) * (int)MathMax(1, PeriodSeconds() / 3), stopPrice);
+   ObjectSetString(0, labelName, OBJPROP_TEXT, (isLong ? " LONG SL cloud " : " SHORT SL cloud ") +
+                   DoubleToString(stopPrice, _Digits) + " ~" + IntegerToString(stopProbabilities[index]) + "%");
+   ObjectSetInteger(0, labelName, OBJPROP_COLOR, cloudColor);
+   ObjectSetString(0, labelName, OBJPROP_FONT, "Consolas");
+   ObjectSetInteger(0, labelName, OBJPROP_FONTSIZE, 8);
+   ObjectSetInteger(0, labelName, OBJPROP_ANCHOR, ANCHOR_LEFT);
+   ObjectSetInteger(0, labelName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, labelName, OBJPROP_HIDDEN, true);
 }
 
 //+------------------------------------------------------------------+
@@ -567,6 +623,10 @@ void DeleteAllZoneObjects()
    ArrayFree(zoneLabels);
    ArrayFree(zoneBigPlayer);
    ArrayFree(zoneFallback);
+   ArrayFree(stopPrices);
+   ArrayFree(stopBuffers);
+   ArrayFree(stopProbabilities);
+   ArrayFree(stopSides);
 }
 
 //+------------------------------------------------------------------+

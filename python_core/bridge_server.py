@@ -28,10 +28,13 @@ import applog
 import config
 import data_fetcher
 import paths
+import version
 from data_fetcher import DataUnavailableError, fetch_from_csv, fetch_all_timeframes
 from volume_filter import get_volume_flags_all_tf, calculate_delta, get_delta_at_zone
 from zone_detector import current_price, detect_zones
 from active_zones import normalize_display_balance, update_snapshot
+from payload_contract import build_health_payload, build_payload
+from runtime_guard import BridgeAlreadyRunning, BridgeLock
 from sl_model import possible_stop
 from telegram_bot import send_telegram_message, send_alert_line, send_zones_update
 from footprint_data import get_collector as get_fp_collector
@@ -54,6 +57,8 @@ ZONES_OUTPUT = paths.ZONES_FILE
 # Участки набора позиции крупным участником — отдельный файл, чтобы
 # не ломать наивный парсер zones_output.json в индикаторах.
 ACCUM_OUTPUT = ZONES_OUTPUT.parent / "accumulation_output.json"
+HEALTH_OUTPUT = ZONES_OUTPUT.parent / "bridge_health.json"
+BRIDGE_LOCK_FILE = ZONES_OUTPUT.parent / "bridge_writer.lock"
 
 # Файл-флаг: MT4 создаёт его когда записал новые данные
 TRIGGER_FILE = paths.TRIGGER_FILE
@@ -173,12 +178,15 @@ def refresh_data_source():
 
 
 def sync_to_mt4():
-    """Копирует JSON в папку MT4 Common/Files."""
+    """Доставляет один schema-versioned payload и health-файл во все цели MT4/MT5."""
     try:
-        from sync_zones_to_mt4 import sync_zones
-        sync_zones()
+        from sync_zones_to_mt4 import sync_file, sync_zones
+        zones_ok = sync_zones()
+        health_ok = sync_file(HEALTH_OUTPUT)
+        if not zones_ok or not health_ok:
+            raise RuntimeError("zone or health payload was not delivered to every required target")
     except Exception as e:
-        print(f"[bridge] WARN: Could not sync to MT4: {e}")
+        print(f"[bridge] WARN: Could not sync payload to MetaTrader: {e}")
 
 
 def export_accumulation(data):
@@ -256,90 +264,41 @@ def calculate_and_export_zones(refresh_data: bool = True):
         )
     print(f"[bridge] Display contract: {above_count} above / {below_count} below ref {reference_price:.2f}")
 
-    # ── Дельта-анализ (Футпринт Dukascopy/MT4) ──────
-    flow_delta = None
-    try:
-        collector = get_fp_collector()
-        buf = collector.buffers.get("4h")
-        if buf and not buf.buffer:
-            buf.load_initial()
-        if buf and buf.buffer:
-            last_c = buf.buffer[-1]
-            tot_vol = last_c.total_volume or 1
-            flow_delta = {
-                'dominant': "BUY" if last_c.delta > 0 else "SELL",
-                'delta_percent': (last_c.delta / tot_vol) * 100
-            }
-            print(f"[bridge] LIVE Flow delta: {flow_delta['dominant']} ({flow_delta['delta_percent']:+.2f}%)")
-    except Exception as e:
-        print(f"[bridge] Flow unavailable ({e}), using OHLC approximation")
-
-    # Fallback: аппроксимация дельты по OHLC
-    delta_df = None
-    if 'H4' in data:
-        delta_df = calculate_delta(data['H4'])
-    elif 'H1' in data:
-        delta_df = calculate_delta(data['H1'])
-
-    # ── Формируем JSON для MT4 ───────────────────────────────────
-    # Считываем уже существующий zones_output.json чтобы не затереть fp_status
+    # ── Формируем строгий JSON для всех MQL/Footprint потребителей ────
+    # Old payloads reused generic `price` in zones, wick points and SL.  The
+    # new schema uses only `zone_*` and `stop_*` keys and is validated before
+    # any file is replaced.
     old_data = paths.load_json_file(ZONES_OUTPUT, default={})
     current_fp_status = old_data.get("fp_status", "Ready")
+    h4_frame = data.get(config.PRIMARY_TIMEFRAME)
+    stops = [possible_stop(zone, h4_frame, reference_price) for zone in zones]
+    output = build_payload(
+        symbol=collector_symbol or config.SYMBOL,
+        producer_build=version.app_version(),
+        reference_price=reference_price,
+        reference_source=reference_source,
+        zones=zones,
+        stops=stops,
+        fp_status=current_fp_status,
+    )
+    health = build_health_payload(
+        producer_build=version.app_version(),
+        symbol=collector_symbol or config.SYMBOL,
+        reference_price=reference_price,
+        reference_source=reference_source,
+        payload=output,
+    )
+    if not paths.save_json_file(ZONES_OUTPUT, output, indent=2):
+        print(f"[bridge] ERROR: Could not write payload to {ZONES_OUTPUT}")
+        return None
+    if not paths.save_json_file(HEALTH_OUTPUT, health, indent=2):
+        print(f"[bridge] ERROR: Could not write health payload to {HEALTH_OUTPUT}")
+        return None
 
-    zones_for_mt4 = []
-    for z in zones:
-        zone_data = z.to_dict()
-        # Индикатор (StrongZones.mq*) парсит JSON наивно, по ключу "price".
-        # wick_points содержат свой "price" на каждую точку — из-за них
-        # индикатор насчитывал фантомные зоны с битыми границами (огромные
-        # прямоугольники). В файл для MT отдаём только сами зоны, без wick_points.
-        zone_data.pop("wick_points", None)
-        zone_data["price"] = round(zone_data["price"], 2)
-        zone_data["top"] = round(zone_data["top"], 2)
-        zone_data["bottom"] = round(zone_data["bottom"], 2)
-        zone_data["sources"] = "+".join(sorted(set(z.sources)))
-        zone_data["timestamp"] = datetime.now().isoformat()
-        # Possible SL is informational only: no order is placed.
-        try:
-            h4_frame = data.get(config.PRIMARY_TIMEFRAME)
-            current = float(h4_frame["close"].iloc[-1]) if h4_frame is not None and not h4_frame.empty else None
-            zone_data["sl"] = possible_stop(z, h4_frame, current).to_dict()
-        except Exception as exc:
-            print(f"[bridge] WARN: SL candidate unavailable: {exc}")
-
-        # Добавляем дельту для каждой зоны
-        if delta_df is not None:
-            delta_info = get_delta_at_zone(delta_df, z.price)
-            zone_data["delta"] = delta_info
-
-        zones_for_mt4.append(zone_data)
-
-    # ── Записываем JSON ──────────────────────────────────────────────
-    output = {
-        "symbol": config.SYMBOL,
-        "calculated_at": datetime.now().isoformat(),
-        "zone_count": len(zones_for_mt4),
-        "min_score": config.MIN_ZONE_SCORE,
-        "reference_price": round(reference_price, 2) if reference_price else None,
-        "reference_source": reference_source,
-        "fp_status": current_fp_status,
-        "zones": zones_for_mt4,
-    }
-
-    try:
-        with open(ZONES_OUTPUT, "w") as f:
-            json.dump(output, f, indent=2)
-    except OSError as e:
-        print(f"[bridge] ERROR: Could not write zones to {ZONES_OUTPUT}: {e}")
-        return zones_for_mt4
-
-    print(f"\n[bridge] Exported {len(zones_for_mt4)} zones to: {ZONES_OUTPUT}")
-
-    if zones_for_mt4:
-        for i, z in enumerate(zones_for_mt4, 1):
-            print(f"  {i}. ${z['price']:.2f} | {z['sources']} | S:{z['score']}")
-    else:
-        print("  (no strong zones found — market may be flat)")
+    print(f"\n[bridge] Exported schema {output['schema_version']} payload {output['payload_id']} "
+          f"with {len(output['zones'])} zones to: {ZONES_OUTPUT}")
+    for i, zone in enumerate(output["zones"], 1):
+        print(f"  {i}. ${zone['zone_price']:.2f} | {zone['zone_sources']} | S:{zone['zone_score']}")
 
     # ── Синхронизация в MT4 ──────────────────────────────────────────
     sync_to_mt4()
@@ -349,14 +308,23 @@ def calculate_and_export_zones(refresh_data: bool = True):
 
     # ── Telegram: краткая сводка по зонам (если бот настроен) ────────
     try:
-        send_zones_update(zones_for_mt4)
+        send_zones_update(output["zones"])
     except Exception as e:
         print(f"[bridge] telegram zones-update skipped: {e}")
 
-    return zones_for_mt4
+    return output["zones"]
 
 
 def run_monitor_loop(interval_seconds: int = 5):
+    """Start the sole Bridge writer; a second tray/app instance is refused."""
+    try:
+        with BridgeLock(BRIDGE_LOCK_FILE, build=version.app_version()):
+            _run_monitor_loop_impl(interval_seconds)
+    except BridgeAlreadyRunning as exc:
+        print(f"[bridge] REFUSED: {exc}")
+
+
+def _run_monitor_loop_impl(interval_seconds: int = 5):
     """
     Бесконечный цикл мониторинга.
     Ждёт появления файла-флага от MT4, пересчитывает зоны.
@@ -448,11 +416,11 @@ def run_monitor_loop(interval_seconds: int = 5):
             # H4 свечи закрываются в 0:00, 4:00, 8:00, 12:00, 16:00, 20:00 (время брокера)
             current_h4_slot = broker_now.hour // 4
             
-            if not hasattr(run_monitor_loop, '_last_h4_slot'):
-                run_monitor_loop._last_h4_slot = current_h4_slot
+            if not hasattr(_run_monitor_loop_impl, '_last_h4_slot'):
+                _run_monitor_loop_impl._last_h4_slot = current_h4_slot
             
-            if current_h4_slot != run_monitor_loop._last_h4_slot:
-                run_monitor_loop._last_h4_slot = current_h4_slot
+            if current_h4_slot != _run_monitor_loop_impl._last_h4_slot:
+                _run_monitor_loop_impl._last_h4_slot = current_h4_slot
                 print(f"\n[bridge] H4 candle closed (broker {broker_now.strftime('%H:%M')}). Recalculating zones...")
                 data_ok = calculate_and_export_zones() is not None
                 last_calc_time = time.time()
