@@ -426,7 +426,11 @@ function draw() {
     let bgFill   = 'rgba(184,243,90,0.10)';
     let edgeCol  = 'rgba(184,243,90,0.58)';
     let textCol2 = '#c8f77a';
-    if (z.label && z.label.includes('Bull')) {
+    if (z.is_fallback) {
+      bgFill   = 'rgba(239,117,132,0.10)';
+      edgeCol  = 'rgba(239,117,132,0.82)';
+      textCol2 = '#ff9aa8';
+    } else if (z.label && z.label.includes('Bull')) {
       bgFill   = 'rgba(95,224,190,0.13)';
       edgeCol  = 'rgba(95,224,190,0.72)';
       textCol2 = '#78e8ca';
@@ -438,8 +442,8 @@ function draw() {
 
     // Одна тонкая линия вместо прямоугольного диапазона.
     ctx.strokeStyle = edgeCol;
-    ctx.lineWidth = score >= 13 ? 2.4 : score >= 11 ? 1.8 : 1.15;
-    ctx.setLineDash(score >= 11 ? [] : [5, 4]);
+    ctx.lineWidth = z.is_fallback ? 1.1 : (score >= 13 ? 2.4 : score >= 11 ? 1.8 : 1.15);
+    ctx.setLineDash(z.is_fallback || score < 11 ? [5, 4] : []);
     ctx.beginPath(); ctx.moveTo(ml, zy); ctx.lineTo(chartW, zy); ctx.stroke();
     ctx.setLineDash([]);
     // Subtle glow keeps strong levels readable without filling the chart.
@@ -450,7 +454,7 @@ function draw() {
     ctx.restore();
 
     // Подпись зоны — ТОЛЬКО цена (без источников/скора), в стеклянной «пилюле».
-    const label = zPrice.toFixed(2);
+    const label = zPrice.toFixed(2) + (z.is_fallback ? ' · F' : '');
     ctx.font = 'bold 11px "JetBrains Mono", "Courier New", monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
@@ -476,7 +480,7 @@ function draw() {
     if (z.sl && z.sl.price !== undefined) {
       const slPrice = Number(z.sl.price);
       const slY = py(slPrice);
-      const slCol = (z.sl.side || '').includes('BELOW') ? '#ff7186' : '#77e4d0';
+      const slCol = '#bda7ff'; // SL is violet; red is reserved for fallback zones.
       ctx.save();
       ctx.strokeStyle = slCol;
       ctx.lineWidth = 1;

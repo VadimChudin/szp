@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pandas as pd
 
@@ -15,62 +14,63 @@ def z(price, score):
     return Zone(price=price, width=1.0, score=score, sources=["H4"])
 
 
-def test_new_stronger_candidate_replaces_only_weakest(tmp_path):
-    snap = tmp_path / "snapshot.json"
-    events = tmp_path / "events.jsonl"
-    data1 = {"H4": bars(("2024-01-01T00:00:00", 100, 101, 99, 100))}
-    current = [z(1000 + i * 20, i + 2) for i in range(5)]
-    result = update_snapshot(current, data1, snap, events)
-    assert sorted(x.score for x in result) == [2, 3, 4, 5, 6]
-
-    data2 = {"H4": bars(
-        ("2024-01-01T00:00:00", 100, 101, 99, 100),
-        ("2024-01-01T04:00:00", 100, 101, 99, 100),
-    )}
-    result = update_snapshot(current + [z(1200, 7)], data2, snap, events)
-    assert sorted(x.score for x in result) == [3, 4, 5, 6, 7]
-    assert 1000 not in [x.price for x in result]
-
-
-def test_same_h4_is_idempotent_and_weaker_candidate_does_not_replace(tmp_path):
-    snap = tmp_path / "snapshot.json"
-    events = tmp_path / "events.jsonl"
+def test_initial_snapshot_has_three_above_and_three_below(tmp_path):
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
     data = {"H4": bars(("2024-01-01T04:00:00", 100, 101, 99, 100))}
-    initial = update_snapshot([z(1000 + i * 20, i + 2) for i in range(5)], data, snap, events)
-    again = update_snapshot([z(1300, 99)], data, snap, events)
-    assert [x.price for x in again] == [x.price for x in initial]
+    candidates = [z(70 + i * 5, 16 - i) for i in range(6)] + [z(130 + i * 5, 15 - i) for i in range(6)]
+    result = update_snapshot(candidates, data, snap, events)
+    assert len(result) == 6
+    assert len([item for item in result if item.price < 100]) == 3
+    assert len([item for item in result if item.price > 100]) == 3
 
 
-def test_body_break_removes_zone(tmp_path):
-    snap = tmp_path / "snapshot.json"
-    events = tmp_path / "events.jsonl"
+def test_fallback_is_marked_when_side_lacks_strong_levels(tmp_path):
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
+    data = {"H4": bars(("2024-01-01T04:00:00", 100, 101, 99, 100))}
+    candidates = [z(70, 18), z(80, 16), z(90, 15)] + [z(110, 14), z(120, 9), z(130, 8)]
+    result = update_snapshot(candidates, data, snap, events)
+    above = [item for item in result if item.price > 100]
+    assert len(above) == 3
+    assert above[0].is_fallback is False
+    assert any(item.is_fallback for item in above)
+
+
+def test_higher_score_replaces_only_weakest_on_same_side(tmp_path):
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
+    data1 = {"H4": bars(("2024-01-01T00:00:00", 100, 101, 99, 100))}
+    initial = [z(70, 11), z(80, 12), z(90, 13), z(110, 11), z(120, 12), z(130, 13)]
+    update_snapshot(initial, data1, snap, events)
+    data2 = {"H4": bars(("2024-01-01T00:00:00", 100, 101, 99, 100), ("2024-01-01T04:00:00", 100, 101, 99, 100))}
+    result = update_snapshot(initial + [z(140, 15)], data2, snap, events)
+    above_prices = [item.price for item in result if item.price > 100]
+    below_prices = [item.price for item in result if item.price < 100]
+    assert 110 not in above_prices and 140 in above_prices
+    assert below_prices == [90, 80, 70]
+
+
+def test_same_h4_is_idempotent(tmp_path):
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
+    data = {"H4": bars(("2024-01-01T04:00:00", 100, 101, 99, 100))}
+    source = [z(70, 11), z(80, 12), z(90, 13), z(110, 11), z(120, 12), z(130, 13)]
+    initial = update_snapshot(source, data, snap, events)
+    again = update_snapshot(source + [z(140, 99)], data, snap, events)
+    assert [item.price for item in again] == [item.price for item in initial]
+
+
+def test_body_break_removes_zone_and_does_not_readd_same_cycle(tmp_path):
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
     first = {"H4": bars(("2024-01-01T00:00:00", 100, 101, 99, 100))}
-    update_snapshot([z(1000, 12)], first, snap, events)
-    broken = {"H4": bars(
-        ("2024-01-01T00:00:00", 100, 101, 99, 100),
-        ("2024-01-01T04:00:00", 990, 1010, 989, 1010),
-    )}
-    result = update_snapshot([], broken, snap, events)
-    assert result == []
-    lines = events.read_text().splitlines()
-    assert any(json.loads(line)["event"] == "zone_invalidated" for line in lines)
+    update_snapshot([z(70, 12)], first, snap, events)
+    broken = {"H4": bars(("2024-01-01T00:00:00", 100, 101, 99, 100), ("2024-01-01T04:00:00", 60, 71, 59, 71))}
+    result = update_snapshot([z(70, 20)], broken, snap, events)
+    assert all(item.price != 70 for item in result)
+    assert any(json.loads(line)["event"] == "zone_invalidated" for line in events.read_text().splitlines())
 
 
 def test_snapshot_persists_between_calls(tmp_path):
-    snap = tmp_path / "snapshot.json"
-    events = tmp_path / "events.jsonl"
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
     data = {"H4": bars(("2024-01-01T00:00:00", 100, 101, 99, 100))}
-    update_snapshot([z(2400, 15)], data, snap, events)
+    update_snapshot([z(70, 15)], data, snap, events)
     raw = json.loads(snap.read_text())
-    assert raw["version"] == "2.0"
+    assert raw["version"] == "3.0"
     assert raw["zones"][0]["state"] == "ACTIVE"
-
-
-def test_initial_snapshot_balances_both_sides(tmp_path):
-    snap = tmp_path / "snapshot.json"
-    events = tmp_path / "events.jsonl"
-    data = {"H4": bars(("2024-01-01T04:00:00", 100, 101, 99, 100))}
-    candidates = [z(90 + i, 20 - i) for i in range(8)] + [z(110 + i, 12 - i) for i in range(8)]
-    result = update_snapshot(candidates, data, snap, events)
-    assert any(item.price < 100 for item in result)
-    assert any(item.price > 100 for item in result)

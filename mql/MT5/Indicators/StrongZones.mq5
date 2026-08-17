@@ -21,6 +21,7 @@ input int      RefreshSeconds   = 10;         // Интервал обновле
 input color    ZoneColorStrong  = clrGold;        // Цвет сильных зон (Score >= 11)
 input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон
 input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
+input color    ZoneColorFallback = clrTomato;      // Сомнительный fallback-уровень
 input int      ZoneLineWidth    = 2;          // Толщина линии
 // Параметр переименован из ShowLabels: терминал хранит значения инпутов в
 // профиле графика, и у клиентов оставался ShowLabels=false из старой сборки —
@@ -52,6 +53,7 @@ double         zoneBottoms[];
 int            zoneScores[];
 string         zoneLabels[];
 bool           zoneBigPlayer[];
+bool           zoneFallback[];
 
 
 //+------------------------------------------------------------------+
@@ -285,9 +287,12 @@ void ParseZonesJSON(string json)
       int    score  = (int)ExtractDouble(json, "\"score\":", pricePos);
       string label  = ExtractString(json, "\"label\":", pricePos);
       bool   bp     = (StringFind(json, "\"has_big_player\": true", pricePos) > 0 &&
-                        StringFind(json, "\"has_big_player\": true", pricePos) < pricePos + 500);
+                        StringFind(json, "\"has_big_player\": true", pricePos) < pricePos + 700);
+      bool   fallback = (StringFind(json, "\"is_fallback\": true", pricePos) > 0 &&
+                         StringFind(json, "\"is_fallback\": true", pricePos) < pricePos + 900);
 
-      if(price > 0 && currentZoneCount < 20)
+      // Hard UI guard: never draw more than six active levels.
+      if(price > 0 && currentZoneCount < 6)
       {
          ArrayResize(zonePrices, currentZoneCount + 1);
          ArrayResize(zoneTops, currentZoneCount + 1);
@@ -295,6 +300,7 @@ void ParseZonesJSON(string json)
          ArrayResize(zoneScores, currentZoneCount + 1);
          ArrayResize(zoneLabels, currentZoneCount + 1);
          ArrayResize(zoneBigPlayer, currentZoneCount + 1);
+         ArrayResize(zoneFallback, currentZoneCount + 1);
 
          zonePrices[currentZoneCount]    = price;
          zoneTops[currentZoneCount]      = top;
@@ -302,6 +308,7 @@ void ParseZonesJSON(string json)
          zoneScores[currentZoneCount]    = score;
          zoneLabels[currentZoneCount]    = label;
          zoneBigPlayer[currentZoneCount] = bp;
+         zoneFallback[currentZoneCount]  = fallback;
 
          currentZoneCount++;
       }
@@ -364,11 +371,13 @@ void DrawSingleZone(int index)
    int    score    = zoneScores[index];
    string label    = zoneLabels[index];
 
+   bool  fallback = zoneFallback[index];
    color zoneColor;
    int lineWidth;
-   if(score >= 11)      { zoneColor = ZoneColorStrong; lineWidth = ZoneLineWidth + 1; }
-   else if(score >= 9)  { zoneColor = ZoneColorMedium; lineWidth = ZoneLineWidth; }
-   else                 { zoneColor = ZoneColorWeak;   lineWidth = MathMax(1, ZoneLineWidth - 1); }
+   if(fallback)         { zoneColor = ZoneColorFallback; lineWidth = MathMax(1, ZoneLineWidth - 1); }
+   else if(score >= 11) { zoneColor = ZoneColorStrong;   lineWidth = ZoneLineWidth + 1; }
+   else if(score >= 9)  { zoneColor = ZoneColorMedium;   lineWidth = ZoneLineWidth; }
+   else                 { zoneColor = ZoneColorWeak;     lineWidth = MathMax(1, ZoneLineWidth - 1); }
 
    // ── 1. Горизонтальная линия ──────────────────────────────────────
    string lineName = baseName + "_line";
@@ -453,7 +462,7 @@ void DrawSingleZone(int index)
    int slProb = 35 + (int)MathMin(touchesFound * 4, 24);
    slProb += score >= 13 ? 16 : score >= 11 ? 11 : score >= 9 ? 6 : 0;
    slProb = (int)MathMin(slProb, 92);
-   color slColor = support ? C'239,117,132' : C'119,228,208';
+   color slColor = C'189,167,255'; // violet SL; red is reserved for fallback zones
    string slLineName = baseName + "_sl_line";
    ObjectCreate(0, slLineName, OBJ_HLINE, 0, 0, slLevel);
    ObjectSetInteger(0, slLineName, OBJPROP_COLOR, slColor);
@@ -553,6 +562,7 @@ void DeleteAllZoneObjects()
    ArrayFree(zoneScores);
    ArrayFree(zoneLabels);
    ArrayFree(zoneBigPlayer);
+   ArrayFree(zoneFallback);
 }
 
 //+------------------------------------------------------------------+

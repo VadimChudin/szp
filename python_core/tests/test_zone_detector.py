@@ -245,13 +245,15 @@ class TestBalanceAroundPrice:
         assert sum(1 for z in selected if z.price > 4390.0) >= 1
         assert sum(1 for z in selected if z.price < 4390.0) >= 2
 
-    def test_strong_zones_preferred_over_weak(self):
+    def test_real_weak_zone_is_used_as_fallback_when_side_needs_coverage(self):
         strong = [self._zone(4500.0, 20), self._zone(4100.0, 19)]
         weak = [self._zone(4520.0, 8)]
 
         selected = balance_around_price(strong, weak, price=4300.0)
 
-        assert weak[0] not in selected
+        # New policy: prefer strong levels first, but retain a real weaker
+        # candidate when needed to fill the upper/lower side quota.
+        assert weak[0] in selected
 
     def test_duplicate_levels_are_not_added_twice(self, monkeypatch):
         monkeypatch.setattr(config, "PROJECT_ROUND_LEVELS", False)
