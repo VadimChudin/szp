@@ -35,10 +35,16 @@ OutputBaseFilename=SmartZonesPro_Setup_{#AppChannel}_v{#AppVer}
 [Files]
 Source: "{#RepoDir}dist\SmartZonesPro\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#RepoDir}.env.example"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#RepoDir}mql\MT4\Experts\*"; DestDir: "{app}\mql\MT4\Experts"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#RepoDir}mql\MT4\Indicators\*"; DestDir: "{app}\mql\MT4\Indicators"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#RepoDir}mql\MT5\Experts\*"; DestDir: "{app}\mql\MT5\Experts"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
-Source: "{#RepoDir}mql\MT5\Indicators\*"; DestDir: "{app}\mql\MT5\Indicators"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+; Исходники сохраняем для аудита, а исполняемые ex4/ex5 ставим в терминал.
+Source: "{#RepoDir}mql\MT4\Experts\*.mq4"; DestDir: "{app}\mql\MT4\Experts"; Flags: ignoreversion
+Source: "{#RepoDir}mql\MT4\Indicators\*.mq4"; DestDir: "{app}\mql\MT4\Indicators"; Flags: ignoreversion
+Source: "{#RepoDir}mql\MT5\Experts\*.mq5"; DestDir: "{app}\mql\MT5\Experts"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#RepoDir}mql\MT5\Indicators\*.mq5"; DestDir: "{app}\mql\MT5\Indicators"; Flags: ignoreversion skipifsourcedoesntexist
+; Эти артефакты создаются CI до запуска ISCC; без них обновление не считается валидным.
+Source: "{#RepoDir}mql\MT4\Experts\*.ex4"; DestDir: "{app}\mql\MT4\Experts"; Flags: ignoreversion
+Source: "{#RepoDir}mql\MT4\Indicators\*.ex4"; DestDir: "{app}\mql\MT4\Indicators"; Flags: ignoreversion
+Source: "{#RepoDir}mql\MT5\Experts\*.ex5"; DestDir: "{app}\mql\MT5\Experts"; Flags: ignoreversion
+Source: "{#RepoDir}mql\MT5\Indicators\*.ex5"; DestDir: "{app}\mql\MT5\Indicators"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Smart Zones Pro {#AppChannel}"; Filename: "{app}\SmartZonesPro.exe"
@@ -57,6 +63,73 @@ Filename: "{app}\SmartZonesPro.exe"; Description: "Launch Smart Zones Pro"; Flag
 ; parameters"), а персонализация всё равно дублировалась.
 
 [Code]
+{ ── Доставка скомпилированных MQL-компонентов в терминалы ───────────────
+   Папка канала преднамеренно входит в путь. Так Experimental не перезаписывает
+   Stable, а терминал не может молча продолжить выполнять старый StrongZones.ex?. }
+procedure CopyCompiledMql(const SourceFile, DestDir, DestName: String);
+begin
+  if not FileExists(SourceFile) then
+  begin
+    Log('Compiled MQL payload is missing: ' + SourceFile);
+    Exit;
+  end;
+
+  if not ForceDirectories(DestDir) then
+  begin
+    Log('Cannot create MetaTrader destination: ' + DestDir);
+    Exit;
+  end;
+
+  if FileCopy(SourceFile, AddBackslash(DestDir) + DestName, False) then
+    Log('Installed compiled MQL: ' + AddBackslash(DestDir) + DestName)
+  else
+    Log('Failed to install compiled MQL: ' + AddBackslash(DestDir) + DestName);
+end;
+
+procedure InstallCompiledMqlToTerminals();
+var
+  TerminalBase, TerminalDir: String;
+  SearchRec: TFindRec;
+  MT4Indicator, MT4Expert, MT5Indicator, MT5Expert: String;
+begin
+  TerminalBase := ExpandConstant('{userappdata}') + '\MetaQuotes\Terminal';
+  if not DirExists(TerminalBase) then
+  begin
+    Log('MetaTrader terminal directory not found: ' + TerminalBase);
+    Exit;
+  end;
+
+  MT4Indicator := ExpandConstant('{app}') + '\mql\MT4\Indicators\StrongZones.ex4';
+  MT4Expert    := ExpandConstant('{app}') + '\mql\MT4\Experts\SmartZonesCollector.ex4';
+  MT5Indicator := ExpandConstant('{app}') + '\mql\MT5\Indicators\StrongZones.ex5';
+  MT5Expert    := ExpandConstant('{app}') + '\mql\MT5\Experts\SmartZonesCollector.ex5';
+
+  if FindFirst(TerminalBase + '\*', SearchRec) then
+  begin
+    try
+      repeat
+        if ((SearchRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and
+           (SearchRec.Name <> '.') and (SearchRec.Name <> '..') then
+        begin
+          TerminalDir := TerminalBase + '\' + SearchRec.Name;
+          if DirExists(TerminalDir + '\MQL4') then
+          begin
+            CopyCompiledMql(MT4Indicator, TerminalDir + '\MQL4\Indicators\SmartZonesPro\{#AppChannel}', 'StrongZones.ex4');
+            CopyCompiledMql(MT4Expert, TerminalDir + '\MQL4\Experts\SmartZonesPro\{#AppChannel}', 'SmartZonesCollector.ex4');
+          end;
+          if DirExists(TerminalDir + '\MQL5') then
+          begin
+            CopyCompiledMql(MT5Indicator, TerminalDir + '\MQL5\Indicators\SmartZonesPro\{#AppChannel}', 'StrongZones.ex5');
+            CopyCompiledMql(MT5Expert, TerminalDir + '\MQL5\Experts\SmartZonesPro\{#AppChannel}', 'SmartZonesCollector.ex5');
+          end;
+        end;
+      until not FindNext(SearchRec);
+    finally
+      FindClose(SearchRec);
+    end;
+  end;
+end;
+
 { ── Удаление предыдущих версий перед установкой ─────────────────────────
   Клиент мог поставить старую версию в нестандартный путь. Ищем её
   деинсталлятор в реестре (по AppId новой версии и по имени старой, у которой
@@ -170,7 +243,10 @@ begin
   end
   else if CurStep = ssPostInstall then
   begin
-    { Ставим недостающие системные зависимости (VC++ / WebView2). }
+    { Ставим недостающие системные зависимости (VC++ / WebView2) и
+      разворачиваем именно CI-скомпилированные ex4/ex5 в изолированный
+      каталог канала внутри каждого найденного терминала. }
     EnsurePrerequisites();
+    InstallCompiledMqlToTerminals();
   end;
 end;

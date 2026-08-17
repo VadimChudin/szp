@@ -29,3 +29,25 @@ def test_sl_is_violet_and_separate_from_red_fallback():
         source = _source(relative)
         assert "C'189,167,255'" in source
         assert '"_sl_line"' in source
+
+
+def test_collectors_export_the_same_history_depth_as_the_detector():
+    expected = {"H1": 720, "H4": 600, "D1": 365}
+    collectors = (
+        "mql/MT4/Experts/SmartZonesCollector.mq4",
+        "mql/MT5/Experts/SmartZonesCollector.mq5",
+    )
+    for relative in collectors:
+        source = _source(relative)
+        for timeframe, bars in expected.items():
+            assert f"input int      {timeframe}_Bars             = {bars};" in source
+
+
+def test_installer_deploys_compiled_mql_in_an_isolated_channel_folder():
+    source = _source("setup.iss")
+    assert "InstallCompiledMqlToTerminals();" in source
+    assert "StrongZones.ex4" in source
+    assert "SmartZonesCollector.ex4" in source
+    assert "StrongZones.ex5" in source
+    assert "SmartZonesCollector.ex5" in source
+    assert "SmartZonesPro\\{#AppChannel}" in source

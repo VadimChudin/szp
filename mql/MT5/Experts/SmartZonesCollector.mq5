@@ -24,9 +24,9 @@
 //--- Input Parameters ------------------------------------------------
 input int      TickBufferMaxLines  = 200000;   // Макс. тиков в буфере (~несколько дней)
 input int      OHLCVRefreshSec     = 30;       // Интервал обновления OHLCV (сек)
-input int      H1_Bars             = 200;      // Баров H1 для экспорта
-input int      H4_Bars             = 100;      // Баров H4 для экспорта
-input int      D1_Bars             = 60;       // Баров D1 для экспорта
+input int      H1_Bars             = 720;      // 30 дней H1 — совпадает с Python Core
+input int      H4_Bars             = 600;      // 100 дней H4 — основной горизонт зон
+input int      D1_Bars             = 365;      // 1 год D1 — старшие структурные уровни
 input int      M1_Bars             = 15000;    // Баров M1 для эмуляции истории (~10 дней)
 input color    PanelTextColor      = clrWhite; // Цвет текста панели
 input color    PanelBgColor        = C'30,30,40'; // Фон панели
