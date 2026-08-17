@@ -236,6 +236,48 @@ def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
     return sorted(current, key=lambda zone: _rank(zone, price), reverse=True)[:slots]
 
 
+def normalize_display_balance(zones: Iterable[Zone], price: float | None) -> list[Zone]:
+    """Return exactly the configured visible slots on each side of *price*.
+
+    The persisted H4 snapshot intentionally stays stable between candle closes,
+    but a fast live move can leave all of its old levels on one visual side.
+    This final export-only guard never mutates the snapshot: it preserves the
+    strongest real levels on each side and fills only missing slots with red
+    projected fallback levels.
+    """
+    if price is None or price <= 0:
+        return list(zones)[:config.MAX_ZONES_ON_CHART]
+
+    slots = config.MIN_ZONES_PER_SIDE
+    visible: list[Zone] = []
+    for side in (Side.ABOVE, Side.BELOW):
+        real = [copy.deepcopy(zone) for zone in zones if _side(zone, price) == side]
+        real.sort(key=lambda zone: _rank(zone, price), reverse=True)
+        selected = real[:slots]
+        for zone in selected:
+            zone.display_side = side
+            zone.is_fallback = zone.score < config.MIN_ZONE_SCORE
+
+        if len(selected) < slots:
+            for fallback in projected_levels(
+                price,
+                above=(side == Side.ABOVE),
+                count=slots - len(selected),
+                force=True,
+            ):
+                if any(_same_zone(fallback, known) for known in selected):
+                    continue
+                fallback.display_side = side
+                fallback.is_fallback = True
+                fallback.state = "DISPLAY_FALLBACK"
+                selected.append(fallback)
+                if len(selected) >= slots:
+                    break
+        visible.extend(selected)
+
+    return visible[:config.MAX_ZONES_ON_CHART]
+
+
 def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FILE,
                     event_path: Path = EVENT_LOG_FILE,
                     reference_price: float | None = None) -> list[Zone]:

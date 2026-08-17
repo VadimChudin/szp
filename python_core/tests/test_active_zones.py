@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from active_zones import update_snapshot
+from active_zones import normalize_display_balance, update_snapshot
 from zone_detector import Zone
 
 
@@ -74,6 +74,21 @@ def test_snapshot_persists_between_calls(tmp_path):
     raw = json.loads(snap.read_text())
     assert raw["version"] == "3.1"
     assert raw["zones"][0]["state"] == "ACTIVE"
+
+
+def test_display_guard_rebalances_all_above_snapshot_with_red_lower_fallbacks():
+    visible = normalize_display_balance(
+        [z(1100, 18), z(1150, 16), z(1200, 14), z(1250, 13), z(1300, 12), z(1350, 11)],
+        price=1000,
+    )
+    above = [item for item in visible if item.price > 1000]
+    below = [item for item in visible if item.price < 1000]
+
+    assert len(visible) == 6
+    assert len(above) == 3
+    assert len(below) == 3
+    assert all(item.is_fallback for item in below)
+    assert all(item.state == "DISPLAY_FALLBACK" for item in below)
 
 
 def test_missing_upper_side_is_completed_by_red_projected_fallbacks(tmp_path):

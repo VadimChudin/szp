@@ -31,7 +31,7 @@ import paths
 from data_fetcher import DataUnavailableError, fetch_from_csv, fetch_all_timeframes
 from volume_filter import get_volume_flags_all_tf, calculate_delta, get_delta_at_zone
 from zone_detector import current_price, detect_zones
-from active_zones import update_snapshot
+from active_zones import normalize_display_balance, update_snapshot
 from sl_model import possible_stop
 from telegram_bot import send_telegram_message, send_alert_line, send_zones_update
 from footprint_data import get_collector as get_fp_collector
@@ -246,7 +246,15 @@ def calculate_and_export_zones(refresh_data: bool = True):
         process_persistent_zones(zones, data)
     except Exception as e:
         print(f"[bridge] WARN: Could not update persistent archive: {e}")
-    zones = update_snapshot(zones, data, reference_price=reference_price)
+    snapshot_zones = update_snapshot(zones, data, reference_price=reference_price)
+    zones = normalize_display_balance(snapshot_zones, reference_price)
+    above_count = sum(1 for zone in zones if zone.price > reference_price)
+    below_count = sum(1 for zone in zones if zone.price < reference_price)
+    if above_count != config.MIN_ZONES_PER_SIDE or below_count != config.MIN_ZONES_PER_SIDE:
+        raise RuntimeError(
+            f"display balance violation: above={above_count}, below={below_count}, ref={reference_price}"
+        )
+    print(f"[bridge] Display contract: {above_count} above / {below_count} below ref {reference_price:.2f}")
 
     # ── Дельта-анализ (Футпринт Dukascopy/MT4) ──────
     flow_delta = None
