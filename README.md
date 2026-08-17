@@ -66,3 +66,37 @@ iscc.exe /DAppVer=2.1.0 /DAppChannel=Stable setup.iss
 ```powershell
 iscc.exe /DAppVer=0.0.0.1 /DAppChannel=Experimental setup.iss
 ```
+
+
+## Инкрементальный жизненный цикл зон
+
+Отображаемый список зон хранится в `data_bridge/active_zones_snapshot.json`. Детектор используется для поиска кандидатов, но существующий список не пересоздаётся для каждого вызова: bridge применяет изменения только после появления нового закрытого H4-бара. Для того же H4-бара обновление идемпотентно.
+
+На новом H4-цикле активные зоны сохраняются, если не было подтверждённого теста или пробоя. Кандидат занимает свободное место либо заменяет только слабейшую активную зону, если его `score` строго выше. Касание переводит зону в `TESTED`; при включённом `TEST_INVALIDATES_ZONE=1` подтверждённое касание снимает её, а закрытие телом свечи за пределами зоны всегда создаёт `INVALIDATED`. События пишутся в `data_bridge/zone_events.jsonl`.
+
+По умолчанию ширина зоны рассчитывается от ATR H4 и ограничивается `ZONE_WIDTH_MIN`/`ZONE_WIDTH_MAX`. Для режимной модели можно установить `ZONE_WIDTH_MODE=regime`; `fixed` сохраняет прежнюю фиксированную ширину. Основные параметры задаются через `.env`:
+
+```text
+ZONE_WIDTH_MODE=atr
+ATR_PERIOD=14
+ATR_MULTIPLIER=0.5
+ZONE_WIDTH_MIN=0.50
+ZONE_WIDTH_MAX=8.00
+TEST_INVALIDATES_ZONE=1
+ZONE_EVENT_LOG_ENABLED=1
+```
+
+## Walk-forward backtest и калибровка score
+
+`python_core/backtest.py` разделяет formation window и future window: зона строится только на свечах до момента оценки, а результат проверяется на следующих свечах. Это предотвращает look-ahead bias. `python_core/score_calibration.py` группирует исходы по диапазонам score и возвращает эмпирическую частоту реакции и надёжность выборки. Эти коэффициенты являются отчётом для калибровки и не изменяют scoring молча.
+
+```python
+from backtest import walk_forward, summarize
+from score_calibration import calibrate
+
+outcomes = walk_forward(h4_frame, detector, warmup=100, horizon=6)
+report = summarize(outcomes)
+calibration = calibrate(outcomes, bucket_size=2, min_samples=10)
+```
+
+Backtest требует реальный исторический экспорт свечей. Синтетические данные разрешены только для unit-тестов и не должны использоваться для оценки торгового качества.
