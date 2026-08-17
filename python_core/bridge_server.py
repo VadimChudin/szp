@@ -32,6 +32,7 @@ from data_fetcher import DataUnavailableError, fetch_from_csv, fetch_all_timefra
 from volume_filter import get_volume_flags_all_tf, calculate_delta, get_delta_at_zone
 from zone_detector import detect_zones
 from active_zones import update_snapshot
+from sl_model import possible_stop
 from telegram_bot import send_telegram_message, send_alert_line, send_zones_update
 from footprint_data import get_collector as get_fp_collector
 # footprint_window импортируется лениво (содержит webview, блокирует headless)
@@ -254,6 +255,13 @@ def calculate_and_export_zones(refresh_data: bool = True):
         zone_data["bottom"] = round(zone_data["bottom"], 2)
         zone_data["sources"] = "+".join(sorted(set(z.sources)))
         zone_data["timestamp"] = datetime.now().isoformat()
+        # Possible SL is informational only: no order is placed.
+        try:
+            h4_frame = data.get(config.PRIMARY_TIMEFRAME)
+            current = float(h4_frame["close"].iloc[-1]) if h4_frame is not None and not h4_frame.empty else None
+            zone_data["sl"] = possible_stop(z, h4_frame, current).to_dict()
+        except Exception as exc:
+            print(f"[bridge] WARN: SL candidate unavailable: {exc}")
 
         # Добавляем дельту для каждой зоны
         if delta_df is not None:

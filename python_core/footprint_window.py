@@ -412,13 +412,12 @@ function draw() {
   // === Зоны (SZP) — золотой полупрозрачный фон + бейдж со score ===
   const zonesList = DATA.zones || [];
   zonesList.forEach(z => {
-    // Границы зоны: top/bottom если есть, иначе ±1 пункт вокруг price.
-    const zTop = (z.top    !== undefined && z.top    !== null) ? z.top    : (z.price + 1);
-    const zBot = (z.bottom !== undefined && z.bottom !== null) ? z.bottom : (z.price - 1);
-    const yTop = py(Math.max(zTop, zBot));
-    const yBot = py(Math.min(zTop, zBot));
-    const zh   = Math.max(2, Math.abs(yBot - yTop));
-    const zy   = py((zTop + zBot) / 2);
+    // Actionable line: the center price is the display level. The width is
+    // retained in JSON for SL/risk calculations but no longer obscures data.
+    const zPrice = (z.price !== undefined && z.price !== null)
+                   ? Number(z.price)
+                   : ((Number(z.top || 0) + Number(z.bottom || 0)) / 2);
+    const zy = py(zPrice);
 
     const score = z.score || 0;
 
@@ -437,21 +436,21 @@ function draw() {
       textCol2 = '#ff9aa8';
     }
 
-    // Полупрозрачная заливка по всей ширине графика
-    ctx.fillStyle = bgFill;
-    ctx.fillRect(ml, yTop, chartW - ml, zh);
-
-    // Верхняя и нижняя граница зоны
+    // Одна тонкая линия вместо прямоугольного диапазона.
     ctx.strokeStyle = edgeCol;
-    ctx.lineWidth = score >= 11 ? 1.5 : 1;
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath(); ctx.moveTo(ml, yTop); ctx.lineTo(chartW, yTop); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(ml, yBot); ctx.lineTo(chartW, yBot); ctx.stroke();
+    ctx.lineWidth = score >= 13 ? 2.4 : score >= 11 ? 1.8 : 1.15;
+    ctx.setLineDash(score >= 11 ? [] : [5, 4]);
+    ctx.beginPath(); ctx.moveTo(ml, zy); ctx.lineTo(chartW, zy); ctx.stroke();
     ctx.setLineDash([]);
+    // Subtle glow keeps strong levels readable without filling the chart.
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.lineWidth += 3;
+    ctx.beginPath(); ctx.moveTo(ml, zy); ctx.lineTo(chartW, zy); ctx.stroke();
+    ctx.restore();
 
     // Подпись зоны — ТОЛЬКО цена (без источников/скора), в стеклянной «пилюле».
-    const label = (z.price !== undefined && z.price !== null)
-                  ? z.price.toFixed(2) : ((zTop + zBot) / 2).toFixed(2);
+    const label = zPrice.toFixed(2);
     ctx.font = 'bold 11px "JetBrains Mono", "Courier New", monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
@@ -460,7 +459,7 @@ function draw() {
     const badgeH = 18;
     const badgeW = txtW + padX * 2;
     const badgeX = chartW - 8 - badgeW;
-    const badgeY = yTop + 2;
+    const badgeY = zy - badgeH / 2;
     const r = 6;
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(badgeX, badgeY, badgeW, badgeH, r);
@@ -472,6 +471,26 @@ function draw() {
     ctx.stroke();
     ctx.fillStyle = textCol2;
     ctx.fillText(label, badgeX + badgeW - padX, badgeY + badgeH / 2);
+
+    // Possible SL is shown as a separate structural liquidity line.
+    if (z.sl && z.sl.price !== undefined) {
+      const slPrice = Number(z.sl.price);
+      const slY = py(slPrice);
+      const slCol = (z.sl.side || '').includes('BELOW') ? '#ff7186' : '#77e4d0';
+      ctx.save();
+      ctx.strokeStyle = slCol;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 5]);
+      ctx.globalAlpha = 0.78;
+      ctx.beginPath(); ctx.moveTo(ml, slY); ctx.lineTo(chartW, slY); ctx.stroke();
+      ctx.restore();
+      const slLabel = 'SL ' + slPrice.toFixed(2) + ' · ' + (z.sl.probability || 0) + '%';
+      ctx.font = '10px "JetBrains Mono", "Courier New", monospace';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = slCol;
+      ctx.fillText(slLabel, chartW - 10, slY - 7);
+    }
   });
 
   // === Свечи (Непрерывная сетка) ===

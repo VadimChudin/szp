@@ -26,7 +26,7 @@ input int      ZoneLineWidth    = 2;          // Толщина линии
 // профиле графика, и у клиентов оставался ShowLabels=false из старой сборки —
 // цены на уровнях не появлялись даже после обновления индикатора.
 input bool     ShowPriceLabels  = true;       // Показывать только цену зоны
-input bool     ShowRectangles   = true;       // Полупрозрачные прямоугольники зон
+input bool     ShowRectangles   = false;       // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;      // Бейдж со скором
 input bool     ShowGradient     = false;      // Градиентная визуализация (выкл. по умолчанию)
 input int      GradientLayers   = 5;          // Кол-во слоёв градиента
@@ -380,34 +380,6 @@ void DrawSingleZone(int index)
    ObjectSetInteger(0, lineName, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, lineName, OBJPROP_BACK, true);
 
-   // ── 2. Градиентные прямоугольники ────────────────────────────────
-   if(ShowRectangles && ShowGradient)
-   {
-      DrawGradientZone(baseName, price, top, bottom, zoneColor, score);
-   }
-   else if(ShowRectangles)
-   {
-      // Приглушённый полупрозрачный прямоугольник (MT5 не имеет
-      // альфы для OBJ_RECTANGLE — используем тёмный цвет + BACK=true).
-      string rectName = baseName + "_rect";
-      int totalBars = Bars(_Symbol, PERIOD_CURRENT);
-      int leftIdx   = (int)MathMin(totalBars - 1, 120);
-      datetime timeLeft  = iTime(_Symbol, PERIOD_CURRENT, leftIdx);
-      datetime timeRight = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 30;
-
-      color rectFill;
-      if(score >= 11)      rectFill = (color)C'80,70,30';
-      else if(score >= 9)  rectFill = (color)C'55,50,30';
-      else                 rectFill = (color)C'40,40,35';
-
-      ObjectCreate(0, rectName, OBJ_RECTANGLE, 0, timeLeft, top, timeRight, bottom);
-      ObjectSetInteger(0, rectName, OBJPROP_COLOR, rectFill);
-      ObjectSetInteger(0, rectName, OBJPROP_FILL, true);
-      ObjectSetInteger(0, rectName, OBJPROP_BACK, true);
-      ObjectSetInteger(0, rectName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, rectName, OBJPROP_HIDDEN, true);
-   }
-
    // ── 3. Текстовая подпись ─────────────────────────────────────────
    if(ShowPriceLabels)
    {
@@ -440,66 +412,67 @@ void DrawSingleZone(int index)
       ObjectSetInteger(0, badgeName, OBJPROP_HIDDEN, true);
    }
 
-   // ── 4. SL Pool — Зоны ликвидности (идентично в MT4 и MT5) ───────────
-   int maxBars = (int)MathMin(Bars(_Symbol, PERIOD_CURRENT), 200);
-   int touchesFound = 0;
-   for(int b = 1; b < maxBars; b++)
+   // ── 4. Structural SL Pool ─────────────────────────────────────────
+   // SL is placed outside the zone using a bounded ATR buffer and the nearest
+   // recent swing. It is a possible liquidity/stop level, not a trade signal.
+   int lookback = (int)MathMin(Bars(_Symbol, PERIOD_CURRENT) - 2, 40);
+   if(lookback < 5) lookback = 5;
+   double atr = 0.0;
+   int atrBars = (int)MathMin(Bars(_Symbol, PERIOD_CURRENT) - 2, 14);
+   for(int i = 1; i <= atrBars; i++)
    {
-      if(iLow(_Symbol, PERIOD_CURRENT, b) <= top &&
-         iHigh(_Symbol, PERIOD_CURRENT, b) >= bottom)
+      double hi = iHigh(_Symbol, PERIOD_CURRENT, i);
+      double lo = iLow(_Symbol, PERIOD_CURRENT, i);
+      double prevClose = iClose(_Symbol, PERIOD_CURRENT, i+1);
+      atr += MathMax(hi - lo, MathMax(MathAbs(hi - prevClose), MathAbs(lo - prevClose)));
+   }
+   atr = atrBars > 0 ? atr / atrBars : (top - bottom);
+   double zoneWidth = MathMax(MathAbs(top - bottom), _Point * 10.0);
+   double buffer = MathMax(atr * 0.25, zoneWidth * 0.35);
+   double swingLow = DBL_MAX;
+   double swingHigh = -DBL_MAX;
+   for(int i = 1; i <= lookback; i++)
+   {
+      swingLow = MathMin(swingLow, iLow(_Symbol, PERIOD_CURRENT, i));
+      swingHigh = MathMax(swingHigh, iHigh(_Symbol, PERIOD_CURRENT, i));
+   }
+   double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   bool support = currentPrice > price;
+   double zoneSL = support ? bottom - buffer : top + buffer;
+   double structureSL = support ? swingLow - atr * 0.15 : swingHigh + atr * 0.15;
+   // Choose the nearer valid structural level; never place SL inside the zone.
+   double slLevel = support ? MathMax(zoneSL, structureSL) : MathMin(zoneSL, structureSL);
+   slLevel = NormalizeDouble(slLevel, _Digits);
+
+   int touchesFound = 0;
+   for(int b = 1; b < (int)MathMin(Bars(_Symbol, PERIOD_CURRENT) - 1, 120); b++)
+   {
+      if(iLow(_Symbol, PERIOD_CURRENT, b) <= top && iHigh(_Symbol, PERIOD_CURRENT, b) >= bottom)
          touchesFound++;
    }
-
-   int slProb = 45;
-   slProb += (int)MathMin(touchesFound * 5, 20);
-   if(score >= 13) slProb += 15;
-   else if(score >= 11) slProb += 10;
-   else if(score >= 9) slProb += 5;
-   if(StringFind(label, "RL") >= 0) slProb += 10;
-   if(StringFind(label, "BP") >= 0) slProb += 5;
-   slProb = (int)MathMin(slProb, 95);
-
-   color slColor;
-   if(slProb >= 80) slColor = (color)C'80,40,15';      // сильный
-   else if(slProb >= 65) slColor = (color)C'65,40,20'; // средний
-   else slColor = (color)C'50,35,25';                  // слабый
-
-   double slDepth  = (top - bottom) * 4.5;
-   double slOffset = (top - bottom) * 0.1;
-   datetime timeStart = iTime(_Symbol, PERIOD_CURRENT, (int)MathMin(Bars(_Symbol, PERIOD_CURRENT) - 1, 12));
-   datetime timeEnd   = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 80;
-   double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
-   double baseLVL, pointLVL;
-   if(currentPrice > price)   // Зона поддержки -> пул снизу
-   {
-      baseLVL  = bottom - slOffset;
-      pointLVL = baseLVL - slDepth;
-   }
-   else                       // Зона сопротивления -> пул сверху
-   {
-      baseLVL  = top + slOffset;
-      pointLVL = baseLVL + slDepth;
-   }
-
-   string slRectName = baseName + "_slcloud";
-   ObjectCreate(0, slRectName, OBJ_RECTANGLE, 0, timeStart, baseLVL, timeEnd, pointLVL);
-   ObjectSetInteger(0, slRectName, OBJPROP_COLOR, slColor);
-   ObjectSetInteger(0, slRectName, OBJPROP_FILL, true);
-   ObjectSetInteger(0, slRectName, OBJPROP_BACK, true);
-   ObjectSetInteger(0, slRectName, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, slRectName, OBJPROP_HIDDEN, true);
-
-   string slTextName = baseName + "_slpct";
-   datetime slTextTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 25;
-   ObjectCreate(0, slTextName, OBJ_TEXT, 0, slTextTime, (baseLVL + pointLVL) / 2);
-   ObjectSetString(0, slTextName, OBJPROP_TEXT, " SL Pool ~" + IntegerToString(slProb) + "%");
-   ObjectSetInteger(0, slTextName, OBJPROP_COLOR, (color)C'160,160,160');
-   ObjectSetString(0, slTextName, OBJPROP_FONT, "Arial");
+   int slProb = 35 + (int)MathMin(touchesFound * 4, 24);
+   slProb += score >= 13 ? 16 : score >= 11 ? 11 : score >= 9 ? 6 : 0;
+   slProb = (int)MathMin(slProb, 92);
+   color slColor = support ? C'239,117,132' : C'119,228,208';
+   string slLineName = baseName + "_sl_line";
+   ObjectCreate(0, slLineName, OBJ_HLINE, 0, 0, slLevel);
+   ObjectSetInteger(0, slLineName, OBJPROP_COLOR, slColor);
+   ObjectSetInteger(0, slLineName, OBJPROP_WIDTH, 1);
+   ObjectSetInteger(0, slLineName, OBJPROP_STYLE, STYLE_DASH);
+   ObjectSetInteger(0, slLineName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, slLineName, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, slLineName, OBJPROP_BACK, true);
+   string slTextName = baseName + "_sl_label";
+   datetime slTextTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 80;
+   ObjectCreate(0, slTextName, OBJ_TEXT, 0, slTextTime, slLevel);
+   ObjectSetString(0, slTextName, OBJPROP_TEXT, " SL Pool " + DoubleToString(slLevel, _Digits) + " ~" + IntegerToString(slProb) + "%");
+   ObjectSetInteger(0, slTextName, OBJPROP_COLOR, slColor);
+   ObjectSetString(0, slTextName, OBJPROP_FONT, "Consolas");
    ObjectSetInteger(0, slTextName, OBJPROP_FONTSIZE, 8);
-   ObjectSetInteger(0, slTextName, OBJPROP_ANCHOR, ANCHOR_CENTER);
+   ObjectSetInteger(0, slTextName, OBJPROP_ANCHOR, ANCHOR_LEFT);
    ObjectSetInteger(0, slTextName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, slTextName, OBJPROP_HIDDEN, true);
+
 }
 
 //+------------------------------------------------------------------+
