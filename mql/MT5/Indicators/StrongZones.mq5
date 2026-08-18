@@ -47,6 +47,7 @@ int            currentZoneCount = 0;
 int            accumCount       = 0;
 int            accumReported    = -1;
 int            slCloudCount    = 0;
+int            slAnchorFallbackCount = 0;
 datetime       zonesCalcTime    = 0;
 datetime       lastAlertTime    = 0;
 double         referencePrice   = 0;
@@ -104,6 +105,7 @@ void DrawBuildStamp()
                               : IntegerToString(ageMin / 60) + "h";
       text += "  |  zones: " + IntegerToString(currentZoneCount) +
               "  sl-dots: " + IntegerToString(slCloudCount) +
+              (slAnchorFallbackCount > 0 ? "  sl-pending: " + IntegerToString(slAnchorFallbackCount) : "") +
               "  acc: " + IntegerToString(accumCount) +
               "  " + age + " ago";
       if(referencePrice > 0)
@@ -360,8 +362,9 @@ bool ParseZonesJSON(string json)
       int bpPos     = StringFind(json, "\"zone_has_big_player\": true", pricePos);
       bool bp       = (bpPos >= pricePos && (nextZone < 0 || bpPos < nextZone));
 
-      if(price <= 0 || top < price || bottom > price || stopPrice <= 0 ||
-         stopAnchorTime <= 0 || stopAnchorPrice <= 0 || currentZoneCount >= 6)
+      // A missing swing anchor is a legacy/upgrade condition, not a reason
+      // to suppress six validated zones. Only cloud rendering is deferred.
+      if(price <= 0 || top < price || bottom > price || stopPrice <= 0 || currentZoneCount >= 6)
       {
          payloadError = "invalid zone record";
          return false;
@@ -392,6 +395,7 @@ bool ParseZonesJSON(string json)
       stopSides[currentZoneCount] = stopSide;
       stopAnchorTimes[currentZoneCount] = stopAnchorTime;
       stopAnchorPrices[currentZoneCount] = stopAnchorPrice;
+      if(stopAnchorTime <= 0 || stopAnchorPrice <= 0) slAnchorFallbackCount++;
       currentZoneCount++;
       if(price > referencePrice) above++;
       if(price < referencePrice) below++;
@@ -523,7 +527,9 @@ void DrawSingleZone(int index)
 void DrawStopCloud(string baseName, int index)
 {
    double stopPrice = stopPrices[index];
-   if(stopPrice <= 0) return;
+   // Never place a misleading cloud at the chart edge: wait for a valid
+   // structural anchor while still drawing all six zones.
+   if(stopPrice <= 0 || stopAnchorTimes[index] <= 0 || stopAnchorPrices[index] <= 0) return;
    bool isLong = (stopSides[index] == "BELOW_SUPPORT");
    color cloudColor = isLong ? C'95,224,190' : C'239,117,132';
    double spread = MathMax(stopBuffers[index] * 0.55, _Point * 12.0);
@@ -636,6 +642,7 @@ void DeleteAllZoneObjects()
    }
    currentZoneCount = 0;
    slCloudCount = 0;
+   slAnchorFallbackCount = 0;
    ArrayFree(zonePrices);
    ArrayFree(zoneTops);
    ArrayFree(zoneBottoms);

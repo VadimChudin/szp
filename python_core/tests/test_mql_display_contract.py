@@ -109,3 +109,14 @@ def test_sl_cloud_is_visible_and_reports_created_dots():
         assert "int columns = 3" in source
         assert "PeriodSeconds() / 10" in source
         assert "OBJPROP_WIDTH, dot == points / 2 ? 3 : 2" in source
+
+
+def test_missing_swing_anchor_never_rejects_valid_six_zone_payload():
+    for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
+        source = _source(relative)
+        invalid_guard = source[source.index("if(price <= 0"):source.index("ArrayResize(zonePrices", source.index("if(price <= 0"))]
+        assert "stopAnchorTime <= 0" not in invalid_guard
+        assert "stopAnchorPrice <= 0" not in invalid_guard
+        assert "slAnchorFallbackCount" in source
+        assert "sl-pending:" in source
+        assert "stopAnchorTimes[index] <= 0" in source

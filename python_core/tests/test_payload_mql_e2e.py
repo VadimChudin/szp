@@ -83,3 +83,19 @@ def test_health_payload_references_the_exact_delivered_payload():
     assert health["zone_count"] == 6
     assert health["above_count"] == 3
     assert health["below_count"] == 3
+
+
+def test_legacy_stop_without_swing_anchor_keeps_six_zones_renderable():
+    zones = [
+        _zone(110, "ABOVE"), _zone(120, "ABOVE"), _zone(130, "ABOVE", True),
+        _zone(90, "BELOW"), _zone(80, "BELOW"), _zone(70, "BELOW", True),
+    ]
+    # Default anchor fields are zero, matching a payload produced before the
+    # swing-cloud enrichment. Zones remain valid; only the cloud is deferred.
+    payload = build_payload(
+        symbol="XAUUSD", producer_build="legacy-bridge", reference_price=100,
+        reference_source="h1_close", zones=zones, stops=[_stop(zone) for zone in zones],
+    )
+    assert all(record["stop"]["stop_anchor_epoch"] == 0 for record in payload["zones"])
+    assert all(record["stop"]["stop_anchor_price"] == 0.0 for record in payload["zones"])
+    assert _mql_schema_four_prices(json.dumps(payload, separators=(",", ":"))) == [110, 120, 130, 90, 80, 70]

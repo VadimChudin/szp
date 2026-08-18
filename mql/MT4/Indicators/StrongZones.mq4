@@ -49,6 +49,7 @@ int            currentZoneCount = 0;         // Текущее количест�
 int            accumCount       = 0;         // Количество участков набора
 int            accumReported    = -1;        // Последнее залогированное количество
 int            slCloudCount    = 0;         // Точки SL-облака на графике
+int            slAnchorFallbackCount = 0;   // SL без swing-якоря после обновления
 datetime       zonesCalcTime    = 0;         // Когда Python посчитал зоны
 double         referencePrice   = 0;         // Цена, относительно которой выбран snapshot
 string         payloadProducerBuild = "";
@@ -106,6 +107,7 @@ void DrawBuildStamp()
       if(ageMin >= 60) age = IntegerToString(ageMin / 60) + "h";
       text = text + "  |  zones: " + IntegerToString(currentZoneCount) +
              "  sl-dots: " + IntegerToString(slCloudCount) +
+             (slAnchorFallbackCount > 0 ? "  sl-pending: " + IntegerToString(slAnchorFallbackCount) : "") +
              "  acc: " + IntegerToString(accumCount) + "  " + age + " ago";
       if(referencePrice > 0)
          text = text + "  |  ref: " + DoubleToString(referencePrice, Digits);
@@ -498,8 +500,9 @@ bool ParseZonesJSON(string json)
       double stopAnchorPrice = ExtractDouble(json, "\"stop_anchor_price\":", pricePos);
       int flagPos = StringFind(json, "\"zone_fallback\": true", pricePos);
       bool fallback = (flagPos >= pricePos && (nextZone < 0 || flagPos < nextZone));
-      if(price <= 0 || top < price || bottom > price || stopPrice <= 0 ||
-         stopAnchorTime <= 0 || stopAnchorPrice <= 0 || currentZoneCount >= 6)
+      // Missing swing anchors during an upgrade must never hide valid zones.
+      // The SL cloud is deferred until Bridge produces the enriched payload.
+      if(price <= 0 || top < price || bottom > price || stopPrice <= 0 || currentZoneCount >= 6)
       {
          payloadError = "invalid zone record";
          return false;
@@ -528,6 +531,7 @@ bool ParseZonesJSON(string json)
       stopSides[currentZoneCount] = stopSide;
       stopAnchorTimes[currentZoneCount] = stopAnchorTime;
       stopAnchorPrices[currentZoneCount] = stopAnchorPrice;
+      if(stopAnchorTime <= 0 || stopAnchorPrice <= 0) slAnchorFallbackCount++;
       currentZoneCount++;
       if(price > referencePrice) above++;
       if(price < referencePrice) below++;
@@ -699,7 +703,8 @@ void DrawSingleZone(int index)
 void DrawStopCloud(string baseName, int index)
 {
    double stopPrice = stopPrices[index];
-   if(stopPrice <= 0) return;
+   // Do not manufacture a cloud at the chart edge without its structural swing.
+   if(stopPrice <= 0 || stopAnchorTimes[index] <= 0 || stopAnchorPrices[index] <= 0) return;
    bool isLong = (stopSides[index] == "BELOW_SUPPORT");
    color cloudColor = isLong ? C'95,224,190' : C'239,117,132';
    double spread = MathMax(stopBuffers[index] * 0.55, Point * 12.0);
@@ -758,6 +763,7 @@ void DeleteAllZoneObjects()
    }
    currentZoneCount = 0;
    slCloudCount = 0;
+   slAnchorFallbackCount = 0;
    ArrayResize(zonePrices, 0);
    ArrayResize(zoneTops, 0);
    ArrayResize(zoneBottoms, 0);
