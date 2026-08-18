@@ -49,6 +49,8 @@ def zone_record(zone: Zone, stop: StopCandidate | None = None) -> dict[str, Any]
             "stop_buffer": round(float(stop.buffer), 2),
             "stop_atr": round(float(stop.atr), 2),
             "stop_rationale": stop.rationale,
+            "stop_anchor_epoch": int(stop.anchor_epoch),
+            "stop_anchor_price": round(float(stop.anchor_price), 2),
         }
     return record
 
@@ -87,6 +89,10 @@ def validate_payload(payload: dict[str, Any]) -> None:
         stop = item["stop"]
         if not isinstance(stop, dict) or "stop_price" not in stop or "price" in stop:
             raise PayloadContractError("MQL-safe stop record is required")
+        if not isinstance(stop.get("stop_anchor_epoch"), int) or stop["stop_anchor_epoch"] < 0:
+            raise PayloadContractError("stop anchor epoch is required")
+        if not isinstance(stop.get("stop_anchor_price"), (int, float)):
+            raise PayloadContractError("stop anchor price is required")
         if not (float(item["zone_bottom"]) <= float(item["zone_price"]) <= float(item["zone_top"])):
             raise PayloadContractError("invalid zone bounds")
 

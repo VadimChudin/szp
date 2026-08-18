@@ -50,8 +50,11 @@ def test_footprint_uses_the_same_schema_and_stop_cloud():
     assert "zone_price" in source
     assert "zone_fallback" in source
     assert "stop_price" in source
-    assert "LONG SL cloud" in source
-    assert "SHORT SL cloud" in source
+    assert "stop_anchor_epoch" in source
+    assert "anchorEpoch" in source
+    assert "const points = 9, columns = 3, rows = 3" in source
+    assert "LONG SL " in source
+    assert "SHORT SL " in source
 
 
 def test_collectors_export_the_same_history_depth_as_the_detector():
@@ -101,6 +104,8 @@ def test_sl_cloud_is_visible_and_reports_created_dots():
         source = _source(relative)
         assert "slCloudCount" in source
         assert '"  sl-dots: "' in source
-        assert "PeriodSeconds() / 12" in source
-        assert "PeriodSeconds() / (points * 5)" in source
-        assert "OBJPROP_WIDTH, dot == points / 2 ? 4 : 2" in source
+        assert '"\\"stop_anchor_epoch\\":' in source
+        assert "stopAnchorTimes" in source
+        assert "int columns = 3" in source
+        assert "PeriodSeconds() / 10" in source
+        assert "OBJPROP_WIDTH, dot == points / 2 ? 3 : 2" in source

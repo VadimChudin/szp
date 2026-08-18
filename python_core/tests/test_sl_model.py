@@ -27,3 +27,13 @@ def test_resistance_stop_is_above_zone():
     assert result.side == "ABOVE_RESISTANCE"
     assert result.price > 111
     assert result.rationale
+
+
+def test_stop_carries_the_time_and_price_of_its_structural_swing_anchor():
+    support = possible_stop(Zone(price=100, width=1, score=12), frame(), current_price=106)
+    resistance = possible_stop(Zone(price=110, width=1, score=8), frame(), current_price=106)
+
+    assert support.anchor_epoch == int(pd.Timestamp("2024-01-01", tz="UTC").timestamp())
+    assert support.anchor_price == 96
+    assert resistance.anchor_epoch == int(pd.Timestamp("2024-01-05", tz="UTC").timestamp())
+    assert resistance.anchor_price == 108

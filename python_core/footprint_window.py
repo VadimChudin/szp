@@ -23,6 +23,13 @@ def _load_zone_payload():
         "zones": data.get("zones", []),
     }
 
+def _candle_epoch_seconds(candle) -> int:
+    timestamp = int(getattr(candle, "timestamp", 0) or 0)
+    if timestamp > 10_000_000_000:  # exchange data is normally milliseconds
+        return timestamp // 1000
+    return timestamp
+
+
 def _candles_to_json(candles, interval):
     mx = 1
     for c in candles:
@@ -35,7 +42,7 @@ def _candles_to_json(candles, interval):
         for price, d in c.levels.items():
             levels.append({"p": round(price, 2), "b": round(d["buy"], 2), "s": round(d["sell"], 2)})
         data.append({
-            "t": c.time_str, "o": round(c.open, 2), "h": round(c.high, 2),
+            "t": c.time_str, "ts": _candle_epoch_seconds(c), "o": round(c.open, 2), "h": round(c.high, 2),
             "l": round(c.low, 2), "c": round(c.close, 2), "d": round(c.delta, 1),
             "levels": levels, "bull": c.is_bullish,
             "real": getattr(c, 'is_real', False),
@@ -477,25 +484,36 @@ function draw() {
       const isLong = z.stop.stop_side === 'BELOW_SUPPORT';
       const slCol = isLong ? '#5fe0be' : '#ef7584';
       const spread = Math.max(Number(z.stop.stop_buffer || 0) * 0.55, step * 2);
-      const points = 9;
-      const cloudX = chartW - 108;
+      const anchorEpoch = Number(z.stop.stop_anchor_epoch || 0);
+      // Align the cloud with the closest visible structural swing candle.
+      let anchorIndex = 0, anchorDistance = Infinity;
+      vis.forEach((candle, index) => {
+        if (!Number(candle.ts) || !anchorEpoch) return;
+        const distance = Math.abs(Number(candle.ts) - anchorEpoch);
+        if (distance < anchorDistance) { anchorDistance = distance; anchorIndex = index; }
+      });
+      const anchorX = ml + (anchorIndex + 0.56) * colW;
+      const points = 9, columns = 3, rows = 3;
+      const xStep = Math.max(4, colW * 0.11);
+      const yStep = Math.max(spread * 0.38, step * 0.6);
       ctx.save();
       for (let dot = 0; dot < points; dot++) {
-        const norm = dot / (points - 1) - 0.5;
-        const x = cloudX + dot * 9;
-        const y = py(slPrice + norm * spread);
-        ctx.globalAlpha = dot === Math.floor(points / 2) ? 1 : 0.68;
+        const column = dot % columns - 1;
+        const row = Math.floor(dot / columns) - Math.floor((rows - 1) / 2);
+        const x = anchorX + column * xStep;
+        const y = py(slPrice + row * yStep);
+        ctx.globalAlpha = dot === Math.floor(points / 2) ? 1 : 0.66;
         ctx.fillStyle = slCol;
-        ctx.beginPath(); ctx.arc(x, y, dot === Math.floor(points / 2) ? 3.1 : 2.1, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x, y, dot === Math.floor(points / 2) ? 3.0 : 2.0, 0, Math.PI * 2); ctx.fill();
       }
       ctx.restore();
-      const slLabel = (isLong ? 'LONG SL cloud ' : 'SHORT SL cloud ') + slPrice.toFixed(2) +
+      const slLabel = (isLong ? 'LONG SL ' : 'SHORT SL ') + slPrice.toFixed(2) +
                       ' · ' + Number(z.stop.stop_probability || 0) + '%';
       ctx.font = '10px "JetBrains Mono", "Courier New", monospace';
-      ctx.textAlign = 'right';
+      ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = slCol;
-      ctx.fillText(slLabel, chartW - 10, py(slPrice) - 8);
+      ctx.fillText(slLabel, anchorX + xStep * 2, py(slPrice + yStep * 1.8));
     }
   });
 

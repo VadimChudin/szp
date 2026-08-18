@@ -66,6 +66,8 @@ double         stopPrices[];
 double         stopBuffers[];
 int            stopProbabilities[];
 string         stopSides[];
+datetime       stopAnchorTimes[];
+double         stopAnchorPrices[];
 
 
 //+------------------------------------------------------------------+
@@ -492,9 +494,12 @@ bool ParseZonesJSON(string json)
       double stopBuffer = ExtractDouble(json, "\"stop_buffer\":", pricePos);
       int stopProbability = (int)ExtractDouble(json, "\"stop_probability\":", pricePos);
       string stopSide = ExtractString(json, "\"stop_side\":", pricePos);
+      datetime stopAnchorTime = (datetime)(long)ExtractDouble(json, "\"stop_anchor_epoch\":", pricePos);
+      double stopAnchorPrice = ExtractDouble(json, "\"stop_anchor_price\":", pricePos);
       int flagPos = StringFind(json, "\"zone_fallback\": true", pricePos);
       bool fallback = (flagPos >= pricePos && (nextZone < 0 || flagPos < nextZone));
-      if(price <= 0 || top < price || bottom > price || stopPrice <= 0 || currentZoneCount >= 6)
+      if(price <= 0 || top < price || bottom > price || stopPrice <= 0 ||
+         stopAnchorTime <= 0 || stopAnchorPrice <= 0 || currentZoneCount >= 6)
       {
          payloadError = "invalid zone record";
          return false;
@@ -509,6 +514,8 @@ bool ParseZonesJSON(string json)
       ArrayResize(stopBuffers, currentZoneCount + 1);
       ArrayResize(stopProbabilities, currentZoneCount + 1);
       ArrayResize(stopSides, currentZoneCount + 1);
+      ArrayResize(stopAnchorTimes, currentZoneCount + 1);
+      ArrayResize(stopAnchorPrices, currentZoneCount + 1);
       zonePrices[currentZoneCount] = price;
       zoneTops[currentZoneCount] = top;
       zoneBottoms[currentZoneCount] = bottom;
@@ -519,6 +526,8 @@ bool ParseZonesJSON(string json)
       stopBuffers[currentZoneCount] = stopBuffer;
       stopProbabilities[currentZoneCount] = stopProbability;
       stopSides[currentZoneCount] = stopSide;
+      stopAnchorTimes[currentZoneCount] = stopAnchorTime;
+      stopAnchorPrices[currentZoneCount] = stopAnchorPrice;
       currentZoneCount++;
       if(price > referencePrice) above++;
       if(price < referencePrice) below++;
@@ -695,26 +704,31 @@ void DrawStopCloud(string baseName, int index)
    color cloudColor = isLong ? C'95,224,190' : C'239,117,132';
    double spread = MathMax(stopBuffers[index] * 0.55, Point * 12.0);
    int points = MathMax(5, MathMin(15, SLCloudPoints));
-   // Keep the cloud inside the visible right edge even on H4/D1 charts.
-   datetime anchor = Time[0] + (int)MathMax(1, PeriodSeconds() / 12);
+   // Structural swing from Python: compact liquidity/risk cluster, not chart edge.
+   datetime anchor = stopAnchorTimes[index];
+   int columns = 3;
+   int rows = (points + columns - 1) / columns;
+   int timeStep = (int)MathMax(1, PeriodSeconds() / 10);
+   double priceStep = MathMax(spread * 0.38, Point * 5.0);
    for(int dot = 0; dot < points; dot++)
    {
-      double normalized = points > 1 ? ((double)dot / (points - 1) - 0.5) : 0.0;
-      double dotPrice = stopPrice + normalized * spread;
-      datetime dotTime = anchor + dot * (int)MathMax(1, PeriodSeconds() / (points * 5));
+      int column = (dot % columns) - 1;
+      int row = (dot / columns) - ((rows - 1) / 2);
+      double dotPrice = stopPrice + row * priceStep;
+      datetime dotTime = anchor + column * timeStep;
       string dotName = baseName + "_sl_cloud_" + IntegerToString(dot);
       ObjectCreate(dotName, OBJ_ARROW, 0, dotTime, dotPrice);
       ObjectSetInteger(0, dotName, OBJPROP_ARROWCODE, 159);
       ObjectSetInteger(0, dotName, OBJPROP_COLOR, cloudColor);
-      ObjectSetInteger(0, dotName, OBJPROP_WIDTH, dot == points / 2 ? 4 : 2);
+      ObjectSetInteger(0, dotName, OBJPROP_WIDTH, dot == points / 2 ? 3 : 2);
       ObjectSetInteger(0, dotName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, dotName, OBJPROP_HIDDEN, true);
       ObjectSetInteger(0, dotName, OBJPROP_BACK, false);
       slCloudCount++;
    }
    string labelName = baseName + "_sl_cloud_label";
-   ObjectCreate(labelName, OBJ_TEXT, 0, anchor + (points + 1) * (int)MathMax(1, PeriodSeconds() / (points * 5)), stopPrice);
-   ObjectSetString(0, labelName, OBJPROP_TEXT, (isLong ? " LONG SL cloud " : " SHORT SL cloud ") +
+   ObjectCreate(labelName, OBJ_TEXT, 0, anchor + 2 * timeStep, stopPrice + priceStep * 1.8);
+   ObjectSetString(0, labelName, OBJPROP_TEXT, (isLong ? " LONG SL " : " SHORT SL ") +
                    DoubleToString(stopPrice, Digits) + " ~" + IntegerToString(stopProbabilities[index]) + "%");
    ObjectSetInteger(0, labelName, OBJPROP_COLOR, cloudColor);
    ObjectSetString(0, labelName, OBJPROP_FONT, "Consolas");
@@ -754,6 +768,8 @@ void DeleteAllZoneObjects()
    ArrayResize(stopBuffers, 0);
    ArrayResize(stopProbabilities, 0);
    ArrayResize(stopSides, 0);
+   ArrayResize(stopAnchorTimes, 0);
+   ArrayResize(stopAnchorPrices, 0);
 }
 
 
