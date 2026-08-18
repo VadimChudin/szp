@@ -117,6 +117,11 @@ def test_missing_swing_anchor_never_rejects_valid_six_zone_payload():
         invalid_guard = source[source.index("if(price <= 0"):source.index("ArrayResize(zonePrices", source.index("if(price <= 0"))]
         assert "stopAnchorTime <= 0" not in invalid_guard
         assert "stopAnchorPrice <= 0" not in invalid_guard
-        assert "slAnchorFallbackCount" in source
-        assert "sl-pending:" in source
-        assert "stopAnchorTimes[index] <= 0" in source
+        assert "datetime ResolveStopAnchor" in source
+        assert "slLocalAnchorCount" in source
+        assert '"  sl-local: "' in source
+        cloud = source[source.index("void DrawStopCloud"):source.index("void DeleteAllZoneObjects", source.index("void DrawStopCloud"))]
+        assert "if(stopPrice <= 0) return;" in cloud
+        assert "stopAnchorTimes[index] <= 0" not in cloud
+        assert "iLow" in source
+        assert "iHigh" in source

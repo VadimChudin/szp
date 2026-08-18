@@ -49,7 +49,7 @@ int            currentZoneCount = 0;         // Текущее количест�
 int            accumCount       = 0;         // Количество участков набора
 int            accumReported    = -1;        // Последнее залогированное количество
 int            slCloudCount    = 0;         // Точки SL-облака на графике
-int            slAnchorFallbackCount = 0;   // SL без swing-якоря после обновления
+int            slLocalAnchorCount = 0;      // SL-якорь найден локально из истории
 datetime       zonesCalcTime    = 0;         // Когда Python посчитал зоны
 double         referencePrice   = 0;         // Цена, относительно которой выбран snapshot
 string         payloadProducerBuild = "";
@@ -107,7 +107,7 @@ void DrawBuildStamp()
       if(ageMin >= 60) age = IntegerToString(ageMin / 60) + "h";
       text = text + "  |  zones: " + IntegerToString(currentZoneCount) +
              "  sl-dots: " + IntegerToString(slCloudCount) +
-             (slAnchorFallbackCount > 0 ? "  sl-pending: " + IntegerToString(slAnchorFallbackCount) : "") +
+             (slLocalAnchorCount > 0 ? "  sl-local: " + IntegerToString(slLocalAnchorCount) : "") +
              "  acc: " + IntegerToString(accumCount) + "  " + age + " ago";
       if(referencePrice > 0)
          text = text + "  |  ref: " + DoubleToString(referencePrice, Digits);
@@ -531,7 +531,6 @@ bool ParseZonesJSON(string json)
       stopSides[currentZoneCount] = stopSide;
       stopAnchorTimes[currentZoneCount] = stopAnchorTime;
       stopAnchorPrices[currentZoneCount] = stopAnchorPrice;
-      if(stopAnchorTime <= 0 || stopAnchorPrice <= 0) slAnchorFallbackCount++;
       currentZoneCount++;
       if(price > referencePrice) above++;
       if(price < referencePrice) below++;
@@ -700,17 +699,48 @@ void DrawSingleZone(int index)
 //+------------------------------------------------------------------+
 //| Structural SL cloud from Python Core: green = long, red = short |
 //+------------------------------------------------------------------+
+// Resolves a legacy payload without stop_anchor fields against chart history.
+// The fallback remains structural: the nearest low to support / high to resistance.
+datetime ResolveStopAnchor(int index, double &anchorPrice)
+{
+   if(stopAnchorTimes[index] > 0 && stopAnchorPrices[index] > 0)
+   {
+      anchorPrice = stopAnchorPrices[index];
+      return stopAnchorTimes[index];
+   }
+   bool isLong = (stopSides[index] == "BELOW_SUPPORT");
+   double target = isLong ? zoneBottoms[index] : zoneTops[index];
+   int barsToScan = MathMin(Bars - 1, 400);
+   double bestDistance = 1.0e100;
+   int bestShift = -1;
+   for(int shift = 1; shift <= barsToScan; shift++)
+   {
+      double extreme = isLong ? iLow(NULL, 0, shift) : iHigh(NULL, 0, shift);
+      double distance = MathAbs(extreme - target);
+      if(distance < bestDistance)
+      {
+         bestDistance = distance;
+         bestShift = shift;
+         anchorPrice = extreme;
+      }
+   }
+   if(bestShift < 0) return 0;
+   slLocalAnchorCount++;
+   return iTime(NULL, 0, bestShift);
+}
+
 void DrawStopCloud(string baseName, int index)
 {
    double stopPrice = stopPrices[index];
-   // Do not manufacture a cloud at the chart edge without its structural swing.
-   if(stopPrice <= 0 || stopAnchorTimes[index] <= 0 || stopAnchorPrices[index] <= 0) return;
+   if(stopPrice <= 0) return;
+   double anchorPrice = 0;
+   datetime anchor = ResolveStopAnchor(index, anchorPrice);
+   if(anchor <= 0) return;
    bool isLong = (stopSides[index] == "BELOW_SUPPORT");
    color cloudColor = isLong ? C'95,224,190' : C'239,117,132';
    double spread = MathMax(stopBuffers[index] * 0.55, Point * 12.0);
    int points = MathMax(5, MathMin(15, SLCloudPoints));
-   // Structural swing from Python: compact liquidity/risk cluster, not chart edge.
-   datetime anchor = stopAnchorTimes[index];
+   // Compact liquidity/risk cluster at a Python or local structural swing.
    int columns = 3;
    int rows = (points + columns - 1) / columns;
    int timeStep = (int)MathMax(1, PeriodSeconds() / 10);
@@ -763,7 +793,7 @@ void DeleteAllZoneObjects()
    }
    currentZoneCount = 0;
    slCloudCount = 0;
-   slAnchorFallbackCount = 0;
+   slLocalAnchorCount = 0;
    ArrayResize(zonePrices, 0);
    ArrayResize(zoneTops, 0);
    ArrayResize(zoneBottoms, 0);

@@ -47,7 +47,7 @@ int            currentZoneCount = 0;
 int            accumCount       = 0;
 int            accumReported    = -1;
 int            slCloudCount    = 0;
-int            slAnchorFallbackCount = 0;
+int            slLocalAnchorCount = 0;
 datetime       zonesCalcTime    = 0;
 datetime       lastAlertTime    = 0;
 double         referencePrice   = 0;
@@ -105,7 +105,7 @@ void DrawBuildStamp()
                               : IntegerToString(ageMin / 60) + "h";
       text += "  |  zones: " + IntegerToString(currentZoneCount) +
               "  sl-dots: " + IntegerToString(slCloudCount) +
-              (slAnchorFallbackCount > 0 ? "  sl-pending: " + IntegerToString(slAnchorFallbackCount) : "") +
+              (slLocalAnchorCount > 0 ? "  sl-local: " + IntegerToString(slLocalAnchorCount) : "") +
               "  acc: " + IntegerToString(accumCount) +
               "  " + age + " ago";
       if(referencePrice > 0)
@@ -395,7 +395,6 @@ bool ParseZonesJSON(string json)
       stopSides[currentZoneCount] = stopSide;
       stopAnchorTimes[currentZoneCount] = stopAnchorTime;
       stopAnchorPrices[currentZoneCount] = stopAnchorPrice;
-      if(stopAnchorTime <= 0 || stopAnchorPrice <= 0) slAnchorFallbackCount++;
       currentZoneCount++;
       if(price > referencePrice) above++;
       if(price < referencePrice) below++;
@@ -524,19 +523,51 @@ void DrawSingleZone(int index)
 //+------------------------------------------------------------------+
 //| Structural SL cloud from Python Core: green = long, red = short |
 //+------------------------------------------------------------------+
+// Resolve a legacy payload without `stop_anchor_*` against the visible
+// market history. This remains structural: low nearest support / high nearest
+// resistance, never an arbitrary point at the chart edge.
+datetime ResolveStopAnchor(int index, double &anchorPrice)
+{
+   if(stopAnchorTimes[index] > 0 && stopAnchorPrices[index] > 0)
+   {
+      anchorPrice = stopAnchorPrices[index];
+      return stopAnchorTimes[index];
+   }
+   bool isLong = (stopSides[index] == "BELOW_SUPPORT");
+   double target = isLong ? zoneBottoms[index] : zoneTops[index];
+   int barsToScan = MathMin(Bars(_Symbol, PERIOD_CURRENT) - 1, 400);
+   double bestDistance = 1.0e100;
+   int bestShift = -1;
+   for(int shift = 1; shift <= barsToScan; shift++)
+   {
+      double extreme = isLong ? iLow(_Symbol, PERIOD_CURRENT, shift)
+                              : iHigh(_Symbol, PERIOD_CURRENT, shift);
+      double distance = MathAbs(extreme - target);
+      if(distance < bestDistance)
+      {
+         bestDistance = distance;
+         bestShift = shift;
+         anchorPrice = extreme;
+      }
+   }
+   if(bestShift < 0) return 0;
+   slLocalAnchorCount++;
+   return iTime(_Symbol, PERIOD_CURRENT, bestShift);
+}
+
 void DrawStopCloud(string baseName, int index)
 {
    double stopPrice = stopPrices[index];
-   // Never place a misleading cloud at the chart edge: wait for a valid
-   // structural anchor while still drawing all six zones.
-   if(stopPrice <= 0 || stopAnchorTimes[index] <= 0 || stopAnchorPrices[index] <= 0) return;
+   if(stopPrice <= 0) return;
+   double anchorPrice = 0;
+   datetime anchor = ResolveStopAnchor(index, anchorPrice);
+   if(anchor <= 0) return;
    bool isLong = (stopSides[index] == "BELOW_SUPPORT");
    color cloudColor = isLong ? C'95,224,190' : C'239,117,132';
    double spread = MathMax(stopBuffers[index] * 0.55, _Point * 12.0);
    int points = MathMax(5, MathMin(15, SLCloudPoints));
    // Use the structural swing selected by Python instead of the chart edge.
    // A 3×3 cluster reads as a liquidity/risk area near the swing, not a column.
-   datetime anchor = stopAnchorTimes[index];
    int columns = 3;
    int rows = (points + columns - 1) / columns;
    int timeStep = (int)MathMax(1, PeriodSeconds() / 10);
@@ -642,7 +673,7 @@ void DeleteAllZoneObjects()
    }
    currentZoneCount = 0;
    slCloudCount = 0;
-   slAnchorFallbackCount = 0;
+   slLocalAnchorCount = 0;
    ArrayFree(zonePrices);
    ArrayFree(zoneTops);
    ArrayFree(zoneBottoms);
