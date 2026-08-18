@@ -235,8 +235,30 @@ jobs:
             --add-data "$repo\data_bridge\footprint_4h.html;data_bridge" `
             --add-data "$repo\data_bridge\footprint_1d.html;data_bridge" `
             "$repo\python_core\app_entry.py"
-          if (-not (Test-Path "$repo\dist\SmartZonesPro\SmartZonesPro.exe")) {
+          $appExe = "$repo\dist\SmartZonesPro\SmartZonesPro.exe"
+          if (-not (Test-Path $appExe)) {
             Write-Error 'PyInstaller output missing'
+            exit 1
+          }
+
+      - name: Verify packaged startup diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $appExe = "$PWD\dist\SmartZonesPro\SmartZonesPro.exe"
+          $process = Start-Process -FilePath $appExe -ArgumentList '--diagnostics' -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            Write-Error "Packaged SmartZonesPro startup diagnostics failed with exit code $($process.ExitCode)"
+            exit $process.ExitCode
+          }
+          $diagnostic = Join-Path $env:LOCALAPPDATA 'SmartZonesPro\startup_diagnostics.json'
+          if (-not (Test-Path $diagnostic)) {
+            Write-Error "Packaged SmartZonesPro did not write startup diagnostics: $diagnostic"
+            exit 1
+          }
+          $report = Get-Content $diagnostic -Raw | ConvertFrom-Json
+          if (-not $report.ok) {
+            Write-Error "Packaged SmartZonesPro reported startup failure: $($report.error)"
             exit 1
           }
 

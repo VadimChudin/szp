@@ -12,6 +12,8 @@ import hashlib
 import threading
 import traceback
 import multiprocessing
+import json
+from datetime import datetime, timezone
 
 # ── Определяем базовую директорию ──────────────────────────────────
 if getattr(sys, 'frozen', False):
@@ -213,12 +215,67 @@ def run_tray(bridge_thread):
 
 
 # ── ГЛАВНЫЙ ЗАПУСК ────────────────────────────────────────────────
+def run_startup_diagnostics():
+    """Fast non-interactive check used by CI and support diagnostics."""
+    modules = ("pystray", "PIL", "bridge_server", "sync_zones_to_mt4", "settings_window")
+    report = {
+        "ok": True,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "base_dir": BASE_DIR,
+        "frozen": bool(getattr(sys, "frozen", False)),
+        "build": version.app_version(),
+        "modules": [],
+    }
+    try:
+        import importlib
+        for name in modules:
+            importlib.import_module(name)
+            report["modules"].append(name)
+    except Exception as exc:
+        report["ok"] = False
+        report["error"] = f"{type(exc).__name__}: {exc}"
+    report_path = paths.DATA_DIR / "startup_diagnostics.json"
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print("[app] startup diagnostics:", json.dumps(report, ensure_ascii=False))
+    if not report["ok"]:
+        raise RuntimeError(report["error"])
+
+
+def show_fatal_startup_error(exc: BaseException):
+    """Windowed builds have no console: persist and show every early failure."""
+    details = traceback.format_exc()
+    try:
+        error_path = paths.DATA_DIR / "startup_error.log"
+        error_path.write_text(details, encoding="utf-8")
+    except Exception:
+        pass
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(
+            "Smart Zones Pro — startup error",
+            "The application could not start.\n\n"
+            "Details were saved to startup_error.log in the Smart Zones Pro data folder.\n\n"
+            f"{type(exc).__name__}: {exc}",
+        )
+        root.destroy()
+    except Exception:
+        pass
+
+
 def main():
     # Лог в файл: в windowed-сборке консоли нет, без него причину сбоя
     # (нет данных от терминала, не найден символ и т.п.) увидеть невозможно.
     import applog
     applog.setup()
     print(f"[app] Smart Zones Pro build v{version.app_version()}")
+
+    # Non-interactive process/package verification. Must run before dialogs.
+    if "--diagnostics" in sys.argv:
+        run_startup_diagnostics()
+        return
 
     # Разбор аргументов
     if "--settings" in sys.argv:
@@ -251,10 +308,12 @@ def main():
         return
     
     # ── Полный запуск ──
-    # 0. Пароль доступа (без него приложение не стартует)
-    if not ask_password():
-        print("[app] Доступ запрещён: неверный пароль.")
-        return
+    # Password gating is opt-in. A local terminal bridge must never disappear
+    # before its tray icon because a hidden/modal login is awaiting input.
+    if os.environ.get("SZP_REQUIRE_PASSWORD", "").strip() == "1":
+        if not ask_password():
+            print("[app] Access denied by optional password gate.")
+            return
 
     # 1. Сплэш
     show_splash()
@@ -273,4 +332,8 @@ def main():
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    main()
+    try:
+        main()
+    except BaseException as exc:
+        show_fatal_startup_error(exc)
+        raise
