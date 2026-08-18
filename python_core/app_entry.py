@@ -41,9 +41,17 @@ def ask_password() -> bool:
     state = {"ok": False, "attempts": 0}
 
     root = tk.Tk()
-    root.title("Smart Zones Pro")
+    root.title("Smart Zones Pro — protected access")
     W, H = 400, 300
     cv = ui.make_glass_window(root, W, H, radius=24)
+    # A password prompt must not be hidden behind MetaTrader or a splash.
+    root.deiconify()
+    root.lift()
+    try:
+        root.attributes("-topmost", True)
+        root.after(350, lambda: root.attributes("-topmost", False))
+    except tk.TclError:
+        pass
 
     cv.create_text(W / 2, 56, text="Smart Zones Pro", fill=ui.TXT,
                    font=(ui.FONT, 20, "bold"))
@@ -308,12 +316,11 @@ def main():
         return
     
     # ── Полный запуск ──
-    # Password gating is opt-in. A local terminal bridge must never disappear
-    # before its tray icon because a hidden/modal login is awaiting input.
-    if os.environ.get("SZP_REQUIRE_PASSWORD", "").strip() == "1":
-        if not ask_password():
-            print("[app] Access denied by optional password gate.")
-            return
+    # Protected access is mandatory. The password window is deliberately
+    # raised above the terminal; only a successful login starts Bridge/tray.
+    if not ask_password():
+        print("[app] Access denied or cancelled at password gate.")
+        return
 
     # 1. Сплэш
     show_splash()

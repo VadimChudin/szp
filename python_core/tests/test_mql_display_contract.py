@@ -94,3 +94,13 @@ def test_indicators_show_reference_price_in_a_visible_upper_stamp():
         assert "referencePrice" in source
         assert "CORNER_RIGHT_UPPER" in source
         assert "OBJPROP_YDISTANCE, 25" in source
+
+
+def test_sl_cloud_is_visible_and_reports_created_dots():
+    for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
+        source = _source(relative)
+        assert "slCloudCount" in source
+        assert '"  sl-dots: "' in source
+        assert "PeriodSeconds() / 12" in source
+        assert "PeriodSeconds() / (points * 5)" in source
+        assert "OBJPROP_WIDTH, dot == points / 2 ? 4 : 2" in source

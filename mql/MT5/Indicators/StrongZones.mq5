@@ -46,6 +46,7 @@ string         buildPrefix      = "SZP_VER_";
 int            currentZoneCount = 0;
 int            accumCount       = 0;
 int            accumReported    = -1;
+int            slCloudCount    = 0;
 datetime       zonesCalcTime    = 0;
 datetime       lastAlertTime    = 0;
 double         referencePrice   = 0;
@@ -100,6 +101,7 @@ void DrawBuildStamp()
       string age = ageMin < 60 ? IntegerToString(ageMin) + "m"
                               : IntegerToString(ageMin / 60) + "h";
       text += "  |  zones: " + IntegerToString(currentZoneCount) +
+              "  sl-dots: " + IntegerToString(slCloudCount) +
               "  acc: " + IntegerToString(accumCount) +
               "  " + age + " ago";
       if(referencePrice > 0)
@@ -517,23 +519,25 @@ void DrawStopCloud(string baseName, int index)
    color cloudColor = isLong ? C'95,224,190' : C'239,117,132';
    double spread = MathMax(stopBuffers[index] * 0.55, _Point * 12.0);
    int points = MathMax(5, MathMin(15, SLCloudPoints));
-   datetime anchor = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 7;
+   // Keep the cloud inside the visible right edge even on H4/D1 charts.
+   datetime anchor = iTime(_Symbol, PERIOD_CURRENT, 0) + (int)MathMax(1, PeriodSeconds() / 12);
    for(int dot = 0; dot < points; dot++)
    {
       double normalized = points > 1 ? ((double)dot / (points - 1) - 0.5) : 0.0;
       double dotPrice = stopPrice + normalized * spread;
-      datetime dotTime = anchor + dot * (int)MathMax(1, PeriodSeconds() / 3);
+      datetime dotTime = anchor + dot * (int)MathMax(1, PeriodSeconds() / (points * 5));
       string dotName = baseName + "_sl_cloud_" + IntegerToString(dot);
       ObjectCreate(0, dotName, OBJ_ARROW, 0, dotTime, dotPrice);
       ObjectSetInteger(0, dotName, OBJPROP_ARROWCODE, 159);
       ObjectSetInteger(0, dotName, OBJPROP_COLOR, cloudColor);
-      ObjectSetInteger(0, dotName, OBJPROP_WIDTH, dot == points / 2 ? 2 : 1);
+      ObjectSetInteger(0, dotName, OBJPROP_WIDTH, dot == points / 2 ? 4 : 2);
       ObjectSetInteger(0, dotName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, dotName, OBJPROP_HIDDEN, true);
       ObjectSetInteger(0, dotName, OBJPROP_BACK, false);
+      slCloudCount++;
    }
    string labelName = baseName + "_sl_cloud_label";
-   ObjectCreate(0, labelName, OBJ_TEXT, 0, anchor + (points + 1) * (int)MathMax(1, PeriodSeconds() / 3), stopPrice);
+   ObjectCreate(0, labelName, OBJ_TEXT, 0, anchor + (points + 1) * (int)MathMax(1, PeriodSeconds() / (points * 5)), stopPrice);
    ObjectSetString(0, labelName, OBJPROP_TEXT, (isLong ? " LONG SL cloud " : " SHORT SL cloud ") +
                    DoubleToString(stopPrice, _Digits) + " ~" + IntegerToString(stopProbabilities[index]) + "%");
    ObjectSetInteger(0, labelName, OBJPROP_COLOR, cloudColor);
@@ -616,6 +620,7 @@ void DeleteAllZoneObjects()
          ObjectDelete(0, name);
    }
    currentZoneCount = 0;
+   slCloudCount = 0;
    ArrayFree(zonePrices);
    ArrayFree(zoneTops);
    ArrayFree(zoneBottoms);

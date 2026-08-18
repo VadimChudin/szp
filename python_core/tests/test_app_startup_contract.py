@@ -4,10 +4,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_app_password_gate_is_explicitly_opt_in():
+def test_app_password_gate_is_mandatory_and_brought_to_front():
     source = (ROOT / "python_core/app_entry.py").read_text(encoding="utf-8")
-    assert 'os.environ.get("SZP_REQUIRE_PASSWORD", "").strip() == "1"' in source
-    assert "Password gating is opt-in" in source
+    assert "if not ask_password():" in source
+    assert "root.attributes(\"-topmost\", True)" in source
+    assert "Protected access is mandatory" in source
+    assert "SZP_REQUIRE_PASSWORD" not in source
 
 
 def test_app_exposes_startup_diagnostics_and_fatal_error_log():
