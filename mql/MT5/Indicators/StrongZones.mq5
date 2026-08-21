@@ -49,6 +49,8 @@ int            accumReported    = -1;
 int            slCloudCount    = 0;
 int            slLocalAnchorCount = 0;
 datetime       zonesCalcTime    = 0;
+datetime       lastFileTime     = 0;         // Последний успешно применённый payload
+long           lastFileSize     = -1;        // Размер последнего успешно применённого payload
 datetime       lastAlertTime    = 0;
 double         referencePrice   = 0;
 string         payloadProducerBuild = "";
@@ -176,7 +178,8 @@ int OnCalculate(const int rates_total,
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-   LoadZonesFromFile();
+   if(FileHasChanged())
+      LoadZonesFromFile();
    LoadAccumulationFromFile();
 }
 
@@ -265,6 +268,23 @@ void DeleteAccumulationObjects()
 }
 
 //+------------------------------------------------------------------+
+//| A timer event is not a data update: reload only a changed payload. |
+//+------------------------------------------------------------------+
+bool FileHasChanged()
+{
+   int fileHandle = FileOpen(ZonesFilePath, FILE_READ|FILE_TXT|FILE_COMMON|FILE_ANSI);
+   if(fileHandle == INVALID_HANDLE)
+      fileHandle = FileOpen(ZonesFilePath, FILE_READ|FILE_TXT|FILE_ANSI);
+   if(fileHandle == INVALID_HANDLE)
+      return false;
+
+   datetime modified = (datetime)FileGetInteger(fileHandle, FILE_MODIFY_DATE);
+   long size = (long)FileGetInteger(fileHandle, FILE_SIZE);
+   FileClose(fileHandle);
+   return lastFileTime == 0 || modified != lastFileTime || size != lastFileSize;
+}
+
+//+------------------------------------------------------------------+
 void LoadZonesFromFile()
 {
    int fileHandle = FileOpen(ZonesFilePath, FILE_READ|FILE_TXT|FILE_COMMON|FILE_ANSI);
@@ -278,6 +298,10 @@ void LoadZonesFromFile()
       }
    }
 
+   // Store identity only after a complete six-zone payload is accepted.
+   datetime fileModified = (datetime)FileGetInteger(fileHandle, FILE_MODIFY_DATE);
+   long fileSize = (long)FileGetInteger(fileHandle, FILE_SIZE);
+
    string content = "";
    while(!FileIsEnding(fileHandle))
    {
@@ -290,9 +314,9 @@ void LoadZonesFromFile()
    payloadError = "";
    if(!ValidatePayloadHeader(content))
    {
-      DeleteAllZoneObjects();
+      // Preserve the last valid render if a just-replaced payload is incomplete
+      // or belongs to another schema/build.
       DrawBuildStamp();
-      ChartRedraw(0);
       return;
    }
    zonesCalcTime = ParseIsoTime(ExtractString(content, "\"calculated_at\":", 0));
@@ -300,14 +324,19 @@ void LoadZonesFromFile()
    payloadProducerBuild = ExtractString(content, "\"producer_build\":", 0);
    payloadId = ExtractString(content, "\"payload_id\":", 0);
 
-   DeleteAllZoneObjects();
    if(!ParseZonesJSON(content))
    {
-      DeleteAllZoneObjects();
-      currentZoneCount = 0;
+      // Parsing failure must not blank the last known-good six lines.
+      DrawBuildStamp();
+      return;
    }
-   else
-      DrawAllZones();
+
+   // Commit the new objects only after parsing validates six levels (3+3).
+   // Keep the freshly parsed arrays while removing the previous chart objects.
+   DeleteAllZoneObjects(false);
+   DrawAllZones();
+   lastFileTime = fileModified;
+   lastFileSize = fileSize;
    DrawBuildStamp();
    ChartRedraw(0);
 }
@@ -659,7 +688,7 @@ void DrawGradientZone(string baseName, double price, double top, double bottom,
 }
 
 //+------------------------------------------------------------------+
-void DeleteAllZoneObjects()
+void DeleteAllZoneObjects(bool resetData = true)
 {
    int total = ObjectsTotal(0);
    for(int i = total - 1; i >= 0; i--)
@@ -668,9 +697,11 @@ void DeleteAllZoneObjects()
       // Участки набора живут своей жизнью (свой файл и своя перерисовка)
       if(StringFind(name, accumPrefix) == 0) continue;
       if(StringFind(name, buildPrefix) == 0) continue;
+      if(name == zonePrefix + "FP_BTN") continue;
       if(StringFind(name, zonePrefix) == 0)
          ObjectDelete(0, name);
    }
+   if(!resetData) return;
    currentZoneCount = 0;
    slCloudCount = 0;
    slLocalAnchorCount = 0;

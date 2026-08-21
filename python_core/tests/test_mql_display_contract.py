@@ -125,3 +125,28 @@ def test_missing_swing_anchor_never_rejects_valid_six_zone_payload():
         assert "stopAnchorTimes[index] <= 0" not in cloud
         assert "iLow" in source
         assert "iHigh" in source
+
+
+def test_indicators_reload_zones_only_when_the_payload_file_changes():
+    """A timer tick must not delete and recreate six unchanged chart objects."""
+    for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
+        source = _source(relative)
+        assert "bool FileHasChanged()" in source
+        assert "lastFileTime == 0 || modified != lastFileTime || size != lastFileSize" in source
+        assert "return true;  // Для простоты перечитываем каждый раз" not in source
+
+        timer = source[source.index("void OnTimer()"):source.index("void OnTimer()") + 350]
+        assert "if(FileHasChanged())" in timer
+        assert "LoadZonesFromFile();" in timer
+
+
+def test_invalid_payload_does_not_clear_the_last_valid_zone_render():
+    """Transient I/O or a rejected payload must leave the previous six lines visible."""
+    for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
+        source = _source(relative)
+        loader = source[source.index("void LoadZonesFromFile()"):source.index("bool ValidatePayloadHeader")]
+        invalid_header = loader[
+            loader.index("if(!ValidatePayloadHeader(content))"):
+            loader.index("zonesCalcTime", loader.index("if(!ValidatePayloadHeader(content))"))
+        ]
+        assert "DeleteAllZoneObjects" not in invalid_header

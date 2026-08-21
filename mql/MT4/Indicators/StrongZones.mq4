@@ -40,7 +40,8 @@ input bool     ShowSLCloud      = true;          // Облако структу�
 input int      SLCloudPoints    = 9;             // Количество точек в облаке SL
 
 //--- Глобальные переменные -------------------------------------------
-datetime       lastFileTime     = 0;         // Время последнего изменения файла
+datetime       lastFileTime     = 0;         // Время последнего успешно применённого payload
+long           lastFileSize     = -1;        // Размер последнего успешно применённого payload
 datetime       lastAlertTime    = 0;         // Время последнего алерта
 string         zonePrefix       = "SZP_";    // Префикс объектов индикатора
 string         accumPrefix      = "SZP_ACC_"; // Префикс участков набора
@@ -360,13 +361,18 @@ void DeleteAccumulationObjects()
 //+------------------------------------------------------------------+
 bool FileHasChanged()
 {
-   // Проверяем через WinAPI время изменения файла
-   // В MQL4 можно использовать простой подход: читаем и сравниваем
-   int fileHandle = FileOpen("smart_zones_check.tmp", FILE_WRITE|FILE_TXT);
-   if(fileHandle != INVALID_HANDLE)
-      FileClose(fileHandle);
-   
-   return true;  // Для простоты перечитываем каждый раз
+   // A timer event is not a data update. Repaint only after an atomically
+   // replaced JSON payload changes its modification time or size.
+   int fileHandle = FileOpen(ZonesFilePath, FILE_READ|FILE_TXT|FILE_COMMON);
+   if(fileHandle == INVALID_HANDLE)
+      fileHandle = FileOpen(ZonesFilePath, FILE_READ|FILE_TXT);
+   if(fileHandle == INVALID_HANDLE)
+      return false;
+
+   datetime modified = (datetime)FileGetInteger(fileHandle, FILE_MODIFY_DATE);
+   long size = (long)FileGetInteger(fileHandle, FILE_SIZE);
+   FileClose(fileHandle);
+   return lastFileTime == 0 || modified != lastFileTime || size != lastFileSize;
 }
 
 
@@ -379,7 +385,7 @@ void LoadZonesFromFile()
    // MQL4 может читать файлы только из папки MQL4/Files/
    // Поэтому используем общую папку терминала
    
-   string filename = "zones_output.json";
+   string filename = ZonesFilePath;
    
    int fileHandle = FileOpen(filename, FILE_READ|FILE_TXT|FILE_COMMON);
    if(fileHandle == INVALID_HANDLE)
@@ -395,6 +401,11 @@ void LoadZonesFromFile()
       }
    }
    
+   // Запоминаем метаданные открытого файла. Они фиксируются только после
+   // полного успешного разбора: при ошибке прошлые линии остаются на графике.
+   datetime fileModified = (datetime)FileGetInteger(fileHandle, FILE_MODIFY_DATE);
+   long fileSize = (long)FileGetInteger(fileHandle, FILE_SIZE);
+
    // Читаем весь файл
    string content = "";
    while(!FileIsEnding(fileHandle))
@@ -412,9 +423,9 @@ void LoadZonesFromFile()
    payloadError = "";
    if(!ValidatePayloadHeader(content))
    {
-      DeleteAllZoneObjects();
+      // Do not blank a valid chart because a replacement file is incomplete
+      // or from a mismatched build. Keep the previous six lines visible.
       DrawBuildStamp();
-      ChartRedraw();
       return;
    }
    zonesCalcTime = ParseIsoTime(ExtractString(content, "\"calculated_at\":", 0));
@@ -422,9 +433,6 @@ void LoadZonesFromFile()
    payloadProducerBuild = ExtractString(content, "\"producer_build\":", 0);
    payloadId = ExtractString(content, "\"payload_id\":", 0);
 
-   // Удаляем старые зоны
-   DeleteAllZoneObjects();
-   
    // Пытаемся распарсить fp_status (глобальный статус футпринта)
    string fpStatus = ExtractString(content, "\"fp_status\":", 0);
    string btnName = zonePrefix + "FP_BTN";
@@ -440,11 +448,19 @@ void LoadZonesFromFile()
    }
    
    if(ParseZonesJSON(content))
+   {
+      // Swap rendered objects only after all six records satisfy the 3+3 contract.
+      // Keep parsed arrays while deleting old chart objects.
+      DeleteAllZoneObjects(false);
       DrawAllZones();
+      lastFileTime = fileModified;
+      lastFileSize = fileSize;
+   }
    else
    {
-      DeleteAllZoneObjects();
-      currentZoneCount = 0;
+      // Parsing a transient/bad file must not make stable zones disappear.
+      DrawBuildStamp();
+      return;
    }
    DrawBuildStamp();
 
@@ -777,7 +793,7 @@ void DrawStopCloud(string baseName, int index)
 //+------------------------------------------------------------------+
 //| Удаление всех объектов индикатора                                 |
 //+------------------------------------------------------------------+
-void DeleteAllZoneObjects()
+void DeleteAllZoneObjects(bool resetData = true)
 {
    int totalObjects = ObjectsTotal();
    for(int i = totalObjects - 1; i >= 0; i--)
@@ -786,11 +802,13 @@ void DeleteAllZoneObjects()
       // Участки набора живут своей жизнью (свой файл и своя перерисовка)
       if(StringFind(name, accumPrefix) == 0) continue;
       if(StringFind(name, buildPrefix) == 0) continue;
+      if(name == zonePrefix + "FP_BTN") continue;
       if(StringFind(name, zonePrefix) == 0)
       {
          ObjectDelete(name);
       }
    }
+   if(!resetData) return;
    currentZoneCount = 0;
    slCloudCount = 0;
    slLocalAnchorCount = 0;
