@@ -42,6 +42,12 @@ def find_mt4_indicators_dir() -> Path | None:
     return None
 
 
+def payload_relative_path(channel: str | None = None) -> Path:
+    """Relative path read by indicators in a specific installation channel."""
+    safe_channel = (channel or version.app_channel()).strip() or "Experimental"
+    return Path("SmartZonesPro") / safe_channel / "zones_output.json"
+
+
 def zone_file_targets() -> list[Path]:
     """Все папки, откуда индикатор может прочитать зоны.
 
@@ -58,21 +64,23 @@ def zone_file_targets() -> list[Path]:
     return targets
 
 
-def sync_file(source: Path) -> bool:
-    """Копирует произвольный файл во все папки Files терминалов MT4/MT5."""
+def sync_file(source: Path, relative_path: Path | None = None) -> bool:
+    """Copy *source* to every terminal Files folder using an optional subpath."""
     if not source.exists():
         print(f"[sync] Source file not found: {source}")
         return False
 
+    destination_relative = relative_path or Path(source.name)
     copied = 0
     for target_dir in zone_file_targets():
+        destination = target_dir / destination_relative
         try:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target_dir / source.name)
-            print(f"[sync] Copied {source.name} to: {target_dir}")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            print(f"[sync] Copied {source.name} to: {destination}")
             copied += 1
         except OSError as e:
-            print(f"[sync] WARN: could not copy {source.name} to {target_dir}: {e}")
+            print(f"[sync] WARN: could not copy {source.name} to {destination}: {e}")
 
     if not copied:
         print(f"[sync] ERROR: no MetaTrader Files folder found — {source.name} "
@@ -81,10 +89,10 @@ def sync_file(source: Path) -> bool:
 
 
 def sync_zones():
-    """Копирует zones_output.json во все папки Files терминалов MT4/MT5."""
+    """Deliver schema-4 zones to the isolated Stable or Experimental channel."""
     if not SOURCE.exists():
         print(f"[sync] Run bridge_server.py first!")
-    return sync_file(SOURCE)
+    return sync_file(SOURCE, payload_relative_path())
 
 
 def find_all_terminals() -> list[tuple[str, Path]]:

@@ -113,7 +113,16 @@ REGIME_ATR_LOW = _env_float("REGIME_ATR_LOW", 2.0)
 REGIME_ATR_HIGH = _env_float("REGIME_ATR_HIGH", 6.0)
 
 # ── Жизненный цикл active H4-зон ─────────────────────────────────────
-TEST_INVALIDATES_ZONE = _env_bool("TEST_INVALIDATES_ZONE", True)
+# Касание или тень сами по себе не ломают уровень. Пробой подтверждается
+# закрытием H4 за границей зоны и применяется при следующем H4-пересчёте.
+TEST_INVALIDATES_ZONE = _env_bool("TEST_INVALIDATES_ZONE", False)
+ZONE_BREAK_BUFFER_WIDTHS = _env_float("ZONE_BREAK_BUFFER_WIDTHS", 0.25)
+# Показываем только уровни в обозримом ценовом окне. Значение намеренно
+# ограничено запросом клиента: от 10% до 15%, стандарт — середина 12%.
+ACTIVE_ZONE_MAX_DISTANCE_PCT = min(
+    15.0,
+    max(10.0, _env_float("ACTIVE_ZONE_MAX_DISTANCE_PCT", 12.0)),
+)
 ZONE_EVENT_LOG_ENABLED = _env_bool("ZONE_EVENT_LOG_ENABLED", True)
 
 # ── Фильтр "Крупный игрок" (Volume) ─────────────────────────────────

@@ -584,6 +584,11 @@ def projected_levels(price: float, above: bool, count: int, *, force: bool = Fal
         return []
 
     step = config.ROUND_LEVEL_STEP
+    # The production XAU step is $50. For low-priced instruments and test
+    # fixtures that step can sit beyond price entirely, leaving no lower
+    # fallback levels. Keep projected slots distinct from the zone cluster.
+    if step >= price * 0.25:
+        step = max(price * 0.05, config.CLUSTER_TOLERANCE * 1.1)
     gap = price * config.PROJECTED_LEVEL_MIN_DISTANCE_PCT / 100.0
     levels = []
     edge = price + gap if above else price - gap

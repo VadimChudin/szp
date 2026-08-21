@@ -14,9 +14,14 @@
 // Номер сборки подставляет CI при компиляции: без него нельзя было понять,
 // какая версия индикатора реально загружена в терминале клиента.
 #define SZP_BUILD "dev"
+// CI stamps this together with SZP_BUILD. The channel owns a separate JSON
+// stream so Experimental never reads a stale Stable payload.
+#define SZP_CHANNEL "Experimental"
 
 //--- Настройки (Input Parameters) ------------------------------------
-input string   ZonesFilePath    = "zones_output.json";   // Имя файла с зонами (в Common/Files)
+// Новый input не наследует сохранённый старый flat-path из профиля MT5.
+// sync_zones_to_mt4.py кладёт schema-4 JSON в этот отдельный канал.
+input string   PayloadFilePath  = "SmartZonesPro\\Experimental\\zones_output.json";
 input int      RefreshSeconds   = 10;         // Интервал обновления (сек)
 input color    ZoneColorStrong  = clrGold;        // Цвет сильных зон (Score >= 11)
 input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон
@@ -149,7 +154,7 @@ int OnInit()
    LoadAccumulationFromFile();
    DrawBuildStamp();
    Print("[SmartZones MT5] Initialized, build v", SZP_BUILD,
-         ". File: ", ZonesFilePath);
+         ". File: ", PayloadFilePath);
    return(INIT_SUCCEEDED);
 }
 
@@ -276,9 +281,9 @@ void DeleteAccumulationObjects()
 //+------------------------------------------------------------------+
 bool FileHasChanged()
 {
-   int fileHandle = FileOpen(ZonesFilePath, FILE_READ|FILE_TXT|FILE_COMMON|FILE_ANSI);
+   int fileHandle = FileOpen(PayloadFilePath, FILE_READ|FILE_TXT|FILE_COMMON|FILE_ANSI);
    if(fileHandle == INVALID_HANDLE)
-      fileHandle = FileOpen(ZonesFilePath, FILE_READ|FILE_TXT|FILE_ANSI);
+      fileHandle = FileOpen(PayloadFilePath, FILE_READ|FILE_TXT|FILE_ANSI);
    if(fileHandle == INVALID_HANDLE)
       return false;
 
@@ -291,10 +296,10 @@ bool FileHasChanged()
 //+------------------------------------------------------------------+
 void LoadZonesFromFile()
 {
-   int fileHandle = FileOpen(ZonesFilePath, FILE_READ|FILE_TXT|FILE_COMMON|FILE_ANSI);
+   int fileHandle = FileOpen(PayloadFilePath, FILE_READ|FILE_TXT|FILE_COMMON|FILE_ANSI);
    if(fileHandle == INVALID_HANDLE)
    {
-      fileHandle = FileOpen(ZonesFilePath, FILE_READ|FILE_TXT|FILE_ANSI);
+      fileHandle = FileOpen(PayloadFilePath, FILE_READ|FILE_TXT|FILE_ANSI);
       if(fileHandle == INVALID_HANDLE)
       {
          // Не спамим ошибками

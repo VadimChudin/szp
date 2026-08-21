@@ -111,6 +111,13 @@ def _side(zone: Zone, price: float) -> str:
     return Side.ABOVE if zone.price >= price else Side.BELOW
 
 
+def _outside_active_window(zone: Zone, price: float | None) -> bool:
+    """True when a visible level has moved outside the 10–15% live window."""
+    if price is None or price <= 0:
+        return False
+    return abs(zone.price - price) / price * 100.0 > config.ACTIVE_ZONE_MAX_DISTANCE_PCT
+
+
 def _rank(zone: Zone, price: float) -> tuple[int, float]:
     """Higher score wins; at equal score, the closer level wins."""
     return zone.score, -abs(zone.price - price)
@@ -125,9 +132,24 @@ def _mark_display(zone: Zone, side: str, h4: str, new: bool = False) -> None:
         zone.created_at = _utc_now()
 
 
-def _invalidate(zones: list[Zone], bars: pd.DataFrame, h4: str) -> list[Zone]:
+def _invalidate(zones: list[Zone], bars: pd.DataFrame, h4: str,
+                reference_price: float | None) -> list[Zone]:
+    """Remove only on a new H4 review, never on an intrabar price tick.
+
+    A wick/test remains visible. A zone is removed when an H4 body closes past
+    its boundary by a small width-based buffer, or when the live price has
+    moved beyond the configured 10–15% visibility window.
+    """
     active: list[Zone] = []
     for zone in zones:
+        if _outside_active_window(zone, reference_price):
+            zone.state = "EXPIRED_DISTANCE"
+            zone.invalidated_at = h4
+            zone.invalidation_reason = "outside_active_window"
+            append_event("zone_invalidated", zone, h4, reason=zone.invalidation_reason,
+                         distance_limit_pct=config.ACTIVE_ZONE_MAX_DISTANCE_PCT)
+            continue
+
         removed = False
         for _, bar in bars.iterrows():
             try:
@@ -135,18 +157,26 @@ def _invalidate(zones: list[Zone], bars: pd.DataFrame, h4: str) -> list[Zone]:
                 op, close = float(bar["open"]), float(bar["close"])
             except (KeyError, TypeError, ValueError):
                 continue
-            if not (low <= zone.top and high >= zone.bottom):
-                continue
             stamp = _bar_key(bar.get("time", h4))
-            zone.test_count += 1
-            zone.last_test_at = stamp
-            zone.state = "TESTED"
-            append_event("zone_tested", zone, h4, test_count=zone.test_count)
-            body_break = (op < zone.bottom and close > zone.top) or (op > zone.top and close < zone.bottom)
+            buffer = max(zone.width * config.ZONE_BREAK_BUFFER_WIDTHS,
+                         config.SYMBOL_POINT * 10)
+            close_below = close < zone.bottom - buffer and op >= zone.bottom - buffer
+            close_above = close > zone.top + buffer and op <= zone.top + buffer
+            body_break = close_below or close_above
+            overlaps_zone = low <= zone.top and high >= zone.bottom
+            if not overlaps_zone and not body_break:
+                continue
+
+            if(overlaps_zone):
+                zone.test_count += 1
+                zone.last_test_at = stamp
+                zone.state = "TESTED"
+                append_event("zone_tested", zone, h4, test_count=zone.test_count)
+
             if body_break or config.TEST_INVALIDATES_ZONE:
                 zone.state = "INVALIDATED"
                 zone.invalidated_at = stamp
-                zone.invalidation_reason = "body_breakout" if body_break else "confirmed_test"
+                zone.invalidation_reason = "h4_close_breakout" if body_break else "confirmed_test"
                 append_event("zone_invalidated", zone, h4, reason=zone.invalidation_reason)
                 removed = True
                 break
@@ -219,7 +249,9 @@ def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
         for fallback in projected_levels(
             price,
             above=(side == Side.ABOVE),
-            count=slots - len(current),
+            # Request a small surplus: nearby projected prices may merge with
+            # real levels and otherwise leave a side with fewer than 3 slots.
+            count=slots - len(current) + 3,
             force=True,
         ):
             if any(_same_zone(fallback, known) for known in current):
@@ -307,10 +339,16 @@ def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FI
             return current[:config.MAX_ZONES_ON_CHART]
 
         before = current[:]
-        current = _invalidate(current, _new_bars(data, state.get("last_h4", "")), h4)
+        current = _invalidate(
+            current,
+            _new_bars(data, state.get("last_h4", "")),
+            h4,
+            price,
+        )
         invalidated = [zone for zone in before if not any(_same_zone(zone, alive) for alive in current)]
         pool = [zone for zone in _candidate_pool(candidates)
-                if not any(_same_zone(zone, removed) for removed in invalidated)]
+                if not _outside_active_window(zone, price)
+                and not any(_same_zone(zone, removed) for removed in invalidated)]
 
         above = _choose_side(current, pool, Side.ABOVE, price, h4)
         below = _choose_side(current, pool, Side.BELOW, price, h4)

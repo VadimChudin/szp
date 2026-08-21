@@ -156,3 +156,18 @@ def test_invalid_payload_does_not_clear_the_last_valid_zone_render():
             loader.index("zonesCalcTime", loader.index("if(!ValidatePayloadHeader(content))"))
         ]
         assert "DeleteAllZoneObjects" not in invalid_header
+
+
+def test_indicators_use_channel_isolated_payload_not_legacy_flat_file():
+    for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
+        source = _source(relative)
+        assert '#define SZP_CHANNEL "Experimental"' in source
+        assert "PayloadFilePath" in source
+        assert 'SmartZonesPro\\\\Experimental\\\\zones_output.json' in source
+        assert "ZonesFilePath" not in source
+
+
+def test_ci_stamps_indicator_channel_with_the_build_channel():
+    workflow = _source(".github/workflows/build-turnkey.yml")
+    assert 'Replace(\'#define SZP_CHANNEL "Experimental"\'' in workflow
+    assert '"#define SZP_CHANNEL `"$channel`""' in workflow

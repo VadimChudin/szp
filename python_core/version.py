@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 FALLBACK = "dev"
+DEFAULT_CHANNEL = "Experimental"
 
 
 def _base_dir() -> Path:
@@ -19,11 +20,27 @@ def _base_dir() -> Path:
     return Path(__file__).parent
 
 
-def app_version() -> str:
-    """Версия сборки, например '1.5'. 'dev' — запуск из исходников."""
+def _build_label() -> str:
     try:
-        text = (_base_dir() / "build_version.txt").read_text(encoding="utf-8")
+        return (_base_dir() / "build_version.txt").read_text(encoding="utf-8").strip()
     except OSError:
-        return FALLBACK
-    version = text.strip()
-    return version or FALLBACK
+        return ""
+
+
+def app_version() -> str:
+    """Версия сборки, например ``Experimental-0.0.0.58-deadbee``."""
+    return _build_label() or FALLBACK
+
+
+def app_channel() -> str:
+    """Return the installation channel encoded by CI in ``build_version.txt``.
+
+    A channel-specific payload prevents an Experimental indicator from reading
+    a stale flat ``zones_output.json`` written by an older Stable installation.
+    """
+    label = _build_label()
+    if label.startswith("Stable-"):
+        return "Stable"
+    if label.startswith("Experimental-"):
+        return "Experimental"
+    return DEFAULT_CHANNEL

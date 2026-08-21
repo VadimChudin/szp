@@ -15,6 +15,9 @@
 // Номер сборки подставляет CI при компиляции: без него нельзя было понять,
 // какая версия индикатора реально загружена в терминале клиента.
 #define SZP_BUILD "dev"
+// CI stamps this together with SZP_BUILD. The channel owns a separate JSON
+// stream so Experimental never reads a stale Stable payload.
+#define SZP_CHANNEL "Experimental"
 
 //--- Настройки (Input Parameters) ------------------------------------
 input int      RefreshSeconds   = 10;        // Интервал обновления (сек)
@@ -31,8 +34,9 @@ input bool     ShowRectangles   = false;      // Полупрозрачные п
 input bool     ShowScoreBadge   = false;     // Показывать бейдж со скором зоны
 input bool     EnableAlerts     = true;      // Алерты при касании зоны
 input double   AlertDistance    = 5.0;       // Расстояние до зоны для алерта ($)
-// Имя файла с зонами — лежит в MQL4/Files или Common/Files (положит sync_zones_to_mt4.py).
-input string   ZonesFilePath    = "zones_output.json";
+// Новый input не наследует сохранённый старый flat-path из профиля MT4.
+// sync_zones_to_mt4.py кладёт schema-4 JSON в этот отдельный канал.
+input string   PayloadFilePath  = "SmartZonesPro\\Experimental\\zones_output.json";
 input bool     ShowAccumulation = true;      // Набор позиции крупным участником
 input string   AccumFilePath    = "accumulation_output.json"; // Файл участков набора
 input color    AccumColor       = C'85,45,140';  // Цвет участков набора (фиолетовый)
@@ -176,7 +180,7 @@ int OnInit()
    DrawBuildStamp();
 
    Print("[SmartZones] Indicator initialized, build v", SZP_BUILD,
-         ". Reading zones from MQL4/Files/", ZonesFilePath);
+         ". Reading zones from MQL4/Files/", PayloadFilePath);
    Print("[SmartZones] Refresh interval: ", RefreshSeconds, " seconds");
    Print("[SmartZones] Footprint button [FP] created");
    
@@ -367,9 +371,9 @@ bool FileHasChanged()
 {
    // A timer event is not a data update. Repaint only after an atomically
    // replaced JSON payload changes its modification time or size.
-   int fileHandle = FileOpen(ZonesFilePath, FILE_READ|FILE_TXT|FILE_COMMON);
+   int fileHandle = FileOpen(PayloadFilePath, FILE_READ|FILE_TXT|FILE_COMMON);
    if(fileHandle == INVALID_HANDLE)
-      fileHandle = FileOpen(ZonesFilePath, FILE_READ|FILE_TXT);
+      fileHandle = FileOpen(PayloadFilePath, FILE_READ|FILE_TXT);
    if(fileHandle == INVALID_HANDLE)
       return false;
 
@@ -389,7 +393,7 @@ void LoadZonesFromFile()
    // MQL4 может читать файлы только из папки MQL4/Files/
    // Поэтому используем общую папку терминала
    
-   string filename = ZonesFilePath;
+   string filename = PayloadFilePath;
    
    int fileHandle = FileOpen(filename, FILE_READ|FILE_TXT|FILE_COMMON);
    if(fileHandle == INVALID_HANDLE)
