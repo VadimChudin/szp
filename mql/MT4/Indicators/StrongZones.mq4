@@ -36,8 +36,12 @@ input string   ZonesFilePath    = "zones_output.json";
 input bool     ShowAccumulation = true;      // Набор позиции крупным участником
 input string   AccumFilePath    = "accumulation_output.json"; // Файл участков набора
 input color    AccumColor       = C'85,45,140';  // Цвет участков набора (фиолетовый)
-input bool     ShowSLCloud      = true;          // Облако структурного SL из Python Core
-input int      SLCloudPoints    = 9;             // Количество точек в облаке SL
+input bool     ShowSLCloud      = true;          // Показывать структурные области SL из Python Core
+input int      SLCloudPoints    = 9;             // Устаревший параметр: сохранён для совместимости профилей
+input int      SLAreaForwardBars = 80;           // Длина области SL вправо по графику
+input double   SLAreaDepthMultiplier = 4.5;      // Глубина области относительно структурного буфера
+input color    SLLongAreaColor  = C'45,135,90';  // Приглушённый зелёный: Long SL под поддержкой
+input color    SLShortAreaColor = C'160,65,70';  // Приглушённый красный: Short SL над сопротивлением
 
 //--- Глобальные переменные -------------------------------------------
 datetime       lastFileTime     = 0;         // Время последнего успешно применённого payload
@@ -107,7 +111,7 @@ void DrawBuildStamp()
       string age = IntegerToString(ageMin) + "m";
       if(ageMin >= 60) age = IntegerToString(ageMin / 60) + "h";
       text = text + "  |  zones: " + IntegerToString(currentZoneCount) +
-             "  sl-dots: " + IntegerToString(slCloudCount) +
+              "  sl-areas: " + IntegerToString(slCloudCount) +
              (slLocalAnchorCount > 0 ? "  sl-local: " + IntegerToString(slLocalAnchorCount) : "") +
              "  acc: " + IntegerToString(accumCount) + "  " + age + " ago";
       if(referencePrice > 0)
@@ -707,7 +711,7 @@ void DrawSingleZone(int index)
    }
 
    if(ShowSLCloud)
-      DrawStopCloud(baseName, index);
+      DrawStopArea(baseName, index);
 
 }
 
@@ -745,43 +749,52 @@ datetime ResolveStopAnchor(int index, double &anchorPrice)
    return iTime(NULL, 0, bestShift);
 }
 
-void DrawStopCloud(string baseName, int index)
+void DrawStopArea(string baseName, int index)
 {
    double stopPrice = stopPrices[index];
    if(stopPrice <= 0) return;
-   double anchorPrice = 0;
-   datetime anchor = ResolveStopAnchor(index, anchorPrice);
-   if(anchor <= 0) return;
+
+   // Python marks a support stop as BELOW_SUPPORT (Long) and a resistance
+   // stop as ABOVE_RESISTANCE (Short). Keep the risk area on that side only.
    bool isLong = (stopSides[index] == "BELOW_SUPPORT");
-   color cloudColor = isLong ? C'95,224,190' : C'239,117,132';
-   double spread = MathMax(stopBuffers[index] * 0.55, Point * 12.0);
-   int points = MathMax(5, MathMin(15, SLCloudPoints));
-   // Compact liquidity/risk cluster at a Python or local structural swing.
-   int columns = 3;
-   int rows = (points + columns - 1) / columns;
-   int timeStep = (int)MathMax(1, PeriodSeconds() / 10);
-   double priceStep = MathMax(spread * 0.38, Point * 5.0);
-   for(int dot = 0; dot < points; dot++)
+   color areaColor = isLong ? SLLongAreaColor : SLShortAreaColor;
+   double buffer = MathMax(stopBuffers[index], Point * 12.0);
+   double depth = MathMax(buffer * SLAreaDepthMultiplier,
+                          MathAbs(zoneTops[index] - zoneBottoms[index]) * 1.5);
+   double nearEdge, farEdge;
+   if(isLong)
    {
-      int column = (dot % columns) - 1;
-      int row = (dot / columns) - ((rows - 1) / 2);
-      double dotPrice = stopPrice + row * priceStep;
-      datetime dotTime = anchor + column * timeStep;
-      string dotName = baseName + "_sl_cloud_" + IntegerToString(dot);
-      ObjectCreate(dotName, OBJ_ARROW, 0, dotTime, dotPrice);
-      ObjectSetInteger(0, dotName, OBJPROP_ARROWCODE, 159);
-      ObjectSetInteger(0, dotName, OBJPROP_COLOR, cloudColor);
-      ObjectSetInteger(0, dotName, OBJPROP_WIDTH, dot == points / 2 ? 3 : 2);
-      ObjectSetInteger(0, dotName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, dotName, OBJPROP_HIDDEN, true);
-      ObjectSetInteger(0, dotName, OBJPROP_BACK, false);
-      slCloudCount++;
+      nearEdge = MathMin(zoneBottoms[index] - buffer * 0.10, stopPrice + buffer * 0.35);
+      farEdge = MathMin(stopPrice - depth, nearEdge - buffer);
    }
-   string labelName = baseName + "_sl_cloud_label";
-   ObjectCreate(labelName, OBJ_TEXT, 0, anchor + 2 * timeStep, stopPrice + priceStep * 1.8);
-   ObjectSetString(0, labelName, OBJPROP_TEXT, (isLong ? " LONG SL " : " SHORT SL ") +
+   else
+   {
+      nearEdge = MathMax(zoneTops[index] + buffer * 0.10, stopPrice - buffer * 0.35);
+      farEdge = MathMax(stopPrice + depth, nearEdge + buffer);
+   }
+
+   // MT4 rectangles have no alpha channel. A muted colour, fill and BACK=true
+   // deliberately create a transparent-looking risk area behind candles.
+   if(Bars < 2) return;
+   int barsBack = (int)MathMin(Bars - 1, 12);
+   datetime timeStart = Time[barsBack];
+   datetime timeEnd = Time[0] + PeriodSeconds() * MathMax(12, SLAreaForwardBars);
+   string areaName = baseName + "_sl_area";
+   ObjectCreate(areaName, OBJ_RECTANGLE, 0, timeStart, nearEdge, timeEnd, farEdge);
+   ObjectSetInteger(0, areaName, OBJPROP_COLOR, areaColor);
+   ObjectSetInteger(0, areaName, OBJPROP_FILL, true);
+   ObjectSetInteger(0, areaName, OBJPROP_BACK, true);
+   ObjectSetInteger(0, areaName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, areaName, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, areaName, OBJPROP_STYLE, STYLE_SOLID);
+   slCloudCount++;
+
+   string labelName = baseName + "_sl_area_label";
+   ObjectCreate(labelName, OBJ_TEXT, 0, Time[0] + PeriodSeconds() * 4,
+                (nearEdge + farEdge) / 2.0);
+   ObjectSetString(0, labelName, OBJPROP_TEXT, (isLong ? " LONG SL AREA " : " SHORT SL AREA ") +
                    DoubleToString(stopPrice, Digits) + " ~" + IntegerToString(stopProbabilities[index]) + "%");
-   ObjectSetInteger(0, labelName, OBJPROP_COLOR, cloudColor);
+   ObjectSetInteger(0, labelName, OBJPROP_COLOR, areaColor);
    ObjectSetString(0, labelName, OBJPROP_FONT, "Consolas");
    ObjectSetInteger(0, labelName, OBJPROP_FONTSIZE, 8);
    ObjectSetInteger(0, labelName, OBJPROP_ANCHOR, ANCHOR_LEFT);

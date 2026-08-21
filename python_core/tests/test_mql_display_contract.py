@@ -35,26 +35,31 @@ def test_active_zone_drawers_use_horizontal_lines_not_rectangle_ranges():
         assert "OBJ_RECTANGLE" not in section
 
 
-def test_sl_cloud_uses_python_stop_payload_and_long_short_colors():
+def test_sl_areas_use_python_stop_payload_and_long_short_colors():
     for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
         source = _source(relative)
         assert '"\\"stop_price\\":' in source
-        assert '"_sl_cloud_"' in source
-        assert "C'95,224,190'" in source
-        assert "C'239,117,132'" in source
+        assert "void DrawStopArea" in source
+        assert '"_sl_area"' in source
+        assert "SLLongAreaColor" in source
+        assert "SLShortAreaColor" in source
+        area = source[source.index("void DrawStopArea"):source.index("void DeleteAllZoneObjects", source.index("void DrawStopArea"))]
+        assert "OBJ_RECTANGLE" in area
+        assert "OBJ_ARROW" not in area
         assert '"_sl_line"' not in source
 
 
-def test_footprint_uses_the_same_schema_and_stop_cloud():
+def test_footprint_uses_the_same_schema_and_stop_area():
     source = _source("python_core/footprint_window.py")
     assert "zone_price" in source
     assert "zone_fallback" in source
     assert "stop_price" in source
     assert "stop_anchor_epoch" in source
     assert "anchorEpoch" in source
-    assert "const points = 9, columns = 3, rows = 3" in source
-    assert "LONG SL " in source
-    assert "SHORT SL " in source
+    assert "fillRect" in source
+    assert "strokeRect" in source
+    assert "LONG SL AREA " in source
+    assert "SHORT SL AREA " in source
 
 
 def test_collectors_export_the_same_history_depth_as_the_detector():
@@ -99,16 +104,17 @@ def test_indicators_show_reference_price_in_a_visible_upper_stamp():
         assert "OBJPROP_YDISTANCE, 25" in source
 
 
-def test_sl_cloud_is_visible_and_reports_created_dots():
+def test_sl_area_is_visible_and_reports_the_directional_area():
     for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
         source = _source(relative)
         assert "slCloudCount" in source
-        assert '"  sl-dots: "' in source
+        assert '"  sl-areas: "' in source
         assert '"\\"stop_anchor_epoch\\":' in source
         assert "stopAnchorTimes" in source
-        assert "int columns = 3" in source
-        assert "PeriodSeconds() / 10" in source
-        assert "OBJPROP_WIDTH, dot == points / 2 ? 3 : 2" in source
+        assert "SLAreaForwardBars" in source
+        assert "SLAreaDepthMultiplier" in source
+        assert "OBJPROP_FILL, true" in source
+        assert "OBJPROP_BACK, true" in source
 
 
 def test_missing_swing_anchor_never_rejects_valid_six_zone_payload():
@@ -120,9 +126,9 @@ def test_missing_swing_anchor_never_rejects_valid_six_zone_payload():
         assert "datetime ResolveStopAnchor" in source
         assert "slLocalAnchorCount" in source
         assert '"  sl-local: "' in source
-        cloud = source[source.index("void DrawStopCloud"):source.index("void DeleteAllZoneObjects", source.index("void DrawStopCloud"))]
-        assert "if(stopPrice <= 0) return;" in cloud
-        assert "stopAnchorTimes[index] <= 0" not in cloud
+        area = source[source.index("void DrawStopArea"):source.index("void DeleteAllZoneObjects", source.index("void DrawStopArea"))]
+        assert "if(stopPrice <= 0) return;" in area
+        assert "stopAnchorTimes[index] <= 0" not in area
         assert "iLow" in source
         assert "iHigh" in source
 

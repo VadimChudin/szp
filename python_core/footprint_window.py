@@ -478,42 +478,49 @@ function draw() {
     ctx.fillStyle = textCol2;
     ctx.fillText(label, badgeX + badgeW - padX, badgeY + badgeH / 2);
 
-    // Structural SL cloud from the same Python payload as MT4/MT5.
+    // Structural SL area from the same Python payload as MT4/MT5.
     if (z.stop && z.stop.stop_price !== undefined) {
       const slPrice = Number(z.stop.stop_price);
       const isLong = z.stop.stop_side === 'BELOW_SUPPORT';
-      const slCol = isLong ? '#5fe0be' : '#ef7584';
-      const spread = Math.max(Number(z.stop.stop_buffer || 0) * 0.55, step * 2);
+      const slFill = isLong ? 'rgba(55, 185, 115, 0.18)' : 'rgba(205, 72, 78, 0.18)';
+      const slBorder = isLong ? '#5fe0a0' : '#ef7584';
+      const buffer = Math.max(Number(z.stop.stop_buffer || 0), step * 2);
+      const depth = Math.max(buffer * 4.5, step * 6);
+      const zoneTop = Number(z.zone_top || zPrice);
+      const zoneBottom = Number(z.zone_bottom || zPrice);
       const anchorEpoch = Number(z.stop.stop_anchor_epoch || 0);
-      // Align the cloud with the closest visible structural swing candle.
+      // Start close to the structural swing, then extend through the live area.
       let anchorIndex = 0, anchorDistance = Infinity;
       vis.forEach((candle, index) => {
         if (!Number(candle.ts) || !anchorEpoch) return;
         const distance = Math.abs(Number(candle.ts) - anchorEpoch);
         if (distance < anchorDistance) { anchorDistance = distance; anchorIndex = index; }
       });
-      const anchorX = ml + (anchorIndex + 0.56) * colW;
-      const points = 9, columns = 3, rows = 3;
-      const xStep = Math.max(4, colW * 0.11);
-      const yStep = Math.max(spread * 0.38, step * 0.6);
+      const startX = Math.max(ml, ml + Math.max(0, anchorIndex - 1) * colW);
+      const areaW = Math.max(colW * 2, chartW - 6 - startX);
+      const nearPrice = isLong
+        ? Math.min(zoneBottom - buffer * 0.10, slPrice + buffer * 0.35)
+        : Math.max(zoneTop + buffer * 0.10, slPrice - buffer * 0.35);
+      const farPrice = isLong
+        ? Math.min(slPrice - depth, nearPrice - buffer)
+        : Math.max(slPrice + depth, nearPrice + buffer);
+      const areaY = Math.min(py(nearPrice), py(farPrice));
+      const areaH = Math.max(2, Math.abs(py(nearPrice) - py(farPrice)));
       ctx.save();
-      for (let dot = 0; dot < points; dot++) {
-        const column = dot % columns - 1;
-        const row = Math.floor(dot / columns) - Math.floor((rows - 1) / 2);
-        const x = anchorX + column * xStep;
-        const y = py(slPrice + row * yStep);
-        ctx.globalAlpha = dot === Math.floor(points / 2) ? 1 : 0.66;
-        ctx.fillStyle = slCol;
-        ctx.beginPath(); ctx.arc(x, y, dot === Math.floor(points / 2) ? 3.0 : 2.0, 0, Math.PI * 2); ctx.fill();
-      }
+      ctx.fillStyle = slFill;
+      ctx.fillRect(startX, areaY, areaW, areaH);
+      ctx.strokeStyle = slBorder;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(startX, areaY, areaW, areaH);
       ctx.restore();
-      const slLabel = (isLong ? 'LONG SL ' : 'SHORT SL ') + slPrice.toFixed(2) +
+      const slLabel = (isLong ? 'LONG SL AREA ' : 'SHORT SL AREA ') + slPrice.toFixed(2) +
                       ' · ' + Number(z.stop.stop_probability || 0) + '%';
       ctx.font = '10px "JetBrains Mono", "Courier New", monospace';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = slCol;
-      ctx.fillText(slLabel, anchorX + xStep * 2, py(slPrice + yStep * 1.8));
+      ctx.fillStyle = slBorder;
+      ctx.fillText(slLabel, startX + 5, areaY + Math.min(13, areaH / 2));
     }
   });
 
