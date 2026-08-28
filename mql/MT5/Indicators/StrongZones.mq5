@@ -29,11 +29,12 @@ input int      ZoneLineWidth    = 2;          // Толщина линии
 input bool     ShowPriceLabels  = true;       // Показывать только цену зоны
 input bool     ShowRectangles   = false;       // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;      // Бейдж со скором
+input bool     ShowSL           = false;      // Уровни SL Pool (по умолчанию выкл.)
 input bool     ShowGradient     = false;      // Градиентная визуализация (выкл. по умолчанию)
 input int      GradientLayers   = 5;          // Кол-во слоёв градиента
 input bool     EnableAlerts     = true;       // Алерты при касании зоны
 input double   AlertDistance    = 5.0;        // Расстояние для алерта ($)
-input bool     ShowAccumulation = true;      // Набор позиции крупным участником
+input bool     ShowAccumulation = false;     // Набор позиции крупным участником
 input string   AccumFilePath    = "accumulation_output.json"; // Файл участков набора
 input color    AccumColor       = C'85,45,140';  // Цвет участков набора (фиолетовый)
 
@@ -379,7 +380,7 @@ void DrawSingleZone(int index)
    else if(score >= 9)  { zoneColor = ZoneColorMedium;   lineWidth = ZoneLineWidth; }
    else                 { zoneColor = ZoneColorWeak;     lineWidth = MathMax(1, ZoneLineWidth - 1); }
 
-   // ── 1. Горизонтальная линия ──────────────────────────────────────
+   // ── 1. Горизонтальная линия ───────────────────────────────────────
    string lineName = baseName + "_line";
    ObjectCreate(0, lineName, OBJ_HLINE, 0, 0, price);
    ObjectSetInteger(0, lineName, OBJPROP_COLOR, zoneColor);
@@ -389,7 +390,7 @@ void DrawSingleZone(int index)
    ObjectSetInteger(0, lineName, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, lineName, OBJPROP_BACK, true);
 
-   // ── 3. Текстовая подпись ─────────────────────────────────────────
+   // ── 3. Текстовая подпись ──────────────────────────────────────────
    if(ShowPriceLabels)
    {
       string textName = baseName + "_text";
@@ -405,7 +406,7 @@ void DrawSingleZone(int index)
       ObjectSetInteger(0, textName, OBJPROP_HIDDEN, true);
    }
 
-   // ── 3b. Бейдж со скором зоны ───────────────────────────────────
+   // ── 3b. Бейдж со скором зоны ──────────────────────────────────────
    if(ShowScoreBadge)
    {
       string badgeName = baseName + "_badge";
@@ -424,6 +425,11 @@ void DrawSingleZone(int index)
    // ── 4. Structural SL Pool ─────────────────────────────────────────
    // SL is placed outside the zone using a bounded ATR buffer and the nearest
    // recent swing. It is a possible liquidity/stop level, not a trade signal.
+   // Клиент просил «только зоны, ничего лишнего»: ранее этот блок выполнялся
+   // безусловно для каждой зоны и добавлял на график 6 пунктиров + 6 подписей.
+   if(!ShowSL)
+      return;
+
    int lookback = (int)MathMin(Bars(_Symbol, PERIOD_CURRENT) - 2, 40);
    if(lookback < 5) lookback = 5;
    double atr = 0.0;
