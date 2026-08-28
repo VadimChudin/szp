@@ -29,11 +29,12 @@ input int      ZoneLineWidth    = 2;         // Толщина линии зон
 input bool     ShowPriceLabels  = true;      // Показывать только цену зоны
 input bool     ShowRectangles   = false;      // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;     // Показывать бейдж со скором зоны
+input bool     ShowSL           = false;     // Уровни SL Pool (по умолчанию выкл.)
 input bool     EnableAlerts     = true;      // Алерты при касании зоны
 input double   AlertDistance    = 5.0;       // Расстояние до зоны для алерта ($)
 // Имя файла с зонами — лежит в MQL4/Files или Common/Files (положит sync_zones_to_mt4.py).
 input string   ZonesFilePath    = "zones_output.json";
-input bool     ShowAccumulation = true;      // Набор позиции крупным участником
+input bool     ShowAccumulation = false;     // Набор позиции крупным участником
 input string   AccumFilePath    = "accumulation_output.json"; // Файл участков набора
 input color    AccumColor       = C'85,45,140';  // Цвет участков набора (фиолетовый)
 
@@ -125,7 +126,7 @@ int OnInit()
    LoadZonesFromFile();
    LoadAccumulationFromFile();
    
-   // ── Создаём кнопку "FP" (Footprint) на графике ──────────────────
+   // ── Создаём кнопку "FP" (Footprint) на графике ───────────────────
    string btnName = zonePrefix + "FP_BTN";
    ObjectCreate(0, btnName, OBJ_BUTTON, 0, 0, 0);
    ObjectSetInteger(0, btnName, OBJPROP_XDISTANCE, 10);
@@ -247,6 +248,7 @@ void OnTimer()
       LoadZonesFromFile();
    }
    LoadAccumulationFromFile();
+
 }
 
 
@@ -497,6 +499,7 @@ double ExtractDouble(string json, string key, int startFrom)
 }
 
 
+
 //+------------------------------------------------------------------+
 //| Извлечение строки из JSON                                         |
 //+------------------------------------------------------------------+
@@ -610,6 +613,11 @@ void DrawSingleZone(int index)
    // ── 4. Structural SL Pool ─────────────────────────────────────────
    // SL is placed outside the zone using a bounded ATR buffer and the nearest
    // recent swing. It is a possible liquidity/stop level, not a trade signal.
+   // Клиент просил «только зоны, ничего лишнего»: ранее этот блок выполнялся
+   // безусловно для каждой зоны и добавлял на график 6 пунктиров + 6 подписей.
+   if(!ShowSL)
+      return;
+
    int lookback = (int)MathMin(Bars - 2, 40);
    if(lookback < 5) lookback = 5;
    double atr = 0.0;
