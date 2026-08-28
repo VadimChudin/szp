@@ -2,7 +2,7 @@
 Тесты для data_fetcher.py — цепочка источников данных и проверка свежести.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
@@ -12,8 +12,18 @@ import data_fetcher
 from data_fetcher import DataUnavailableError, data_age_hours, fetch_all_timeframes
 
 
+def _utc_now() -> datetime:
+    """Наивный UTC — data_age_hours и market_reference_time работают без tzinfo."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def _frame(hours_old: float) -> pd.DataFrame:
-    last = datetime.utcnow() - timedelta(hours=hours_old)
+    # Возраст свечи считается от market_reference_time, а НЕ от «сейчас»: пока
+    # рынок закрыт, эта функция откатывается к закрытию пятницы. Свеча,
+    # построенная от сырого utcnow(), оказывалась в выходные позже точки отсчёта,
+    # и возраст выходил отрицательным — тест падал по календарю, а не по логике.
+    reference = data_fetcher.market_reference_time(_utc_now())
+    last = reference - timedelta(hours=hours_old)
     times = pd.date_range(end=last, periods=3, freq="1h")
     return pd.DataFrame({
         "time": times,
