@@ -12,7 +12,7 @@ from zone_detector import (Zone, balance_around_price, cluster_levels, detect_zo
                            extract_wick_levels)
 
 
-# ── Zone dataclass ────────────────────────────────────────────────────────
+# ── Zone dataclass ──────────────────────────────────────────────────────────
 
 class TestZoneDataclass:
     def test_top_bottom(self):
@@ -67,7 +67,7 @@ class TestZoneDataclass:
         assert restored["wick_points"][0]["price"] == 2400.5
 
 
-# ── extract_wick_levels ───────────────────────────────────────────────────
+# ── extract_wick_levels ─────────────────────────────────────────────────────
 
 class TestExtractWickLevels:
     def test_returns_dataframe_with_required_columns(self, sample_ohlcv_df):
@@ -95,7 +95,7 @@ class TestExtractWickLevels:
         assert result.empty
 
     def test_detects_lower_wick(self):
-        """Свеча с длинным нижним фитилем даёт lower wick."""
+        """Свеча с длинным нижним фитилём даёт lower wick."""
         df = pd.DataFrame({
             "time": [pd.Timestamp("2024-01-01")],
             "open": [2405.0],
@@ -109,7 +109,7 @@ class TestExtractWickLevels:
         assert "lower" in result["wick_type"].values
 
     def test_detects_upper_wick(self):
-        """Свеча с длинным верхним фитилем даёт upper wick."""
+        """Свеча с длинным верхним фитилём даёт upper wick."""
         df = pd.DataFrame({
             "time": [pd.Timestamp("2024-01-01")],
             "open": [2395.0],
@@ -128,7 +128,7 @@ class TestExtractWickLevels:
         assert result.empty
 
 
-# ── cluster_levels ────────────────────────────────────────────────────────
+# ── cluster_levels ──────────────────────────────────────────────────────────
 
 class TestClusterLevels:
     def test_empty_input(self):
@@ -187,7 +187,7 @@ class TestClusterLevels:
             assert isinstance(cluster["members"], list)
 
 
-# ── detect_zones (интеграционный тест) ────────────────────────────────────
+# ── detect_zones (интеграционный тест) ──────────────────────────────────────
 
 class TestDetectZones:
     def test_returns_list_of_zones(self, multi_tf_data):
@@ -227,14 +227,17 @@ class TestDetectZones:
         zones = detect_zones(empty)
         assert zones == []
 
-# ── Балансировка вокруг цены ──────────────────────────────────────────────
+# ── Балансировка вокруг цены ────────────────────────────────────────────────
 
 class TestBalanceAroundPrice:
     def _zone(self, price, score):
         return Zone(price=price, width=1.0, score=score, sources=["H4"])
 
-    def test_levels_kept_on_both_sides(self):
+    def test_levels_kept_on_both_sides(self, monkeypatch):
         """После роста все сильные зоны остались внизу — сверху было пусто."""
+        # Полное покрытие обеих сторон здесь достигается проекцией, а она теперь
+        # выключена по умолчанию — включаем явно, тест именно про покрытие.
+        monkeypatch.setattr(config, "PROJECT_ROUND_LEVELS", True)
         strong = [self._zone(p, s) for p, s in
                   ((4086.0, 21), (4111.0, 18), (4137.0, 15), (4223.0, 12))]
         weak = [self._zone(4350.0, 9), self._zone(4420.0, 8)]
@@ -270,8 +273,11 @@ class TestBalanceAroundPrice:
 
 
 class TestProjectedLevels:
-    def test_empty_side_gets_round_levels(self):
+    def test_empty_side_gets_round_levels(self, monkeypatch):
         """Цена на историческом максимуме — сверху теней нет вообще."""
+        # Проекция круглых уровней выключена по умолчанию, поэтому механику
+        # проверяем при явно включённом флаге.
+        monkeypatch.setattr(config, "PROJECT_ROUND_LEVELS", True)
         strong = [Zone(price=4100.0, width=1.0, score=20, sources=["H4"]),
                   Zone(price=4200.0, width=1.0, score=18, sources=["H4"])]
 
@@ -282,7 +288,8 @@ class TestProjectedLevels:
         assert all(z.price % config.ROUND_LEVEL_STEP == 0 for z in above)
         assert all("PROJ" in z.label for z in above)
 
-    def test_projection_skips_level_glued_to_price(self):
+    def test_projection_skips_level_glued_to_price(self, monkeypatch):
+        monkeypatch.setattr(config, "PROJECT_ROUND_LEVELS", True)
         levels = projected_levels(4499.0, above=True, count=1)
         assert levels[0].price == 4550.0
 

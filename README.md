@@ -42,8 +42,8 @@ smart-zones-pro/
 
 | Канал | Триггер | Имя установщика | Каталог установки |
 |---|---|---|---|
-| Stable | тег `v2.1.0` | `SmartZonesPro_Setup_Stable_v2.1.0.exe` | `SmartZonesPro\\Stable` |
-| Experimental | ветка `devin/**` или тег `exp-v2.1.0` | `SmartZonesPro_Setup_Experimental_v2.1.0.exe` | `SmartZonesPro\\Experimental` |
+| Stable | тег `v3.0.0` | `SmartZonesPro_Setup_Stable_v3.0.0.exe` | `SmartZonesPro\Stable` |
+| Experimental | ветка `devin/**` или тег `exp-v3.0.0` | `SmartZonesPro_Setup_Experimental_v3.0.0.exe` | `SmartZonesPro\Experimental` |
 
 Сборка из экспериментальной ветки получает версию вида `0.0.0.<run_number>` и
 внутреннюю метку с каналом и коротким SHA коммита. Поэтому установленное
@@ -58,7 +58,7 @@ smart-zones-pro/
 Для локальной сборки стабильного установщика:
 
 ```powershell
-iscc.exe /DAppVer=2.1.0 /DAppChannel=Stable setup.iss
+iscc.exe /DAppVer=3.0.0 /DAppChannel=Stable setup.iss
 ```
 
 Для локальной экспериментальной сборки:
@@ -110,6 +110,8 @@ Possible SL levels are informational liquidity candidates; the application does 
 
 The MQL indicators independently apply the same structural/ATR principle at render time, so the line remains available even when the terminal reads a legacy JSON file. Old rectangle and SL-cloud objects are no longer created for active zones. Accumulation boxes remain separate visual objects and are not zone ranges.
 
+Since v3.0.0 the chart is zones-only by default. Possible SL levels are drawn only when the indicator input `ShowSL` is enabled (`false` by default); previously the SL block ran unconditionally for every zone and added six dashed lines plus six labels on top of the six zones. Accumulation boxes are likewise off by default (`ShowAccumulation = false`, `ACCUMULATION_ENABLED=0`), and projected round levels are disabled (`PROJECT_ROUND_LEVELS=0`) so that every line on the chart corresponds to a real wick cluster.
+
 
 ## Six active lines: three above and three below
 
@@ -118,3 +120,30 @@ The active H4 snapshot has a fixed visual contract: **six real price lines**, co
 If a side has fewer than three zones meeting `MIN_ZONE_SCORE`, the application fills the remaining slots with the best real weaker candidates. These fallback zones are rendered as **red lines** and carry `is_fallback: true` in JSON. Confirmed zones retain the gold/market colour hierarchy. A possible SL is not a zone: it is rendered independently as a **thin violet dashed line** with an explicit `SL` label.
 
 MT4 and MT5 enforce the same hard display guard of six JSON zones. This prevents a stale producer, terminal cache, or older JSON file from drawing ten or twenty active lines. Accumulation boxes remain independent analytical objects and are not active SZP zones.
+
+## Полоса отображения зон (200-300 пипсов)
+
+До v3.0.0 видимый набор отбирался только по `score`: расстояние от цены не
+ограничивалось ни снизу, ни сверху, поэтому уровень мог встать вплотную к цене
+или в полутора тысячах пипсов от неё, а более сильная далёкая зона вытесняла
+зону, стоящую в нужном ренже. Теперь набор строится лестницей от цены:
+
+| Параметр | По умолчанию | Смысл |
+|---|---|---|
+| `PIP_SIZE` | `0.01` | сколько долларов в одном пипсе XAU/USD |
+| `ZONE_NEAREST_MIN_PIPS` / `ZONE_NEAREST_MAX_PIPS` | `200` / `300` | окно для ближайшей зоны на стороне |
+| `ZONE_GAP_MIN_PIPS` / `ZONE_GAP_MAX_PIPS` | `200` / `300` | шаг до каждой следующей зоны |
+| `ZONE_BAND_TOLERANCE` | `0.25` | допуск «примерно там», когда в окне нет реальных теней |
+
+Шаг считается **относительно предыдущей выбранной зоны**, а не по фиксированным
+окнам от цены: абсолютные окна давали жадный перекос — слот забирал дальний край
+своего диапазона, и ближняя полоса оставалась пустой. `score` теперь решает
+только внутри слота и не может вытянуть набор из ренжа.
+
+`CLUSTER_TOLERANCE` и ширина зоны автоматически поджимаются под шаг: склейка
+близких уровней шире шага схлопывала три зоны на стороне в одну линию (при
+`PIP_SIZE=0.01` шаг равен $2, а прежний `CLUSTER_TOLERANCE` был $5).
+
+Зона, вышедшая из полосы, снимается с графика на ближайшем закрытии H4 и
+пишет в журнал событие `zone_out_of_band`. Состав по-прежнему меняется только
+после закрытия H4-свечи, а отработанная зона исчезает при обновлении.

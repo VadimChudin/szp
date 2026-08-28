@@ -52,7 +52,7 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-# ── Торговый инструмент ──────────────────────────────────────────────
+# ── Торговый инструмент ─────────────────────────────────────────────────────
 SYMBOL = _env_str("SYMBOL", "XAUUSD")        # Символ в MetaTrader (у RoboForex именно так)
 SYMBOL_POINT = 0.01                          # Минимальный шаг цены для золота
 BROKER_UTC_OFFSET = _env_int("BROKER_UTC_OFFSET", 3)  # Смещение времени брокера (Обычно +3)
@@ -66,7 +66,7 @@ SYMBOL_ALIASES = [
     if s.strip()
 ]
 
-# ── Таймфреймы для анализа ───────────────────────────────────────────
+# ── Таймфреймы для анализа ──────────────────────────────────────────────────
 # Глубина истории: 100 свечей H4 — это всего ~2.5 недели, поэтому уровни
 # находились только там, где цена ходила недавно. Берём ~4 месяца по H4 и год
 # по D1, чтобы в анализ попадали крупные уровни выше текущей цены.
@@ -84,7 +84,7 @@ PRIMARY_TIMEFRAME = "H4"
 # пересчёт по закрытию H4-свечи.
 REQUIRE_H4_ANCHOR = _env_bool("REQUIRE_H4_ANCHOR", False)
 
-# ── Весовая система (Scoring) ────────────────────────────────────────
+# ── Весовая система (Scoring) ───────────────────────────────────────────────
 # Каждый критерий добавляет баллы к зоне
 WEIGHT_H1_WICK       = 2    # Тень свечи H1 касается уровня
 WEIGHT_H4_WICK       = 3    # Тень свечи H4 касается уровня
@@ -96,13 +96,16 @@ WEIGHT_FVG           = 5    # Зона совпадает с неперекры�
 # Минимальный суммарный вес для отображения зоны
 MIN_ZONE_SCORE = _env_int("MIN_ZONE_SCORE", 11)
 
-# ── Параметры кластеризации ──────────────────────────────────────────
+# ── Параметры кластеризации ─────────────────────────────────────────────────
 # Допуск (tolerance) для склейки теней в один уровень.
 # Если два фитиля отличаются менее чем на CLUSTER_TOLERANCE, они считаются
 # касающимися одного уровня.
 CLUSTER_TOLERANCE = 5.0          # В долларах (для XAU/USD). ~50 пунктов.
+# Ниже, в блоке «Полоса отображения зон», CLUSTER_TOLERANCE пересчитывается под
+# запрошенный шаг между зонами: склейка не имеет права быть шире шага, иначе три
+# зоны на стороне схлопываются в одну.
 
-# ── Ширина зоны ──────────────────────────────────────────────────────
+# ── Ширина зоны ─────────────────────────────────────────────────────────────
 ZONE_WIDTH = 1.0                 # ±$1.0 от центра кластера
 ZONE_WIDTH_MODE = _env_str("ZONE_WIDTH_MODE", "atr")  # fixed | atr | regime
 ATR_PERIOD = _env_int("ATR_PERIOD", 14)
@@ -112,40 +115,80 @@ ZONE_WIDTH_MAX = _env_float("ZONE_WIDTH_MAX", 8.00)
 REGIME_ATR_LOW = _env_float("REGIME_ATR_LOW", 2.0)
 REGIME_ATR_HIGH = _env_float("REGIME_ATR_HIGH", 6.0)
 
-# ── Жизненный цикл active H4-зон ─────────────────────────────────────
+# ── Жизненный цикл active H4-зон ────────────────────────────────────────────
 TEST_INVALIDATES_ZONE = _env_bool("TEST_INVALIDATES_ZONE", True)
 ZONE_EVENT_LOG_ENABLED = _env_bool("ZONE_EVENT_LOG_ENABLED", True)
 
-# ── Фильтр "Крупный игрок" (Volume) ─────────────────────────────────
+# ── Фильтр "Крупный игрок" (Volume) ────────────────────────────────────────
 # Свеча считается "крупной", если её тиковый объём превышает 
 # среднее за VOLUME_LOOKBACK свечей в VOLUME_THRESHOLD_MULT раз.
 VOLUME_LOOKBACK = 20             # Период для среднего объёма
 VOLUME_THRESHOLD_MULT = 1.5      # Множитель: V > avg(V, 20) * 1.5
 
-# ── Круглые уровни ───────────────────────────────────────────────────
+# ── Круглые уровни ──────────────────────────────────────────────────────────
 ROUND_LEVEL_STEP = 50.0          # Шаг круглого уровня ($50 для золота = XX00 и XX50)
 
-# ── Ограничение вывода ────────────────────────────────────────────────
+# ── Ограничение вывода ──────────────────────────────────────────────────────
 # Единственный источник истины для отображения: три линии сверху и три снизу.
 # Старые .env могли содержать MAX_ZONES_ON_CHART=5; его намеренно игнорируем,
 # чтобы установленная сборка не возвращалась к несимметричному списку.
 ZONES_PER_SIDE = _env_int("ZONES_PER_SIDE", 3)
 MIN_ZONES_PER_SIDE = ZONES_PER_SIDE
 MAX_ZONES_ON_CHART = ZONES_PER_SIDE * 2
+
+# ── Полоса отображения зон (главное требование клиента) ─────────────────────
+# Раньше отбор шёл ТОЛЬКО по score: расстояние от цены не ограничивалось ни
+# снизу, ни сверху, поэтому уровень мог встать в пяти пипсах от цены или в
+# полутора тысячах. Теперь набор строится лестницей от цены:
+#
+#   слот 0 (ближайшая зона):  ZONE_NEAREST_MIN_PIPS .. ZONE_NEAREST_MAX_PIPS
+#   слот k (k = 1, 2, ...):   предыдущая зона + ZONE_GAP_MIN_PIPS .. ZONE_GAP_MAX_PIPS
+#
+# Так выполняется и «ближайшая 200-300», и «шаг между ними 200-300».
+PIP_SIZE = _env_float("PIP_SIZE", 0.01)          # $ в одном пипсе XAU/USD
+ZONE_NEAREST_MIN_PIPS = _env_float("ZONE_NEAREST_MIN_PIPS", 200.0)
+ZONE_NEAREST_MAX_PIPS = _env_float("ZONE_NEAREST_MAX_PIPS", 300.0)
+ZONE_GAP_MIN_PIPS = _env_float("ZONE_GAP_MIN_PIPS", 200.0)
+ZONE_GAP_MAX_PIPS = _env_float("ZONE_GAP_MAX_PIPS", 300.0)
+# «Примерно там»: допуск на растяжение окна слота, когда идеального кандидата
+# в полосе нет. 0.25 = разрешаем отойти на 25% от ширины окна.
+ZONE_BAND_TOLERANCE = _env_float("ZONE_BAND_TOLERANCE", 0.25)
+
+# Те же величины в долларах — с ними работает весь остальной код.
+ZONE_NEAREST_MIN = ZONE_NEAREST_MIN_PIPS * PIP_SIZE
+ZONE_NEAREST_MAX = ZONE_NEAREST_MAX_PIPS * PIP_SIZE
+ZONE_GAP_MIN = ZONE_GAP_MIN_PIPS * PIP_SIZE
+ZONE_GAP_MAX = ZONE_GAP_MAX_PIPS * PIP_SIZE
+
+# Дальняя граница набора: за ней зона уже не «в ренже» и снимается с графика.
+ZONE_BAND_OUTER_MAX = (ZONE_NEAREST_MAX + ZONE_GAP_MAX * (ZONES_PER_SIDE - 1)) * (
+    1.0 + ZONE_BAND_TOLERANCE
+)
+
+# Склейка близких уровней и ширина зоны обязаны быть мельче шага между зонами,
+# иначе три зоны на стороне сливаются в одну линию. При PIP_SIZE=0.01 шаг равен
+# $2, а прежний CLUSTER_TOLERANCE=$5 (и $15 в balance_around_price) гарантированно
+# схлопывал набор — это и была вторая причина «зоны не в том ренже».
+CLUSTER_TOLERANCE = _env_float("CLUSTER_TOLERANCE", min(CLUSTER_TOLERANCE, ZONE_GAP_MIN * 0.4))
+ZONE_WIDTH_MAX = min(ZONE_WIDTH_MAX, ZONE_GAP_MIN * 0.35)
+ZONE_WIDTH_MIN = min(ZONE_WIDTH_MIN, ZONE_WIDTH_MAX * 0.5)
+ZONE_WIDTH = min(ZONE_WIDTH, ZONE_WIDTH_MAX)
 # Запасной порог: если с одной стороны сильных зон нет, берём лучшие из более
 # слабых кандидатов (только чтобы заполнить пустую сторону).
 FALLBACK_MIN_ZONE_SCORE = _env_int("FALLBACK_MIN_ZONE_SCORE", 7)
 # Когда цена на историческом максимуме, над ней теней просто нет — детектор
 # физически не может найти уровень, и график остаётся пустым сверху. В этом
 # случае проецируем ближайшие круглые уровни (шаг ROUND_LEVEL_STEP).
-PROJECT_ROUND_LEVELS = _env_bool("PROJECT_ROUND_LEVELS", True)
+# Клиент просил «только зоны, ничего лишнего»: расчётный круглый уровень — это
+# не зона, под ним на графике нет ни одной тени. Выключено по умолчанию.
+PROJECT_ROUND_LEVELS = _env_bool("PROJECT_ROUND_LEVELS", False)
 # Ближе этого расстояния (в % от цены) круглый уровень бесполезен.
 PROJECTED_LEVEL_MIN_DISTANCE_PCT = _env_float("PROJECTED_LEVEL_MIN_DISTANCE_PCT", 0.25)
 ZONE_COLOR_STRONG = "#FF0000"    # Ярко-красный для сильных зон (score >= 9)
 ZONE_COLOR_MEDIUM = "#FF4D4D"    # Средне-красный (score 7-8)
 ZONE_COLOR_WEAK   = "#FF9999"    # Бледно-красный (score < 7)
 
-# ── Binance Futures (для реальной дельты объёма) ─────────────────────
+# ── Binance Futures (для реальной дельты объёма) ────────────────────────────
 BINANCE_BASE_URL = "https://fapi.binance.com"
 BINANCE_SYMBOL = "XAUUSDT"
 
@@ -159,7 +202,7 @@ def zone_color_for_score(score: int) -> tuple[str, float]:
     return ZONE_COLOR_WEAK, 0.07
 
 
-# ── Данные ───────────────────────────────────────────────────────────
+# ── Данные ──────────────────────────────────────────────────────────────────
 # Источник данных для алгоритма. "mt5" будет тянуть данные напрямую от терминала
 # в скрытом фоновом режиме. "csv" - через EA.
 DATA_SOURCE = _env_str("DATA_SOURCE", "mt5")
@@ -175,7 +218,7 @@ ALLOW_SAMPLE_DATA = _env_bool("ALLOW_SAMPLE_DATA", False)
 # (иначе зоны считались по устаревшим CSV и «отставали» от графика).
 MAX_DATA_AGE_HOURS = _env_float("MAX_DATA_AGE_HOURS", 12.0)
 
-# ── Актуальность зон ─────────────────────────────────────────────────
+# ── Актуальность зон ────────────────────────────────────────────────────────
 # Архивные («вечные») зоны в первых версиях жили, пока их не пробьют, и именно
 # они давали уровни там, где цена уже давно не ходила. Срок жизни и фильтр
 # удалённости вычищали их и оставляли на графике 2-3 уровня, поэтому по
@@ -188,11 +231,13 @@ MAX_ZONE_DISTANCE_PCT = _env_float("MAX_ZONE_DISTANCE_PCT", 0.0)
 PERSISTENT_BREAKOUT_LOOKBACK = _env_int("PERSISTENT_BREAKOUT_LOOKBACK", 15)
 PERSISTENT_BREAKOUT_MIN = _env_int("PERSISTENT_BREAKOUT_MIN", 2)
 
-# ── Набор позиции крупным участником ────────────────────────────────
+# ── Набор позиции крупным участником ────────────────────────────────────────
 # Участок набора = аномально большой объём при почти стоящей цене.
 # Рисуется маленькими фиолетовыми прямоугольниками, отключается в настройках
 # индикатора (ShowAccumulation) или через ACCUMULATION_ENABLED=0.
-ACCUMULATION_ENABLED = _env_bool("ACCUMULATION_ENABLED", True)
+# Клиент просил убрать крупных игроков с графика — боксы набора позиции больше
+# не рисуются по умолчанию (включается ACCUMULATION_ENABLED=1).
+ACCUMULATION_ENABLED = _env_bool("ACCUMULATION_ENABLED", False)
 # Считаем на H4: клиент смотрит H4, а участки по H1 занимали меньше одной свечи
 # графика и были не видны.
 ACCUMULATION_TIMEFRAME = _env_str("ACCUMULATION_TIMEFRAME", "H4")
@@ -207,11 +252,11 @@ ACCUMULATION_MAX_BOXES = _env_int("ACCUMULATION_MAX_BOXES", 12)
 ACCUMULATION_FALLBACK_BOXES = _env_int("ACCUMULATION_FALLBACK_BOXES", 3)
 ACCUMULATION_FALLBACK_MIN_VOL = _env_float("ACCUMULATION_FALLBACK_MIN_VOL", 1.05)
 
-# ── ZeroMQ (для связи с MetaTrader) ─────────────────────────────────
+# ── ZeroMQ (для связи с MetaTrader) ─────────────────────────────────────────
 ZMQ_HOST = _env_str("ZMQ_HOST", "tcp://127.0.0.1")
 ZMQ_PORT = _env_int("ZMQ_PORT", 5555)
 
-# ── Telegram Алерты ──────────────────────────────────────────────────
+# ── Telegram Алерты ─────────────────────────────────────────────────────────
 ENABLE_TELEGRAM    = _env_bool("ENABLE_TELEGRAM", False)
 TELEGRAM_BOT_TOKEN = _env_str("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = _env_str("TELEGRAM_CHAT_ID", "")
