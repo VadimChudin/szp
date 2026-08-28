@@ -72,7 +72,10 @@ class TestBuildOutput:
         assert out["count"] == 0
         assert out["boxes"] == []
 
-    def test_box_dict_shape(self):
+    def test_box_dict_shape(self, monkeypatch):
+        # Боксы набора позиции выключены по умолчанию (клиент просил «только
+        # зоны»), поэтому форму бокса проверяем при явно включённом режиме.
+        monkeypatch.setattr(config, "ACCUMULATION_ENABLED", True)
         n = config.VOLUME_LOOKBACK + 20
         volumes = [1000.0] * n
         ranges = [2.0] * n
