@@ -27,12 +27,14 @@ input int      ZoneLineWidth    = 2;         // Толщина линии зон
 // Параметр переименован из ShowLabels: терминал хранит значения инпутов в
 // профиле графика, и у клиентов оставался ShowLabels=false из старой сборки —
 // цены на уровнях не появлялись даже после обновления индикатора.
-input bool     ShowPriceLabels  = true;      // Показывать только цену зоны
+input bool     ShowPriceLabels  = false;      // Показывать только цену зоны
 input bool     ShowRectangles   = false;      // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;     // Показывать бейдж со скором зоны
 input bool     ShowSL           = false;     // Уровни SL Pool (по умолчанию выкл.)
 input bool     EnableAlerts     = true;      // Алерты при касании зоны
 input double   AlertDistance    = 5.0;       // Расстояние до зоны для алерта ($)
+input bool     AutoFitChart     = true;       // Автоподгон шкалы под все 6 зон
+input double   FitMarginPct     = 3.0;        // Запас шкалы сверху/снизу (%)
 // Имя файла с зонами — лежит в MQL4/Files или Common/Files (положит sync_zones_to_mt4.py).
 input string   ZonesFilePath    = "zones_output.json";
 input bool     ShowAccumulation = false;     // Набор позиции крупным участником
@@ -125,6 +127,7 @@ int OnInit()
    
    // Первая загрузка зон
    LoadZonesFromFile();
+   AutoFitChartToZones();
    LoadAccumulationFromFile();
    
    // ── Создаём кнопку "FP" (Footprint) на графике ───────────────────
@@ -167,6 +170,7 @@ void OnDeinit(const int reason)
    // Удаляем кнопку FP и метку сборки
    ObjectDelete(0, zonePrefix + "FP_BTN");
    ObjectDelete(0, buildPrefix + "STAMP");
+   ChartSetInteger(0, CHART_SCALEFIX, false); // отпускаем шкалу
    EventKillTimer();
    Print("[SmartZones] Indicator removed. Cleaned up ", currentZoneCount, " zones.");
 }
@@ -240,6 +244,35 @@ void OnChartEvent(const int id,
 //+------------------------------------------------------------------+
 //| Timer - периодическая проверка обновлений файла                   |
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Автоподгон шкалы графика под активные зоны.                        |
+//| Без этого зоны ниже цены оставались за пределами видимой области  |
+//| и клиент видел «все уровни сверху», хотя они были посчитаны.       |
+//+------------------------------------------------------------------+
+void AutoFitChartToZones()
+{
+   if(!AutoFitChart || currentZoneCount <= 0) return;
+   double lo = zonePrices[0], hi = zonePrices[0];
+   for(int i = 1; i < currentZoneCount; i++)
+   {
+      if(zonePrices[i] < lo) lo = zonePrices[i];
+      if(zonePrices[i] > hi) hi = zonePrices[i];
+   }
+   // Текущая цена обязана оставаться в кадре
+   double bid = Bid;
+   if(bid > 0)
+   {
+      if(bid < lo) lo = bid;
+      if(bid > hi) hi = bid;
+   }
+   double margin = (hi - lo) * FitMarginPct / 100.0;
+   if(margin < 1.0) margin = 1.0;
+   ChartSetDouble(0, CHART_PRICE_MIN, lo - margin);
+   ChartSetDouble(0, CHART_PRICE_MAX, hi + margin);
+   ChartSetInteger(0, CHART_SCALEFIX, true);
+}
+
 void OnTimer()
 {
    // Проверяем, изменился ли файл с зонами
@@ -247,6 +280,7 @@ void OnTimer()
    {
       Print("[SmartZones] File updated. Reloading zones...");
       LoadZonesFromFile();
+      AutoFitChartToZones();
    }
    LoadAccumulationFromFile();
 
