@@ -102,8 +102,8 @@ MIN_ZONE_SCORE = _env_int("MIN_ZONE_SCORE", 11)
 # касающимися одного уровня.
 CLUSTER_TOLERANCE = 5.0          # В долларах (для XAU/USD). ~50 пунктов.
 # Ниже, в блоке «Полоса отображения зон», CLUSTER_TOLERANCE пересчитывается под
-# запрошенный шаг между зонами: склейка не имеет права быть шире шага, иначе три
-# зоны на стороне схлопываются в одну.
+# запрошенный зазор между зонами: склейка не имеет права быть шире зазора, иначе
+# соседние зоны схлопываются в одну.
 
 # ── Ширина зоны ─────────────────────────────────────────────────────────────
 ZONE_WIDTH = 1.0                 # ±$1.0 от центра кластера
@@ -135,42 +135,38 @@ ROUND_LEVEL_STEP = 50.0          # Шаг круглого уровня ($50 д�
 ZONES_PER_SIDE = _env_int("ZONES_PER_SIDE", 3)
 MIN_ZONES_PER_SIDE = ZONES_PER_SIDE
 MAX_ZONES_ON_CHART = ZONES_PER_SIDE * 2
+# Если с одной стороны реальных уровней в окне нет, её слоты забирает другая
+# сторона — но не больше этого предела, иначе график перегружается линиями.
+ZONE_MAX_PER_SIDE = _env_int("ZONE_MAX_PER_SIDE", 4)
 
 # ── Полоса отображения зон (главное требование клиента) ─────────────────────
 # Раньше отбор шёл ТОЛЬКО по score: расстояние от цены не ограничивалось ни
-# снизу, ни сверху, поэтому уровень мог встать в пяти пипсах от цены или в
-# полутора тысячах. Теперь набор строится лестницей от цены:
+# снизу, ни сверху, поэтому уровень мог встать вплотную к цене или уйти за
+# горизонт.
 #
-#   слот 0 (ближайшая зона):  ZONE_NEAREST_MIN_PIPS .. ZONE_NEAREST_MAX_PIPS
-#   слот k (k = 1, 2, ...):   предыдущая зона + ZONE_GAP_MIN_PIPS .. ZONE_GAP_MAX_PIPS
-#
-# Так выполняется и «ближайшая 200-300», и «шаг между ними 200-300».
+# Важно: полоса задаёт только ГРАНИЦЫ ОКНА, а не шаг. Попытка выстроить зоны
+# лестницей с фиксированным шагом была ошибкой — уровень вставал туда, куда его
+# загоняла арифметика, а не туда, где реально есть кластер теней. Внутри окна
+# зоны отбираются по силе, и расстояние между ними получается неравномерным:
+# таким, какое дал рынок.
 PIP_SIZE = _env_float("PIP_SIZE", 0.01)          # $ в одном пипсе XAU/USD
-ZONE_NEAREST_MIN_PIPS = _env_float("ZONE_NEAREST_MIN_PIPS", 200.0)
-ZONE_NEAREST_MAX_PIPS = _env_float("ZONE_NEAREST_MAX_PIPS", 300.0)
-ZONE_GAP_MIN_PIPS = _env_float("ZONE_GAP_MIN_PIPS", 200.0)
-ZONE_GAP_MAX_PIPS = _env_float("ZONE_GAP_MAX_PIPS", 300.0)
-# «Примерно там»: допуск на растяжение окна слота, когда идеального кандидата
-# в полосе нет. 0.25 = разрешаем отойти на 25% от ширины окна.
-ZONE_BAND_TOLERANCE = _env_float("ZONE_BAND_TOLERANCE", 0.25)
+# Ближе этого расстояния зона липнет к цене и торговать по ней нечего.
+ZONE_MIN_DISTANCE_PIPS = _env_float("ZONE_MIN_DISTANCE_PIPS", 200.0)
+# Дальше этого расстояния уровень уже не «в ренже» текущей торговли.
+ZONE_MAX_DISTANCE_PIPS = _env_float("ZONE_MAX_DISTANCE_PIPS", 900.0)
+# Минимальный зазор между соседними линиями — только чтобы они не слипались.
+# Это НЕ шаг: зоны могут стоять и через 175 пипсов, и через 670.
+ZONE_MIN_SEPARATION_PIPS = _env_float("ZONE_MIN_SEPARATION_PIPS", 100.0)
 
 # Те же величины в долларах — с ними работает весь остальной код.
-ZONE_NEAREST_MIN = ZONE_NEAREST_MIN_PIPS * PIP_SIZE
-ZONE_NEAREST_MAX = ZONE_NEAREST_MAX_PIPS * PIP_SIZE
-ZONE_GAP_MIN = ZONE_GAP_MIN_PIPS * PIP_SIZE
-ZONE_GAP_MAX = ZONE_GAP_MAX_PIPS * PIP_SIZE
+ZONE_MIN_DISTANCE = ZONE_MIN_DISTANCE_PIPS * PIP_SIZE
+ZONE_MAX_DISTANCE = ZONE_MAX_DISTANCE_PIPS * PIP_SIZE
+ZONE_MIN_SEPARATION = ZONE_MIN_SEPARATION_PIPS * PIP_SIZE
 
-# Дальняя граница набора: за ней зона уже не «в ренже» и снимается с графика.
-ZONE_BAND_OUTER_MAX = (ZONE_NEAREST_MAX + ZONE_GAP_MAX * (ZONES_PER_SIDE - 1)) * (
-    1.0 + ZONE_BAND_TOLERANCE
-)
-
-# Склейка близких уровней и ширина зоны обязаны быть мельче шага между зонами,
-# иначе три зоны на стороне сливаются в одну линию. При PIP_SIZE=0.01 шаг равен
-# $2, а прежний CLUSTER_TOLERANCE=$5 (и $15 в balance_around_price) гарантированно
-# схлопывал набор — это и была вторая причина «зоны не в том ренже».
-CLUSTER_TOLERANCE = _env_float("CLUSTER_TOLERANCE", min(CLUSTER_TOLERANCE, ZONE_GAP_MIN * 0.4))
-ZONE_WIDTH_MAX = min(ZONE_WIDTH_MAX, ZONE_GAP_MIN * 0.35)
+# Склейка близких уровней и ширина зоны обязаны быть мельче минимального зазора,
+# иначе соседние зоны сливаются в одну линию.
+CLUSTER_TOLERANCE = _env_float("CLUSTER_TOLERANCE", min(CLUSTER_TOLERANCE, ZONE_MIN_SEPARATION * 0.8))
+ZONE_WIDTH_MAX = min(ZONE_WIDTH_MAX, ZONE_MIN_SEPARATION * 0.4)
 ZONE_WIDTH_MIN = min(ZONE_WIDTH_MIN, ZONE_WIDTH_MAX * 0.5)
 ZONE_WIDTH = min(ZONE_WIDTH, ZONE_WIDTH_MAX)
 # Запасной порог: если с одной стороны сильных зон нет, берём лучшие из более
