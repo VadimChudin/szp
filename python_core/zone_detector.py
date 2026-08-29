@@ -60,6 +60,14 @@ class Zone:
     last_seen_h4: str = ""
     display_side: str = ""             # ABOVE | BELOW относительно текущей цены
     is_fallback: bool = False           # слабый, но реальный уровень для заполнения 3+3
+    # ── Слой подтверждения (zone_confirmation) ───────────────────────────────
+    # Держится отдельно от score сознательно: score говорит, насколько уровень
+    # значим структурно, confirm_score — жив ли он сейчас. Сильный по структуре
+    # уровень может стоять в ценовой пустоте, и одно суммарное число это бы
+    # скрыло. Пустой словарь означает, что слой выключен или не отработал.
+    confirmation: dict = field(default_factory=dict)
+    confirm_score: float = 0.0          # 0..1
+    confirm_verdict: str = ""           # LIVE | WATCH | DEAD
 
     @property
     def top(self) -> float:
@@ -102,6 +110,9 @@ class Zone:
             "last_seen_h4": self.last_seen_h4,
             "display_side": self.display_side,
             "is_fallback": self.is_fallback,
+            "confirmation": self.confirmation,
+            "confirm_score": self.confirm_score,
+            "confirm_verdict": self.confirm_verdict,
         }
 
     @classmethod
@@ -127,6 +138,9 @@ class Zone:
             last_seen_h4=d.get("last_seen_h4", ""),
             display_side=d.get("display_side", ""),
             is_fallback=d.get("is_fallback", False),
+            confirmation=d.get("confirmation", {}),
+            confirm_score=d.get("confirm_score", 0.0),
+            confirm_verdict=d.get("confirm_verdict", ""),
         )
 
     def __repr__(self):
