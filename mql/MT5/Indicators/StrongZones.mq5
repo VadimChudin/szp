@@ -22,6 +22,7 @@ input color    ZoneColorStrong  = clrGold;        // Цвет сильных з�
 input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон
 input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
 input color    ZoneColorFallback = clrTomato;      // Сомнительный fallback-уровень
+input color    ZoneColor        = clrRed;          // Единый цвет всех зон
 input int      ZoneLineWidth    = 2;          // Толщина линии
 // Параметр переименован из ShowLabels: терминал хранит значения инпутов в
 // профиле графика, и у клиентов оставался ShowLabels=false из старой сборки —
@@ -372,13 +373,14 @@ void DrawSingleZone(int index)
    int    score    = zoneScores[index];
    string label    = zoneLabels[index];
 
+   // Клиент просил все зоны ОДНИМ красным цветом. Сила уровня теперь передаётся
+   // только толщиной линии — цветовой иерархии (золото/средний/слабый) больше нет.
    bool  fallback = zoneFallback[index];
-   color zoneColor;
-   int lineWidth;
-   if(fallback)         { zoneColor = ZoneColorFallback; lineWidth = MathMax(1, ZoneLineWidth - 1); }
-   else if(score >= 11) { zoneColor = ZoneColorStrong;   lineWidth = ZoneLineWidth + 1; }
-   else if(score >= 9)  { zoneColor = ZoneColorMedium;   lineWidth = ZoneLineWidth; }
-   else                 { zoneColor = ZoneColorWeak;     lineWidth = MathMax(1, ZoneLineWidth - 1); }
+   color zoneColor = ZoneColor;
+   int   lineWidth = score >= 11 ? ZoneLineWidth + 1
+                   : score >= 9  ? ZoneLineWidth
+                                 : MathMax(1, ZoneLineWidth - 1);
+   if(fallback) lineWidth = MathMax(1, ZoneLineWidth - 1);
 
    // ── 1. Горизонтальная линия ───────────────────────────────────────
    string lineName = baseName + "_line";
