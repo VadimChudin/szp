@@ -27,7 +27,7 @@ input int      ZoneLineWidth    = 2;          // Толщина линии
 // Параметр переименован из ShowLabels: терминал хранит значения инпутов в
 // профиле графика, и у клиентов оставался ShowLabels=false из старой сборки —
 // цены на уровнях не появлялись даже после обновления индикатора.
-input bool     ShowPriceLabels  = false;       // Показывать только цену зоны
+input bool     ShowPriceLabels  = true;       // Показывать только цену зоны
 input bool     ShowRectangles   = false;       // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;      // Бейдж со скором
 input bool     ShowSL           = false;      // Уровни SL Pool (по умолчанию выкл.)
@@ -431,13 +431,13 @@ void DrawSingleZone(int index)
    {
       string textName = baseName + "_text";
       datetime textTime = iTime(_Symbol, PERIOD_CURRENT, 10);
-      ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price + (top - price) * 0.3);
+      ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price);
       // Только цена зоны (без источников/скора) — как просил клиент.
       ObjectSetString(0, textName, OBJPROP_TEXT, DoubleToString(price, 2));
       ObjectSetInteger(0, textName, OBJPROP_COLOR, clrWhite);
       ObjectSetString(0, textName, OBJPROP_FONT, "Arial Bold");
       ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, 9);
-      ObjectSetInteger(0, textName, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
+      ObjectSetInteger(0, textName, OBJPROP_ANCHOR, ANCHOR_LEFT);
       ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, textName, OBJPROP_HIDDEN, true);
    }

@@ -27,7 +27,7 @@ input int      ZoneLineWidth    = 2;         // Толщина линии зон
 // Параметр переименован из ShowLabels: терминал хранит значения инпутов в
 // профиле графика, и у клиентов оставался ShowLabels=false из старой сборки —
 // цены на уровнях не появлялись даже после обновления индикатора.
-input bool     ShowPriceLabels  = false;      // Показывать только цену зоны
+input bool     ShowPriceLabels  = true;      // Показывать только цену зоны
 input bool     ShowRectangles   = false;      // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;     // Показывать бейдж со скором зоны
 input bool     ShowSL           = false;     // Уровни SL Pool (по умолчанию выкл.)
