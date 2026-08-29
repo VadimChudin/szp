@@ -1,8 +1,8 @@
 """Incremental, side-aware lifecycle for visible Smart Zones.
 
-The detector provides real candidates. This module owns the visible set above
-and below the current price. The snapshot is only changed after a new closed H4
-candle; it never rebuilds the visible set on every refresh.
+The detector provides real candidates. This module owns exactly three slots above
+and three slots below the current price. The snapshot is only changed after a
+new closed H4 candle; it never rebuilds the visible set on every refresh.
 """
 from __future__ import annotations
 
@@ -120,14 +120,25 @@ def _distance(zone: Zone, price: float) -> float:
     return abs(zone.price - price)
 
 
-def _in_display_band(zone: Zone, price: float) -> bool:
-    """Зона внутри окна отображения: не вплотную к цене и не за горизонтом.
+def _slot_window(index: int) -> tuple[float, float]:
+    """Допустимое расстояние от цены для слота с номером index (0 = ближайший).
 
-    Окно задаёт только границы. Где именно внутри него встанет зона — решают
-    реальные кластеры теней, а не фиксированный шаг.
+    Набор строится лестницей: ближайшая зона стоит в окне
+    ZONE_NEAREST_MIN..ZONE_NEAREST_MAX, каждая следующая — на ZONE_GAP_MIN..
+    ZONE_GAP_MAX дальше предыдущей. ZONE_BAND_TOLERANCE даёт запрошенное
+    «примерно там», иначе слот часто оставался бы пустым.
     """
+    low = config.ZONE_NEAREST_MIN + config.ZONE_GAP_MIN * index
+    high = config.ZONE_NEAREST_MAX + config.ZONE_GAP_MAX * index
+    slack = (high - low) * config.ZONE_BAND_TOLERANCE
+    return max(low - slack, 0.0), high + slack
+
+
+def _in_display_band(zone: Zone, price: float) -> bool:
+    """Зона внутри полосы отображения: не вплотную к цене и не за горизонтом."""
     distance = _distance(zone, price)
-    return config.ZONE_MIN_DISTANCE <= distance <= config.ZONE_MAX_DISTANCE
+    nearest_low, _ = _slot_window(0)
+    return nearest_low <= distance <= config.ZONE_BAND_OUTER_MAX
 
 
 def _mark_display(zone: Zone, side: str, h4: str, new: bool = False) -> None:
@@ -185,7 +196,8 @@ def _candidate_pool(candidates: Iterable[Zone]) -> list[Zone]:
 
 
 def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
-                 price: float, h4: str, slots: int) -> list[Zone]:
+                 price: float, h4: str) -> list[Zone]:
+    slots = config.MIN_ZONES_PER_SIDE
     current = [zone for zone in existing if _side(zone, price) == side]
     candidates = [zone for zone in candidates if _side(zone, price) == side]
 
@@ -203,8 +215,8 @@ def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
             append_event("zone_strengthened", match, h4)
         _mark_display(match, side, h4)
 
-    # Зона, вышедшая из окна отображения (цена ушла далеко или уровень оказался
-    # вплотную к цене), снимается с графика.
+    # Зона, вышедшая из полосы отображения (цена ушла далеко или уровень оказался
+    # вплотную к цене), снимается с графика: клиент должен видеть только ренж.
     in_band: list[Zone] = []
     for zone in current:
         if _in_display_band(zone, price):
@@ -217,29 +229,57 @@ def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
     visible_ids = {id(zone) for zone in current}
     pool = current + [zone for zone in unmatched if _in_display_band(zone, price)]
 
-    # Отбор ВНУТРИ окна — по силе уровня. Фиксированного шага нет: расстояние
-    # между зонами определяют реальные кластеры теней, поэтому оно неравномерное
-    # (где-то 175 пипсов, где-то 670). Прежняя лестница с шагом 200-300 ставила
-    # уровень туда, куда его загоняла арифметика, а не туда, где он есть.
-    min_separation = config.ZONE_MIN_SEPARATION
+    # Лестница строится ОТНОСИТЕЛЬНО предыдущей выбранной зоны, а не по
+    # фиксированным окнам от цены. Абсолютные окна давали жадный перекос: слот
+    # хватал дальний край своего диапазона, и ближняя полоса оставалась пустой.
+    # Относительный шаг самокорректируется, когда реальных теней в окне нет.
+    min_gap = config.ZONE_GAP_MIN * (1.0 - config.ZONE_BAND_TOLERANCE)
+    near_slack = (config.ZONE_NEAREST_MAX - config.ZONE_NEAREST_MIN) * config.ZONE_BAND_TOLERANCE
+    gap_slack = (config.ZONE_GAP_MAX - config.ZONE_GAP_MIN) * config.ZONE_BAND_TOLERANCE
     chosen: list[Zone] = []
+    previous = 0.0
 
-    # Уже видимая зона держит место — иначе состав дёргался бы на каждом H4.
-    # Дальше решает score, при равенстве — близость к цене.
-    for zone in sorted(pool, key=lambda z: (0 if id(z) in visible_ids else 1,
-                                            -z.score,
-                                            _distance(z, price))):
-        if len(chosen) >= slots:
-            break
-        # Единственное ограничение на взаимное расположение — не слипаться.
-        if any(abs(zone.price - taken.price) < min_separation for taken in chosen):
-            continue
-        if id(zone) in visible_ids:
-            _mark_display(zone, side, h4)
+    for index in range(slots):
+        if index == 0:
+            low = max(config.ZONE_NEAREST_MIN - near_slack, 0.0)
+            high = config.ZONE_NEAREST_MAX + near_slack
+            ideal = (config.ZONE_NEAREST_MIN + config.ZONE_NEAREST_MAX) / 2.0
+            floor_distance = 0.0
         else:
-            _mark_display(zone, side, h4, new=True)
-            append_event("zone_added", zone, h4)
-        chosen.append(zone)
+            low = previous + config.ZONE_GAP_MIN - gap_slack
+            high = previous + config.ZONE_GAP_MAX + gap_slack
+            ideal = previous + (config.ZONE_GAP_MIN + config.ZONE_GAP_MAX) / 2.0
+            floor_distance = previous + min_gap
+
+        def _gap_ok(zone: Zone) -> bool:
+            return all(abs(zone.price - taken.price) >= min_gap for taken in chosen)
+
+        preferred = [zone for zone in pool
+                     if low <= _distance(zone, price) <= high and _gap_ok(zone)]
+        # «Примерно там»: если в окне шага теней нет, берём ближайший доступный
+        # уровень, не нарушая минимальный шаг и внешнюю границу полосы.
+        relaxed = [zone for zone in pool
+                   if _distance(zone, price) >= floor_distance and _gap_ok(zone)]
+        eligible = preferred or relaxed
+        if not eligible:
+            break
+
+        # Уже видимая зона удерживает слот — иначе состав дёргался бы на каждом H4.
+        eligible.sort(key=lambda zone: (
+            0 if id(zone) in visible_ids else 1,
+            abs(_distance(zone, price) - ideal),
+            -zone.score,
+        ))
+        pick = eligible[0]
+        pool = [zone for zone in pool if id(zone) != id(pick)]
+        if id(pick) in visible_ids:
+            _mark_display(pick, side, h4)
+        else:
+            _mark_display(pick, side, h4, new=True)
+            append_event("zone_added", pick, h4, slot=index,
+                         relaxed=not preferred)
+        chosen.append(pick)
+        previous = _distance(pick, price)
 
     chosen_ids = {id(zone) for zone in chosen}
     for dropped in current:
@@ -249,29 +289,9 @@ def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
     return sorted(chosen, key=lambda zone: _distance(zone, price))
 
 
-def _balance_sides(above: list[Zone], below: list[Zone]) -> tuple[list[Zone], list[Zone]]:
-    """Базовая квота ZONES_PER_SIDE на сторону, дефицит отдаём другой стороне.
-
-    Если снизу в окне реальных уровней нет (цена у нижней границы диапазона),
-    пустые слоты забирает верх — но не больше ZONE_MAX_PER_SIDE, иначе график
-    перегружается кучей линий с одной стороны.
-    """
-    quota = config.ZONES_PER_SIDE
-    total = config.MAX_ZONES_ON_CHART
-    top, bottom = above[:quota], below[:quota]
-
-    free = total - len(top) - len(bottom)
-    if free > 0:
-        top = top + above[len(top):len(top) + free]
-    free = total - len(top) - len(bottom)
-    if free > 0:
-        bottom = bottom + below[len(bottom):len(bottom) + free]
-    return top, bottom
-
-
 def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FILE,
                     event_path: Path = EVENT_LOG_FILE) -> list[Zone]:
-    """Update the visible snapshot only once per newly closed H4 candle."""
+    """Update a six-line snapshot only once per newly closed H4 candle."""
     global EVENT_LOG_FILE
     previous_event_path = EVENT_LOG_FILE
     EVENT_LOG_FILE = event_path
@@ -293,11 +313,8 @@ def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FI
         pool = [zone for zone in _candidate_pool(candidates)
                 if not any(_same_zone(zone, removed) for removed in invalidated)]
 
-        above = _choose_side(current, pool, Side.ABOVE, price, h4,
-                             config.ZONE_MAX_PER_SIDE)
-        below = _choose_side(current, pool, Side.BELOW, price, h4,
-                             config.ZONE_MAX_PER_SIDE)
-        above, below = _balance_sides(above, below)
+        above = _choose_side(current, pool, Side.ABOVE, price, h4)
+        below = _choose_side(current, pool, Side.BELOW, price, h4)
         result = above + below
         save_snapshot(result, h4, path)
         return result

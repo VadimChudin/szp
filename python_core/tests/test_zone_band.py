@@ -1,14 +1,7 @@
-"""Окно отображения зон: границы задаёт полоса, места — реальные уровни.
+"""Проверяет полосу отображения зон: 3+3, ближняя 200-300 пипсов, шаг 200-300.
 
-Регресс, который эти тесты закрывают:
-  1. отбор шёл только по score — уровень мог встать вплотную к цене или уйти
-     за горизонт;
-  2. попытка чинить это фиксированной лестницей ставила зону туда, куда её
-     загоняла арифметика шага, а не туда, где есть кластер теней.
-
-Все дистанции здесь выводятся из config, а не захардкожены в долларах: масштаб
-окна зависит от PIP_SIZE (у разных брокеров разное число знаков в котировке),
-и тесты должны проходить при любом его значении.
+Регресс, который эти тесты закрывают: отбор шёл только по score, поэтому уровни
+уезжали из ренжа и слипались в пучок (CLUSTER_TOLERANCE был шире шага).
 """
 from __future__ import annotations
 
@@ -22,10 +15,6 @@ from zone_detector import Zone
 
 PRICE = 4000.00
 
-MIN_D = config.ZONE_MIN_DISTANCE
-MAX_D = config.ZONE_MAX_DISTANCE
-SEP = config.ZONE_MIN_SEPARATION
-
 
 def _h4_frame(price: float = PRICE) -> dict:
     """H4 без касаний зон, чтобы инвалидация не мешала проверке отбора."""
@@ -36,114 +25,83 @@ def _h4_frame(price: float = PRICE) -> dict:
     return {"H4": pd.DataFrame(rows), "H1": pd.DataFrame(rows)}
 
 
-def _zone(offset: float, score: int) -> Zone:
-    return Zone(price=round(PRICE + offset, 2), width=config.ZONE_WIDTH,
-                score=score, sources=[config.PRIMARY_TIMEFRAME])
+def _candidates() -> list[Zone]:
+    """Плотная сетка кандидатов по обе стороны от цены.
 
-
-def _grid() -> list[Zone]:
-    """Плотная сетка кандидатов по обе стороны: шаг — четверть зазора."""
-    step = SEP / 4.0
-    count = int(MAX_D * 1.3 / step)
+    Шаг сетки делаем существенно меньше окна слота, но в масштабе текущего PIP_SIZE,
+    чтобы тесты были устойчивы и при клиентском 0.1$/pip.
+    """
+    fine_step = max(config.ZONE_GAP_MIN / 20.0, 0.25)
+    outer = config.ZONE_BAND_OUTER_MAX * 1.15
+    count = int(outer / fine_step)
     zones = []
-    for i in range(1, count + 1):
+    for step in range(1, count + 1):
         for sign in (1, -1):
-            zones.append(_zone(step * i * sign,
-                               config.MIN_ZONE_SCORE + (i % 5)))
+            offset = fine_step * step * sign
+            zones.append(Zone(price=round(PRICE + offset, 2),
+                              width=config.ZONE_WIDTH,
+                              score=config.MIN_ZONE_SCORE + (step % 5),
+                              sources=[config.PRIMARY_TIMEFRAME]))
     return zones
 
 
-def _select(tmp_path, candidates=None) -> list[Zone]:
+def _select(tmp_path) -> list[Zone]:
     return active_zones.update_snapshot(
-        _grid() if candidates is None else candidates, _h4_frame(),
+        _candidates(), _h4_frame(),
         path=tmp_path / "snapshot.json",
         event_path=tmp_path / "events.jsonl",
     )
 
 
 def test_band_constants_are_consistent():
-    """Склейка и ширина зоны обязаны быть мельче зазора, иначе линии сольются."""
-    assert MIN_D < MAX_D
-    assert config.CLUSTER_TOLERANCE <= SEP
-    assert config.ZONE_WIDTH_MAX * 2 <= SEP
+    """Склейка и ширина зоны обязаны быть мельче шага, иначе набор схлопнется."""
+    assert config.ZONE_GAP_MIN == pytest.approx(config.ZONE_GAP_MIN_PIPS * config.PIP_SIZE)
+    assert config.CLUSTER_TOLERANCE < config.ZONE_GAP_MIN
+    assert config.ZONE_WIDTH_MAX * 2 < config.ZONE_GAP_MIN
 
 
-def test_every_zone_sits_inside_the_window(tmp_path):
-    """Ни одна зона не липнет к цене и ни одна не уходит за горизонт."""
-    for zone in _select(tmp_path):
-        distance = abs(zone.price - PRICE)
-        assert distance >= MIN_D
-        assert distance <= MAX_D
-
-
-def test_window_is_symmetric_up_and_down(tmp_path):
-    """Окно отсчитывается от цены в КАЖДУЮ сторону независимо."""
+def test_three_zones_each_side(tmp_path):
     selected = _select(tmp_path)
-    for above in (True, False):
-        side = [abs(z.price - PRICE) for z in selected if (z.price > PRICE) == above]
-        assert side, "сторона не должна быть пустой при симметричных кандидатах"
-        assert min(side) >= MIN_D
-        assert max(side) <= MAX_D
-
-
-def test_zones_do_not_merge_into_one_line(tmp_path):
-    selected = _select(tmp_path)
-    for above in (True, False):
-        side = sorted(z.price for z in selected if (z.price > PRICE) == above)
-        for a, b in zip(side, side[1:]):
-            assert b - a >= SEP
-
-
-def test_spacing_is_not_forced_to_a_fixed_step(tmp_path):
-    """Главная правка: шаг между зонами задаёт рынок, а не арифметика.
-
-    Сильные уровни стоят на РАЗНЫХ дистанциях — набор обязан их и взять,
-    а не выровнять по одинаковому шагу.
-    """
-    offsets = [MIN_D * 1.1, MIN_D * 1.95, MAX_D * 0.93]
-    candidates = [_zone(o, 20 - i) for i, o in enumerate(offsets)] + \
-                 [_zone(-o, 20 - i) for i, o in enumerate(offsets)]
-    selected = _select(tmp_path, candidates)
-    above = sorted(round(abs(z.price - PRICE), 2) for z in selected if z.price > PRICE)
-    gaps = [round(b - a, 2) for a, b in zip(above, above[1:])]
-    assert above == sorted(round(o, 2) for o in offsets)
-    assert len(set(gaps)) > 1, "шаг обязан быть неравномерным"
-
-
-def test_strongest_levels_win_inside_the_window(tmp_path):
-    """Внутри окна решает сила уровня, а не близость к «идеальному» шагу."""
-    offsets = [MIN_D * 1.25, MIN_D * 2.0, MIN_D * 3.25]
-    scores = [11, 25, 24]
-    candidates = [_zone(o, s) for o, s in zip(offsets, scores)] + \
-                 [_zone(-o, s) for o, s in zip(offsets, scores)]
-    selected = _select(tmp_path, candidates)
-    above = sorted((z for z in selected if z.price > PRICE), key=lambda z: -z.score)
-    assert [z.score for z in above[:2]] == [25, 24]
-
-
-def test_zone_outside_window_is_dropped(tmp_path):
-    far = _zone(MAX_D * 3, 99)
-    glued = _zone(MIN_D * 0.2, 99)
-    selected = _select(tmp_path, _grid() + [far, glued])
-    prices = [z.price for z in selected]
-    assert far.price not in prices, "зона за горизонтом попала на график"
-    assert glued.price not in prices, "зона вплотную к цене попала на график"
-
-
-def test_empty_side_gives_its_slots_to_the_other(tmp_path):
-    """Снизу уровней нет — добираем сверху, но без перегруза графика."""
-    step = SEP * 1.6
-    candidates = [_zone(MIN_D * 1.1 + step * i, 20 - i) for i in range(5)]
-    selected = _select(tmp_path, candidates)
     above = [z for z in selected if z.price > PRICE]
-    assert len(above) == config.ZONE_MAX_PER_SIDE
-    assert len(selected) <= config.MAX_ZONES_ON_CHART
+    below = [z for z in selected if z.price < PRICE]
+    assert len(above) == config.ZONES_PER_SIDE
+    assert len(below) == config.ZONES_PER_SIDE
+    assert len(selected) == config.MAX_ZONES_ON_CHART
 
 
-def test_balanced_market_keeps_three_and_three(tmp_path):
+def test_nearest_zone_sits_in_requested_band(tmp_path):
     selected = _select(tmp_path)
-    assert len([z for z in selected if z.price > PRICE]) == config.ZONES_PER_SIDE
-    assert len([z for z in selected if z.price < PRICE]) == config.ZONES_PER_SIDE
+    tolerance = 1.0 + config.ZONE_BAND_TOLERANCE
+    for above in (True, False):
+        side = [z for z in selected if (z.price > PRICE) == above]
+        nearest = min(abs(z.price - PRICE) for z in side)
+        assert nearest >= config.ZONE_NEAREST_MIN * (1.0 - config.ZONE_BAND_TOLERANCE)
+        assert nearest <= config.ZONE_NEAREST_MAX * tolerance
+
+
+def test_gap_between_zones_in_requested_band(tmp_path):
+    selected = _select(tmp_path)
+    for above in (True, False):
+        side = sorted((abs(z.price - PRICE) for z in selected
+                       if (z.price > PRICE) == above))
+        gaps = [b - a for a, b in zip(side, side[1:])]
+        assert gaps, "на стороне должно быть больше одной зоны"
+        for gap in gaps:
+            assert gap >= config.ZONE_GAP_MIN * (1.0 - config.ZONE_BAND_TOLERANCE)
+            assert gap <= config.ZONE_GAP_MAX * (1.0 + config.ZONE_BAND_TOLERANCE)
+
+
+def test_zone_outside_band_is_dropped(tmp_path):
+    """Уровень далеко за горизонтом не должен попадать на график."""
+    far = Zone(price=PRICE + config.ZONE_BAND_OUTER_MAX * 5,
+               width=config.ZONE_WIDTH, score=99,
+               sources=[config.PRIMARY_TIMEFRAME])
+    selected = active_zones.update_snapshot(
+        _candidates() + [far], _h4_frame(),
+        path=tmp_path / "snapshot.json",
+        event_path=tmp_path / "events.jsonl",
+    )
+    assert all(z.price != far.price for z in selected), "зона вне полосы попала на график"
 
 
 def test_no_invented_levels_by_default():
