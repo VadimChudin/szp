@@ -570,7 +570,9 @@ def filter_broken_zones(zones: list[Zone], df: pd.DataFrame | None) -> list[Zone
         return zones
 
     frame = df.sort_values("time")
-    times = pd.to_datetime(frame["time"]).to_numpy()
+    # Приводим всё к UTC-naive: источники смешанные (EA пишет naive, внешние
+    # загрузчики могут дать tz-aware) — сравнение naive с aware падает.
+    times = pd.to_datetime(frame["time"], utc=True).dt.tz_convert(None).to_numpy()
     opens = frame["open"].to_numpy(dtype=float)
     closes = frame["close"].to_numpy(dtype=float)
 
@@ -582,7 +584,10 @@ def filter_broken_zones(zones: list[Zone], df: pd.DataFrame | None) -> list[Zone
             if t is None:
                 continue
             try:
-                touch_times.append(pd.Timestamp(t).to_datetime64())
+                ts = pd.Timestamp(t)
+                if ts.tzinfo is not None:
+                    ts = ts.tz_convert("UTC").tz_localize(None)
+                touch_times.append(ts.to_datetime64())
             except (TypeError, ValueError):
                 continue
 
