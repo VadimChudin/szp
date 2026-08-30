@@ -3,6 +3,7 @@ import json
 import pandas as pd
 
 import config
+import active_zones
 from active_zones import update_snapshot
 from zone_detector import Zone
 
@@ -121,7 +122,7 @@ def test_snapshot_persists_between_calls(tmp_path):
     data = {"H4": bars(("2024-01-01T00:00:00", PRICE, PRICE + 1, PRICE - 1, PRICE))}
     update_snapshot([z(round(PRICE - offsets(1)[0], 2), 15)], data, snap, events)
     raw = json.loads(snap.read_text())
-    assert raw["version"] == "3.0"
+    assert raw["version"] == active_zones.SNAPSHOT_VERSION
     assert raw["zones"][0]["state"] == "ACTIVE"
 
 
@@ -149,4 +150,35 @@ def test_empty_side_filled_with_extended_candidates(tmp_path):
     assert len(below) == config.ZONES_PER_SIDE
     assert all(item.is_fallback for item in below)
     assert any(json.loads(line)["event"] == "zone_added_extended"
+               for line in events.read_text().splitlines())
+
+
+def test_stale_snapshot_out_of_band_rebuilds_immediately(tmp_path):
+    """Регресс клиента: снапшот старой сборки (зоны вплотную к цене, все сверху)
+    не должен дожить до следующей H4-свечи — пересчёт сразу."""
+    import config as cfg
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
+    # Имитация снапшота от старой сборки: зона в $2 от цены (вне полосы).
+    stale = {"version": active_zones.SNAPSHOT_VERSION, "last_h4": "2024-01-01T04:00:00",
+             "zones": [z(PRICE + 2.0, 20).to_dict()]}
+    snap.write_text(json.dumps(stale))
+    data = {"H4": bars(("2024-01-01T04:00:00", PRICE, PRICE + 1, PRICE - 1, PRICE))}
+    candidates = ladder(below=True, scores=[13, 12, 11]) + ladder(below=False, scores=[11, 12, 13])
+    result = update_snapshot(candidates, data, snap, events)
+    assert all(abs(item.price - PRICE) >= cfg.ZONE_NEAREST_MIN * (1 - cfg.ZONE_BAND_TOLERANCE)
+               for item in result), "протухшая зона вне полосы выжила"
+    assert any(json.loads(line)["event"] == "snapshot_stale_band"
+               for line in events.read_text().splitlines())
+
+
+def test_foreign_version_snapshot_is_discarded(tmp_path):
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
+    stale = {"version": "2.9", "last_h4": "2024-01-01T04:00:00",
+             "zones": [z(PRICE + 2.0, 20).to_dict()]}
+    snap.write_text(json.dumps(stale))
+    data = {"H4": bars(("2024-01-01T04:00:00", PRICE, PRICE + 1, PRICE - 1, PRICE))}
+    candidates = ladder(below=True, scores=[13, 12, 11]) + ladder(below=False, scores=[11, 12, 13])
+    result = update_snapshot(candidates, data, snap, events)
+    assert len(result) == 6
+    assert any(json.loads(line)["event"] == "snapshot_version_reset"
                for line in events.read_text().splitlines())

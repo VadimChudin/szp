@@ -19,7 +19,11 @@ from zone_detector import Zone, current_price
 
 SNAPSHOT_FILE = paths.DATA_BRIDGE_DIR / "active_zones_snapshot.json"
 EVENT_LOG_FILE = paths.DATA_BRIDGE_DIR / "zone_events.jsonl"
-SNAPSHOT_VERSION = "3.0"
+# Версию обязательно бампим при ЛЮБОМ изменении логики отбора/полосы:
+# снапшот лежит в установленной папке и переживает обновление сборки. Без
+# проверки версии клиент до 4 часов смотрит на зоны, посчитанные старым кодом
+# (регресс "все зоны сверху" после апдейта: снапшот был от сборки без полосы).
+SNAPSHOT_VERSION = "3.1"
 
 
 class Side:
@@ -322,13 +326,28 @@ def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FI
         h4 = latest_closed_h4(data)
         state = load_snapshot(path)
         current = [_hydrate(item) for item in state.get("zones", [])]
-        if h4 and h4 == state.get("last_h4", ""):
-            return current[:config.MAX_ZONES_ON_CHART]
 
         price = current_price(data)
         if price is None:
             save_snapshot(current[:config.MAX_ZONES_ON_CHART], h4, path)
             return current[:config.MAX_ZONES_ON_CHART]
+
+        # Снапшот от другой версии логики (старая сборка, другие параметры
+        # полосы) пересобираем НЕМЕДЛЕННО, не дожидаясь новой H4-свечи.
+        if state.get("version") != SNAPSHOT_VERSION:
+            if current:
+                append_event("snapshot_version_reset", None, h4,
+                             old_version=state.get("version", ""))
+            current = []
+        elif h4 and h4 == state.get("last_h4", ""):
+            # Тот же бар: снапшот валиден, только если ВСЕ зоны в полосе.
+            # Зона вплотную к цене или за горизонтом = снапшот записан сборкой
+            # с другими правилами — идём на полный пересчёт вместо ожидания 4ч.
+            if all(_in_display_band(zone, price) for zone in current):
+                return current[:config.MAX_ZONES_ON_CHART]
+            append_event("snapshot_stale_band", None, h4,
+                         dropped=sum(1 for z in current
+                                     if not _in_display_band(z, price)))
 
         before = current[:]
         current = _invalidate(current, _new_bars(data, state.get("last_h4", "")), h4)
