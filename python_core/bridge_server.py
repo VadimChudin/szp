@@ -256,12 +256,15 @@ def calculate_and_export_zones(refresh_data: bool = True):
         zone_data["sources"] = "+".join(sorted(set(z.sources)))
         zone_data["timestamp"] = datetime.now().isoformat()
         # Possible SL is informational only: no order is placed.
-        try:
-            h4_frame = data.get(config.PRIMARY_TIMEFRAME)
-            current = float(h4_frame["close"].iloc[-1]) if h4_frame is not None and not h4_frame.empty else None
-            zone_data["sl"] = possible_stop(z, h4_frame, current).to_dict()
-        except Exception as exc:
-            print(f"[bridge] WARN: SL candidate unavailable: {exc}")
+        # По умолчанию НЕ экспортируется (EXPORT_SL_LEVELS=false): footprint
+        # рисовал эти линии безусловно, и клиент видел «стоп-лоссы» на графике.
+        if config.EXPORT_SL_LEVELS:
+            try:
+                h4_frame = data.get(config.PRIMARY_TIMEFRAME)
+                current = float(h4_frame["close"].iloc[-1]) if h4_frame is not None and not h4_frame.empty else None
+                zone_data["sl"] = possible_stop(z, h4_frame, current).to_dict()
+            except Exception as exc:
+                print(f"[bridge] WARN: SL candidate unavailable: {exc}")
 
         # Добавляем дельту для каждой зоны
         if delta_df is not None:

@@ -50,3 +50,16 @@ def test_footprint_reads_same_zones_file_as_terminal(tmp_path, monkeypatch):
     zones_file.write_text(json.dumps({"zones": [{"price": 4400.0, "top": 4401.0,
                                                  "bottom": 4399.0, "score": 10}]}))
     assert len(footprint_window._load_zones()) == 1
+
+
+def test_sl_levels_not_exported_by_default():
+    """Клиентский контракт «только зоны»: sl-поля нет в JSON — рисовать нечего."""
+    import config
+    assert config.EXPORT_SL_LEVELS is False
+
+
+def test_footprint_sl_render_is_gated():
+    """Footprint рисует SL только при явном show_sl=true в payload."""
+    src = open("python_core/footprint_window.py", encoding="utf-8").read()
+    assert 'DATA.show_sl === true && z.sl' in src
+    assert '"show_sl": False' in src

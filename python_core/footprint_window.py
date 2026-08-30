@@ -49,6 +49,7 @@ def _candles_to_json(candles, interval):
         })
     return json.dumps({"candles": data, "mx": round(mx, 2),
                         "step": candles[0].price_step, "tf": interval,
+                        "show_sl": False,
                         "zones": _load_zones()})
 
 class API:
@@ -492,7 +493,7 @@ function draw() {
     ctx.fillText(label, badgeX + badgeW - padX, badgeY + badgeH / 2);
 
     // Possible SL is shown as a separate structural liquidity line.
-    if (z.sl && z.sl.price !== undefined) {
+    if (DATA.show_sl === true && z.sl && z.sl.price !== undefined) {
       const slPrice = Number(z.sl.price);
       const slY = py(slPrice);
       const slCol = '#bda7ff'; // SL is violet; red is reserved for fallback zones.
