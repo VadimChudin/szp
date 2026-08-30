@@ -604,7 +604,11 @@ void DrawSingleZone(int index)
    if(ShowPriceLabels)
    {
       string textName = baseName + "_text";
-      datetime labelTime = Time[0] + PeriodSeconds() * 12;
+      // Подпись ставится ВНУТРИ видимой области (10 баров назад), как в MT5.
+      // Раньше было Time[0] + 12 баров в будущее: без широкого правого отступа
+      // (chart shift) подписи оказывались за краем графика — «зоны без подписей».
+      int labelShift = (int)MathMin(10, Bars - 1);
+      datetime labelTime = Time[labelShift];
       ObjectCreate(textName, OBJ_TEXT, 0, labelTime, price);
       // Только цена зоны (без источников/скора) — как просил клиент.
       // Якорь LOWER: текст стоит НАД линией, а не пересекает её.
@@ -621,7 +625,8 @@ void DrawSingleZone(int index)
    if(ShowScoreBadge)
    {
       string badgeName = baseName + "_badge";
-      datetime badgeTime = Time[0] + PeriodSeconds() * 4;
+      // Небольшой задел в будущее допустим (2 бара), 12 — уже за краем.
+      datetime badgeTime = Time[0] + PeriodSeconds() * 2;
       ObjectCreate(badgeName, OBJ_TEXT, 0, badgeTime, price);
       ObjectSetString(0, badgeName, OBJPROP_TEXT,
                       " S:" + IntegerToString(score) + " ");
