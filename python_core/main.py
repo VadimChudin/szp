@@ -55,6 +55,19 @@ def run_pipeline(plot: bool = True) -> list[dict]:
     except Exception as e:
         print(f"  |-- WARN: Could not process persistent zones: {e}")
 
+    # ── 3.5. Подтверждение по ликвидности ────────────────────────────────
+    # Детектор сказал, ГДЕ уровень. Этот шаг проверяет, ЖИВ ЛИ он: стоит ли
+    # зона на реальном узле проторговки или в ценовой пустоте, остались ли
+    # под ней неснятые стопы, кто был агрессором на прошлых касаниях.
+    # Шаг никогда не роняет пайплайн: если источников ликвидности нет,
+    # зоны проходят дальше ровно такими, какими их построил детектор.
+    if config.CONFIRMATION_MODE != "off" and zones:
+        try:
+            from zone_confirmation import confirm_zones
+            zones = confirm_zones(zones, data)
+        except Exception as e:
+            print(f"  |-- WARN: Confirmation layer failed: {e}")
+
     if not zones:
         print("\n⚠ No strong zones detected (market may be flat / in noise).")
         print("  Waiting for next H4 close...")

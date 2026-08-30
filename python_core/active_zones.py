@@ -315,11 +315,13 @@ def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FI
 
         above = _choose_side(current, pool, Side.ABOVE, price, h4)
         below = _choose_side(current, pool, Side.BELOW, price, h4)
+ fix/restore-ladder-200-300
         if len(above) != config.ZONES_PER_SIDE or len(below) != config.ZONES_PER_SIDE:
             # Жёсткий контракт клиента: 3 сверху + 3 снизу. Если сторона неполная —
             # это видимый дефект, а не тихий перекос: пишем событие в журнал.
             append_event("snapshot_unbalanced", None, h4,
                          above=len(above), below=len(below))
+        main
         result = above + below
         save_snapshot(result, h4, path)
         return result
