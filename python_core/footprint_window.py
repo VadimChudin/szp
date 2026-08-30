@@ -13,9 +13,21 @@ from footprint_data import get_collector
 ZONES_FILE = paths.ZONES_FILE
 BROKERS_FILE = paths.BROKERS_FILE
 
+_last_zone_count = -1  # чтобы лог писался только при изменении состава
+
 def _load_zones():
+    """Зоны читаются ИЗ ТОГО ЖЕ файла, что рисует терминал (paths.ZONES_FILE),
+    при каждой отдаче данных — footprint всегда синхронен с основным алгоритмом."""
+    global _last_zone_count
     data = paths.load_json_file(ZONES_FILE, default={})
-    return data.get("zones", [])
+    zones = data.get("zones", [])
+    if len(zones) != _last_zone_count:
+        _last_zone_count = len(zones)
+        price = data.get("current_price")
+        above = sum(1 for z in zones if price is not None and z.get("price", 0) >= price)
+        below = len(zones) - above
+        print(f"[footprint] Zones synced: {len(zones)} (above={above}, below={below}) from {ZONES_FILE.name}")
+    return zones
 
 def _candles_to_json(candles, interval):
     mx = 1
@@ -49,7 +61,10 @@ class API:
             self._current_tf = tf
         candles = self.collector.get_footprint(self._current_tf)
         if not candles:
-            return json.dumps({"candles": [], "mx": 1, "step": 1, "tf": self._current_tf, "zones": []})
+            # Даже без свечей отдаём свежие зоны — иначе footprint на минуту
+            # показывал пустой набор, расходясь с терминалом.
+            return json.dumps({"candles": [], "mx": 1, "step": 1, "tf": self._current_tf,
+                               "zones": _load_zones()})
         return _candles_to_json(candles, self._current_tf)
 
     def refresh(self):

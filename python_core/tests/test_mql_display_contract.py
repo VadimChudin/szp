@@ -29,3 +29,24 @@ def test_sl_is_violet_and_separate_from_red_fallback():
         source = _source(relative)
         assert "C'189,167,255'" in source
         assert '"_sl_line"' in source
+
+
+def test_footprint_reads_same_zones_file_as_terminal(tmp_path, monkeypatch):
+    """Footprint и MT4/MT5 читают ОДИН файл зон — синхронизация по определению."""
+    import json
+    import footprint_window
+    import paths
+    zones_file = tmp_path / "zones_output.json"
+    zones_file.write_text(json.dumps({
+        "current_price": 4456.0,
+        "zones": [{"price": 4476.0, "top": 4477.0, "bottom": 4475.0, "score": 14},
+                  {"price": 4436.0, "top": 4437.0, "bottom": 4435.0, "score": 12}],
+    }))
+    monkeypatch.setattr(footprint_window, "ZONES_FILE", zones_file)
+    zones = footprint_window._load_zones()
+    assert len(zones) == 2
+    assert {z["price"] for z in zones} == {4476.0, 4436.0}
+    # Изменение файла видно при следующем чтении без перезапуска окна
+    zones_file.write_text(json.dumps({"zones": [{"price": 4400.0, "top": 4401.0,
+                                                 "bottom": 4399.0, "score": 10}]}))
+    assert len(footprint_window._load_zones()) == 1
