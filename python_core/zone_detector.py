@@ -68,6 +68,14 @@ class Zone:
     confirmation: dict = field(default_factory=dict)
     confirm_score: float = 0.0          # 0..1
     confirm_verdict: str = ""           # LIVE | WATCH | DEAD
+    # ── Слой L2-валидации (l2_validation) ────────────────────────────────────
+    # Третье независимое измерение: score — структура (история),
+    # confirm_score — жива ли зона (прошлое), l2_score — стоит ли на ней
+    # кто-то заявками прямо сейчас (настоящее). UNAVAILABLE у брокеров без
+    # стакана и на MT4 — и это не приговор: filter-режим такие зоны не режет.
+    l2: dict = field(default_factory=dict)
+    l2_score: float = 0.0               # 0..1 (0.5 = нейтраль/нет данных)
+    l2_verdict: str = ""                # LIVE | WATCH | DEAD | UNAVAILABLE
 
     @property
     def top(self) -> float:
@@ -113,6 +121,9 @@ class Zone:
             "confirmation": self.confirmation,
             "confirm_score": self.confirm_score,
             "confirm_verdict": self.confirm_verdict,
+            "l2": self.l2,
+            "l2_score": self.l2_score,
+            "l2_verdict": self.l2_verdict,
         }
 
     @classmethod
@@ -141,6 +152,9 @@ class Zone:
             confirmation=d.get("confirmation", {}),
             confirm_score=d.get("confirm_score", 0.0),
             confirm_verdict=d.get("confirm_verdict", ""),
+            l2=d.get("l2", {}),
+            l2_score=d.get("l2_score", 0.0),
+            l2_verdict=d.get("l2_verdict", ""),
         )
 
     def __repr__(self):
@@ -452,6 +466,19 @@ def detect_zones(
 
         zones.append(zone)
 
+    # ── Шаг 3.9: Отсев уровней, пробитых телом H4 после последнего касания ──
+    # Без этого шага после обвала график засыпало «затычками»: уровни, через
+    # которые цена уже прошла телом, детектор возвращал как живые, и лестница
+    # расставляла их по слотам. Контракт «пробой телом = зоны нет» теперь
+    # работает и для кандидатов, а не только для уже видимого снапшота.
+    if config.BROKEN_ZONE_FILTER:
+        before = len(zones)
+        zones = filter_broken_zones(zones, data.get(config.PRIMARY_TIMEFRAME))
+        dropped = before - len(zones)
+        if dropped:
+            print(f"[zone_detector] Broken-level filter: {dropped} уровня(ей) "
+                  f"прошиты телом H4 после последнего касания — сняты")
+
     # ── Шаг 4: Фильтрация и сортировка ───────────────────────────────
     strong_zones = [z for z in zones if z.score >= config.MIN_ZONE_SCORE]
     
@@ -517,6 +544,80 @@ def detect_zones(
           f"{len(selected)} strong zones (score >= {config.MIN_ZONE_SCORE})")
 
     return selected
+
+
+def filter_broken_zones(zones: list[Zone], df: pd.DataFrame | None) -> list[Zone]:
+    """
+    Убирает уровни, которые тело H4 уже прошило насквозь.
+
+    Кластер фитилей говорит, ГДЕ цена когда-то отбивалась, но не говорит,
+    что стало с уровнем потом. Уровень, через который после последнего
+    касания прошло тело свечи, свой запас лимитных заявок потратил — он
+    съеден. Держать его в выдаче = рисовать затычку: линия есть, уровня нет.
+    Именно эти линии засыпали график после обвала: все старые поддержки были
+    пробиты одной свечой, но детектор честно возвращал их снова и снова.
+
+    Семантика пробоя — как в active_zones._invalidate: тело полностью прошло
+    зону (open и close по разные стороны диапазона). Касание тенью пробоем
+    не считается. Если позже другая свеча телом прошла зону обратно — уровень
+    возвращён (reclaim) и остаётся в выдаче: сторона цены в итоге та же.
+
+    Смотрим только бары ПОСЛЕ последнего касания: пробой до формирования
+    кластера ничего не говорит о его силе сейчас. Зоны без wick_points
+    (внешние/проецируемые) не трогаем — проверять нечего.
+    """
+    if df is None or df.empty or "time" not in df.columns:
+        return zones
+
+    frame = df.sort_values("time")
+    times = pd.to_datetime(frame["time"]).to_numpy()
+    opens = frame["open"].to_numpy(dtype=float)
+    closes = frame["close"].to_numpy(dtype=float)
+
+    kept: list[Zone] = []
+    for zone in zones:
+        touch_times = []
+        for w in zone.wick_points:
+            t = w.get("time") if isinstance(w, dict) else None
+            if t is None:
+                continue
+            try:
+                touch_times.append(pd.Timestamp(t).to_datetime64())
+            except (TypeError, ValueError):
+                continue
+
+        if not touch_times:
+            kept.append(zone)  # проверять нечего — не трогаем
+            continue
+
+        last_touch = max(touch_times)
+        after = times > last_touch
+        if not after.any():
+            kept.append(zone)
+            continue
+
+        # Симулируем сторону цены: каждый проход телом насквозь её
+        # переворачивает. Если в итоге цена оказалась с другой стороны —
+        # уровень съеден; вернулась обратно — возвращён, считается живым.
+        side = 0
+        for op, cl in zip(opens[after], closes[after]):
+            if side == 0:
+                side = 1 if op >= zone.price else -1
+            through_down = op > zone.top and cl < zone.bottom
+            through_up = op < zone.bottom and cl > zone.top
+            if through_down or through_up:
+                side = 1 if cl >= zone.price else -1
+
+        orig_side = 1
+        for op in opens[after]:
+            orig_side = 1 if op >= zone.price else -1
+            break
+
+        if side != 0 and side != orig_side:
+            continue  # уровень прошит телом и не возвращён — съеден
+        kept.append(zone)
+
+    return kept
 
 
 def current_price(data: dict) -> float | None:

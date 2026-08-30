@@ -8,18 +8,20 @@
 //| Функции:                                                         |
 //|   1. OnTick() — запись каждого тика (Bid/Ask/Direction)          |
 //|   2. OnTimer() — экспорт OHLCV свечей H1/H4/D1                  |
-//|   3. Кнопка FP — запрос на открытие окна футпринта               |
-//|   4. Статус-панель на графике                                    |
+//|   3. OnBookEvent() — экспорт стакана L2 в l2_book.json           |
+//|   4. Кнопка FP — запрос на открытие окна футпринта               |
+//|   5. Статус-панель на графике                                    |
 //|                                                                  |
 //| Файлы записываются в Common/Files/ (FILE_COMMON):                |
 //|   - smartzones_ticks_{Sym}.csv    (тиковый поток реального времени)
 //|   - {Symbol}_H1.csv               (часовые свечи)                |
 //|   - {Symbol}_H4.csv               (4-часовые свечи)              |
 //|   - {Symbol}_D1.csv               (дневные свечи)                |
+//|   - l2_book.json                  (снапшот стакана для L2-валидации)
 //+------------------------------------------------------------------+
 #property copyright "Smart Zones Pro"
 #property link      ""
-#property version   "3.50"
+#property version   "4.00"
 
 //--- Input Parameters ------------------------------------------------
 input int      TickBufferMaxLines  = 200000;   // Макс. тиков в буфере (~несколько дней)
@@ -31,6 +33,9 @@ input int      M1_BarsExport             = 30000;    // Баров M1 для э�
 input color    PanelTextColor      = clrWhite; // Цвет текста панели
 input color    PanelBgColor        = C'30,30,40'; // Фон панели
 input string   AccessPassword      = "";        // Пароль доступа (обязателен)
+input bool     ExportL2Book        = true;      // Экспорт стакана (L2) в l2_book.json
+input int      L2BookMinIntervalSec= 5;         // Мин. интервал между снапшотами стакана (сек)
+input int      L2BookMaxLevels     = 20;        // Макс. уровней стакана на сторону
 
 //--- Защита доступа --------------------------------------------------
 // SHA-256 от правильного пароля. Советник не запустится, пока в поле
@@ -48,6 +53,8 @@ int      g_tickFileHandle = INVALID_HANDLE;
 datetime g_lastOHLCV  = 0;                // Время последнего экспорта OHLCV
 string   g_tickFileName = "";             // Имя файла тиков
 string   g_symbolName = "";               // Имя символа (для файлов)
+datetime g_lastBookExport = 0;            // Время последнего снапшота стакана
+int      g_bookDepth    = 0;              // Уровней в последнем снапшоте (для панели)
 
 
 //+------------------------------------------------------------------+
@@ -121,9 +128,21 @@ int OnInit()
    FileWrite(g_tickFileHandle, "timestamp_ms", "bid", "ask", "direction");
    FileFlush(g_tickFileHandle);
 
-   EventSetTimer(OHLCVRefreshSec);
+    EventSetTimer(OHLCVRefreshSec);
 
-   ExportAllOHLCV();
+    // Подписка на стакан (L2). У брокеров без DOM MarketBookAdd вернёт false —
+    // это не ошибка: Python-слой честно уйдёт в UNAVAILABLE вместо выдуманных
+    // нулей. Без подписки OnBookEvent не приходит вообще.
+    if(ExportL2Book)
+    {
+       if(MarketBookAdd(g_symbolName))
+          Print("[Collector] L2: подписка на стакан оформлена");
+       else
+          Print("[Collector] L2: стакан недоступен у брокера (",
+                GetLastError(), ") — валидация будет UNAVAILABLE");
+    }
+
+    ExportAllOHLCV();
    CreateFPButton();
    CreateStatusPanel();
    UpdateStatusPanel("Initializing...", 0);
@@ -148,9 +167,11 @@ void OnDeinit(const int reason)
       g_tickFileHandle = INVALID_HANDLE;
    }
 
-   ObjectsDeleteAll(0, g_prefix);
-   EventKillTimer();
-   Print("[Collector] Stopped. Total ticks collected: ", g_tickCount);
+    ObjectsDeleteAll(0, g_prefix);
+    EventKillTimer();
+    if(ExportL2Book)
+       MarketBookRelease(g_symbolName);
+    Print("[Collector] Stopped. Total ticks collected: ", g_tickCount);
 }
 
 
@@ -212,6 +233,110 @@ void OnTimer()
 {
    ExportAllOHLCV();
    UpdateStatusPanel("", g_tickCount);
+}
+
+
+//+------------------------------------------------------------------+
+//| BookEvent — стакан изменился: снапшот L2 в l2_book.json           |
+//+------------------------------------------------------------------+
+void OnBookEvent(const string &symbol)
+{
+   if(!ExportL2Book || symbol != g_symbolName)
+      return;
+
+   // Стакан у XAU/USD дёргается десятки раз в секунду — писать файл на
+   // каждое событие бессмысленно: Python всё равно пересчитывает зоны не
+   // чаще, чем раз в несколько секунд. Троттлинг по минимальному интервалу.
+   datetime now = TimeCurrent();
+   if(now - g_lastBookExport < L2BookMinIntervalSec)
+      return;
+
+   ExportL2BookSnapshot();
+   g_lastBookExport = now;
+}
+
+
+//+------------------------------------------------------------------+
+//| Экспорт снапшота стакана в JSON                                   |
+//+------------------------------------------------------------------+
+// Формат — контракт с python_core/l2_validation.py:
+//   {"symbol","timestamp","tick_bid","tick_ask","depth_levels",
+//    "bids":[{"price","volume"},...], "asks":[...]}
+// Пишем руками, а не через библиотеки: в EA нет JSON-зависимостей, и формат
+// достаточно прост, чтобы держать его одной функцией.
+void ExportL2BookSnapshot()
+{
+   MqlBookInfo book[];
+   int total = MarketBookGet(g_symbolName, book);
+
+   // Книга пустая — пишем снапшот с depth_levels=0, а не молчим: так Python
+   // отличит «брокер не транслирует DOM» от «EA не запущен».
+   string bids = "", asks = "";
+   int depth = 0;
+
+   if(total > 0)
+   {
+      int bidCount = 0, askCount = 0;
+      for(int i = 0; i < total; i++)
+      {
+         // Маркет-заявки и мусорные типы пропускаем — валидации нужны
+         // только лимитные уровни.
+         if(book[i].type != BOOK_TYPE_BUY && book[i].type != BOOK_TYPE_SELL)
+            continue;
+         double vol = (book[i].volume > 0) ? (double)book[i].volume
+                                           : (double)book[i].volume_real;
+         if(vol <= 0)
+            continue;
+
+         string lvl = StringFormat("{\"price\":%s,\"volume\":%.0f}",
+                                   DoubleToString(book[i].price, _Digits), vol);
+         if(book[i].type == BOOK_TYPE_BUY && bidCount < L2BookMaxLevels)
+         {
+            if(bidCount > 0) bids += ",";
+            bids += lvl;
+            bidCount++;
+         }
+         else if(book[i].type == BOOK_TYPE_SELL && askCount < L2BookMaxLevels)
+         {
+            if(askCount > 0) asks += ",";
+            asks += lvl;
+            askCount++;
+         }
+      }
+      depth = bidCount + askCount;
+   }
+
+   int fh = FileOpen("l2_book.json",
+                     FILE_WRITE|FILE_TXT|FILE_COMMON|FILE_SHARE_READ|FILE_ANSI);
+   if(fh == INVALID_HANDLE)
+   {
+      Print("[Collector] L2: cannot write l2_book.json, error: ", GetLastError());
+      return;
+   }
+
+   double bid = SymbolInfoDouble(g_symbolName, SYMBOL_BID);
+   double ask = SymbolInfoDouble(g_symbolName, SYMBOL_ASK);
+
+   // Метка времени в ISO 8601 (UTC) — TimeToString даёт "2026.08.30 09:50",
+   // который Python не разберёт. Формат собираем по полям.
+   MqlDateTime dt;
+   TimeToStruct(TimeGMT(), dt);
+   string ts = StringFormat("%04d-%02d-%02dT%02d:%02d:%02d+00:00",
+                            dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec);
+
+   // Конкатенация вместо одного StringFormat: у него лимит на длину
+   // результата, а книга на 20 уровней в этот лимит не влезает.
+   string json = "{\"symbol\":\"" + g_symbolName + "\""
+               + ",\"timestamp\":\"" + ts + "\""
+               + ",\"tick_bid\":" + DoubleToString(bid, _Digits)
+               + ",\"tick_ask\":" + DoubleToString(ask, _Digits)
+               + ",\"depth_levels\":" + IntegerToString(depth)
+               + ",\"bids\":[" + bids + "]"
+               + ",\"asks\":[" + asks + "]}";
+
+   FileWriteString(fh, json);
+   FileClose(fh);
+   g_bookDepth = depth;
 }
 
 
@@ -460,8 +585,9 @@ void UpdateStatusPanel(string lastDir, int ticks)
    else if(lastDir == "SELL") { dirSymbol = "v"; dirColor = clrRed; }
 
    double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
-   string line1Text = StringFormat("Ticks: %d | %s %.2f | LIVE",
-                                    ticks, dirSymbol, bid);
+   string l2info = ExportL2Book ? StringFormat(" | L2:%d", g_bookDepth) : "";
+   string line1Text = StringFormat("Ticks: %d | %s %.2f | LIVE%s",
+                                    ticks, dirSymbol, bid, l2info);
 
    ObjectSetString(0, g_prefix + "STATUS_1", OBJPROP_TEXT, line1Text);
    ObjectSetInteger(0, g_prefix + "STATUS_1", OBJPROP_COLOR, dirColor);

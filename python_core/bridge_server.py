@@ -233,6 +233,18 @@ def calculate_and_export_zones(refresh_data: bool = True):
         print(f"[bridge] WARN: Could not update persistent archive: {e}")
     zones = update_snapshot(zones, data)
 
+    # ── L2-валидация (стакан) ────────────────────────────────────────
+    # Подтверждение (zone_confirmation) смотрит в прошлое, этот слой — в
+    # настоящее: какие лимитные заявки стоят в стакане прямо сейчас.
+    # Шаг никогда не роняет пайплайн: без стакана зоны получают вердикт
+    # UNAVAILABLE и проходят дальше как есть.
+    if config.L2_MODE != "off" and zones:
+        try:
+            from l2_validation import validate_zones_l2
+            zones = validate_zones_l2(zones)
+        except Exception as e:
+            print(f"[bridge] WARN: L2 validation failed: {e}")
+
     # ── Дельта-анализ (Футпринт Dukascopy/MT4) ──────
     flow_delta = None
     try:

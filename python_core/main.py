@@ -68,6 +68,17 @@ def run_pipeline(plot: bool = True) -> list[dict]:
         except Exception as e:
             print(f"  |-- WARN: Confirmation layer failed: {e}")
 
+    # ── 3.6. L2-валидация по стакану ───────────────────────────────────
+    # Дополняет подтверждение настоящим: кто стоит лимитными заявками
+    # прямо сейчас. Без стакана (MT4, брокер без DOM) — вердикт UNAVAILABLE,
+    # зоны проходят как есть.
+    if config.L2_MODE != "off" and zones:
+        try:
+            from l2_validation import validate_zones_l2
+            zones = validate_zones_l2(zones)
+        except Exception as e:
+            print(f"  |-- WARN: L2 validation failed: {e}")
+
     if not zones:
         print("\n⚠ No strong zones detected (market may be flat / in noise).")
         print("  Waiting for next H4 close...")

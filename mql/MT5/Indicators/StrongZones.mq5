@@ -8,7 +8,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Smart Zones Pro"
 #property link      ""
-#property version   "3.50"
+#property version   "4.00"
 #property indicator_chart_window
 
 // Номер сборки подставляет CI при компиляции: без него нельзя было понять,
