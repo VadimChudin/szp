@@ -281,6 +281,29 @@ def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
         chosen.append(pick)
         previous = _distance(pick, price)
 
+    # Гарантия стороны: если лестница не набрала слоты (в полосе реальных
+    # уровней не хватило), добираем ближайшие РЕАЛЬНЫЕ кандидаты за пределами
+    # полосы. Пустая сторона хуже, чем уровень чуть дальше ренжа: клиент
+    # обязан видеть 3 сверху и 3 снизу всегда, когда детектор их нашёл.
+    if len(chosen) < slots:
+        min_dist = config.ZONE_NEAREST_MIN * (1.0 - config.ZONE_BAND_TOLERANCE)
+        extended = [zone for zone in unmatched
+                    if not any(_same_zone(zone, c) for c in chosen)
+                    and _distance(zone, price) >= min_dist]
+        extended.sort(key=lambda zone: (_distance(zone, price), -zone.score))
+        for zone in extended:
+            if len(chosen) >= slots:
+                break
+            if any(abs(zone.price - taken.price) < min_gap for taken in chosen):
+                continue
+            _mark_display(zone, side, h4, new=True)
+            zone.is_fallback = True
+            if "EXT" not in zone.label_suffix:
+                zone.label_suffix = (zone.label_suffix + " EXT").strip()
+            append_event("zone_added_extended", zone, h4,
+                         distance=round(_distance(zone, price), 2))
+            chosen.append(zone)
+
     chosen_ids = {id(zone) for zone in chosen}
     for dropped in current:
         if id(dropped) not in chosen_ids:
@@ -312,6 +335,13 @@ def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FI
         invalidated = [zone for zone in before if not any(_same_zone(zone, alive) for alive in current)]
         pool = [zone for zone in _candidate_pool(candidates)
                 if not any(_same_zone(zone, removed) for removed in invalidated)]
+
+        # Диагностика пустых сторон: если детектор не нашёл кандидатов снизу,
+        # это видно в журнале сразу, а не по скриншоту клиента.
+        append_event("candidates_summary", None, h4,
+                     candidates_above=sum(1 for z in pool if z.price >= price),
+                     candidates_below=sum(1 for z in pool if z.price < price),
+                     carried=len(current))
 
         above = _choose_side(current, pool, Side.ABOVE, price, h4)
         below = _choose_side(current, pool, Side.BELOW, price, h4)

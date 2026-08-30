@@ -123,3 +123,30 @@ def test_snapshot_persists_between_calls(tmp_path):
     raw = json.loads(snap.read_text())
     assert raw["version"] == "3.0"
     assert raw["zones"][0]["state"] == "ACTIVE"
+
+
+def test_touch_does_not_remove_zone_by_default(tmp_path):
+    """Касание ≠ пробой: зона живёт после теста (клиентский регресс «нет зон снизу»)."""
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
+    level = round(PRICE - offsets(1)[0], 2)
+    first = {"H4": bars(("2024-01-01T00:00:00", PRICE, PRICE + 1, PRICE - 1, PRICE))}
+    update_snapshot([z(level, 12)], first, snap, events)
+    # Тень задела зону, тело не пробило — зона обязана остаться.
+    touched = {"H4": bars(("2024-01-01T00:00:00", PRICE, PRICE + 1, PRICE - 1, PRICE),
+                          ("2024-01-01T04:00:00", PRICE, PRICE + 0.5, level - 0.5, PRICE - 1))}
+    result = update_snapshot([z(level, 12)], touched, snap, events)
+    assert any(item.price == level for item in result)
+
+
+def test_empty_side_filled_with_extended_candidates(tmp_path):
+    """В полосе снизу уровней нет — сторона добирается ближайшими реальными EXT."""
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
+    data = {"H4": bars(("2024-01-01T04:00:00", PRICE, PRICE + 1, PRICE - 1, PRICE))}
+    far_below = [z(round(PRICE - config.ZONE_BAND_OUTER_MAX * (1.5 + i), 2), 12 + i) for i in range(3)]
+    candidates = ladder(below=False, scores=[15, 14, 13]) + far_below
+    result = update_snapshot(candidates, data, snap, events)
+    below = [item for item in result if item.price < PRICE]
+    assert len(below) == config.ZONES_PER_SIDE
+    assert all(item.is_fallback for item in below)
+    assert any(json.loads(line)["event"] == "zone_added_extended"
+               for line in events.read_text().splitlines())

@@ -116,7 +116,10 @@ REGIME_ATR_LOW = _env_float("REGIME_ATR_LOW", 2.0)
 REGIME_ATR_HIGH = _env_float("REGIME_ATR_HIGH", 6.0)
 
 # ── Жизненный цикл active H4-зон ────────────────────────────────────────────
-TEST_INVALIDATES_ZONE = _env_bool("TEST_INVALIDATES_ZONE", True)
+# Касание ≠ пробой: уровень снимаем только когда тело H4 прошло насквозь.
+# True инвалидировал зону после любого теста — в боковике это выкашивало все
+# зоны снизу цены (клиентский регресс "нет зон снизу").
+TEST_INVALIDATES_ZONE = _env_bool("TEST_INVALIDATES_ZONE", False)
 ZONE_EVENT_LOG_ENABLED = _env_bool("ZONE_EVENT_LOG_ENABLED", True)
 
 # ── Фильтр "Крупный игрок" (Volume) ────────────────────────────────────────
