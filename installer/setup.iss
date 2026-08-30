@@ -67,6 +67,13 @@ Source: "{#RepoDir}mql\MT4\Experts\SmartZonesCollector.mq4"; DestDir: "{app}\mql
 ; MQL5 файлы
 Source: "{#RepoDir}mql\MT5\Indicators\StrongZones.mq5"; DestDir: "{app}\mql\MT5\Indicators"; Components: mt5; Flags: ignoreversion
 Source: "{#RepoDir}mql\MT5\Experts\SmartZonesCollector.mq5"; DestDir: "{app}\mql\MT5\Experts"; Components: mt5; Flags: ignoreversion skipifsourcedoesntexist
+; Скомпилированные бинарники из CI: с .ex5 индикатор появляется в Навигаторе
+; сразу, без ожидания авто-компиляции терминалом (которая на части машин
+; молча не срабатывает — клиент видел пустой Навигатор после установки).
+Source: "{#RepoDir}mql\MT5\Indicators\StrongZones.ex5"; DestDir: "{app}\mql\MT5\Indicators"; Components: mt5; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#RepoDir}mql\MT5\Experts\SmartZonesCollector.ex5"; DestDir: "{app}\mql\MT5\Experts"; Components: mt5; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#RepoDir}mql\MT4\Indicators\StrongZones.ex4"; DestDir: "{app}\mql\MT4\Indicators"; Components: mt4; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#RepoDir}mql\MT4\Experts\SmartZonesCollector.ex4"; DestDir: "{app}\mql\MT4\Experts"; Components: mt4; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 ; Ярлык на рабочем столе — "SZP"
@@ -87,58 +94,62 @@ procedure PatchTerminals();
 var
   TerminalBase: String;
   SearchRec: TFindRec;
-  SourceMQ4Ind, SourceMQ4EA, SourceMQ5Ind, SourceMQ5EA: String;
-  DestDir: String;
+  SourceDir, DestDir: String;
+  Found: Boolean;
+
+  // Копирует индикатор/EA в папку терминала: и исходник (.mq5 — для
+  // перекомпиляции в MetaEditor), и бинарник (.ex5 — чтобы индикатор был в
+  // Навигаторе сразу, не дожидаясь авто-компиляции терминала).
+  procedure InstallPair(const DestDir, Base, SrcExt, BinExt: String);
+  begin
+    // Папки могут ещё не существовать (терминал ни разу не запускали) —
+    // создаём сами, иначе файлы молча не копировались.
+    if not DirExists(DestDir) then
+      ForceDirectories(DestDir);
+    if FileExists(SourceDir + '\' + Base + SrcExt) then
+      FileCopy(SourceDir + '\' + Base + SrcExt, DestDir + '\' + Base + SrcExt, False);
+    if FileExists(SourceDir + '\' + Base + BinExt) then
+      FileCopy(SourceDir + '\' + Base + BinExt, DestDir + '\' + Base + BinExt, False);
+    Log('Installed ' + Base + ' to: ' + DestDir);
+  end;
+
 begin
   TerminalBase := ExpandConstant('{userappdata}') + '\MetaQuotes\Terminal';
-  SourceMQ4Ind := ExpandConstant('{app}') + '\mql\MT4\Indicators\StrongZones.mq4';
-  SourceMQ4EA := ExpandConstant('{app}') + '\mql\MT4\Experts\SmartZonesCollector.mq4';
-  SourceMQ5Ind := ExpandConstant('{app}') + '\mql\MT5\Indicators\StrongZones.mq5';
-  SourceMQ5EA := ExpandConstant('{app}') + '\mql\MT5\Experts\SmartZonesCollector.mq5';
-  
+  SourceDir := ExpandConstant('{app}') + '\mql';
+  Found := False;
+
   if not DirExists(TerminalBase) then
   begin
     Log('MetaTrader terminal directory not found');
-    Exit;
-  end;
-  
-  if FindFirst(TerminalBase + '\*', SearchRec) then
+  end
+  else if FindFirst(TerminalBase + '\*', SearchRec) then
   begin
     try
       repeat
-        if (SearchRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+        if ((SearchRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0)
+           and (SearchRec.Name <> '.') and (SearchRec.Name <> '..') then
         begin
-          if (SearchRec.Name <> '.') and (SearchRec.Name <> '..') then
+          if IsComponentSelected('mt4') then
           begin
-            // MT4
             DestDir := TerminalBase + '\' + SearchRec.Name + '\MQL4\Indicators';
-            if DirExists(DestDir) and IsComponentSelected('mt4') then
+            if DirExists(TerminalBase + '\' + SearchRec.Name + '\MQL4') then
             begin
-              FileCopy(SourceMQ4Ind, DestDir + '\StrongZones.mq4', False);
-              Log('MT4 Indicator installed to: ' + DestDir);
+              InstallPair(DestDir, 'StrongZones', '.mq4', '.ex4');
+              InstallPair(TerminalBase + '\' + SearchRec.Name + '\MQL4\Experts',
+                          'SmartZonesCollector', '.mq4', '.ex4');
+              Found := True;
             end;
-            
-            DestDir := TerminalBase + '\' + SearchRec.Name + '\MQL4\Experts';
-            if DirExists(DestDir) and IsComponentSelected('mt4') then
-            begin
-              FileCopy(SourceMQ4EA, DestDir + '\SmartZonesCollector.mq4', False);
-              Log('MT4 EA installed to: ' + DestDir);
-            end;
-            
-            // MT5 Индикатор
-            DestDir := TerminalBase + '\' + SearchRec.Name + '\MQL5\Indicators';
-            if DirExists(DestDir) and IsComponentSelected('mt5') then
-            begin
-              FileCopy(SourceMQ5Ind, DestDir + '\StrongZones.mq5', False);
-              Log('MT5 Indicator installed to: ' + DestDir);
-            end;
+          end;
 
-            // MT5 EA (брокерские данные → CSV)
-            DestDir := TerminalBase + '\' + SearchRec.Name + '\MQL5\Experts';
-            if DirExists(DestDir) and IsComponentSelected('mt5') and FileExists(SourceMQ5EA) then
+          if IsComponentSelected('mt5') then
+          begin
+            if DirExists(TerminalBase + '\' + SearchRec.Name + '\MQL5') then
             begin
-              FileCopy(SourceMQ5EA, DestDir + '\SmartZonesCollector.mq5', False);
-              Log('MT5 EA installed to: ' + DestDir);
+              InstallPair(TerminalBase + '\' + SearchRec.Name + '\MQL5\Indicators',
+                          'StrongZones', '.mq5', '.ex5');
+              InstallPair(TerminalBase + '\' + SearchRec.Name + '\MQL5\Experts',
+                          'SmartZonesCollector', '.mq5', '.ex5');
+              Found := True;
             end;
           end;
         end;
@@ -147,6 +158,17 @@ begin
       FindClose(SearchRec);
     end;
   end;
+
+  if not Found then
+    // Раньше установка молча завершалась без индикаторов, и клиент не
+    // понимал, почему Навигатор пуст. Теперь говорим прямо.
+    MsgBox('MetaTrader 4/5 не найден на этом компьютере (нет папки данных в %APPDATA%\MetaQuotes\Terminal).' + #13#10#13#10 +
+           'Индикаторы НЕ установлены. Установите/запустите терминал, затем:' + #13#10 +
+           '1. Переустановите Smart Zones Pro, ИЛИ' + #13#10 +
+           '2. Скопируйте вручную из папки установки Smart Zones Pro\mql\... в ' +
+           'каталог данных терминала (Файл → Открыть каталог данных) → MQL5\Indicators и MQL5\Experts,' + #13#10 +
+           '3. В терминале: Навигатор → Обновить (F5).',
+           mbInformation, MB_OK);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
