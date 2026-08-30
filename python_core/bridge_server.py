@@ -241,7 +241,10 @@ def calculate_and_export_zones(refresh_data: bool = True):
     if config.L2_MODE != "off" and zones:
         try:
             from l2_validation import validate_zones_l2
-            zones = validate_zones_l2(zones)
+            from zone_detector import current_price as _current_price
+            # Цена нужна не только для стороны зон: без неё невозможно
+            # откалибровать внешний прокси-стакан (PAXG) к шкале брокера.
+            zones = validate_zones_l2(zones, price=_current_price(data))
         except Exception as e:
             print(f"[bridge] WARN: L2 validation failed: {e}")
 

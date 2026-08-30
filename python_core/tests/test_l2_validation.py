@@ -198,6 +198,7 @@ def test_full_report_live_zone(tmp_path, monkeypatch):
 
 def test_unavailable_when_no_book(tmp_path, monkeypatch, l2_off):
     """Нет файла — UNAVAILABLE с нейтралью, а не выдуманный ноль."""
+    monkeypatch.setattr(config, "L2_EXTERNAL_SOURCE", "off")
     monkeypatch.setattr(config, "L2_BOOK_PATH", str(tmp_path / "missing.json"))
     monkeypatch.setattr(paths, "DATA_BRIDGE_DIR", tmp_path)
     zone = Zone(price=MID - 3, width=1.5, score=7)
@@ -209,6 +210,7 @@ def test_unavailable_when_no_book(tmp_path, monkeypatch, l2_off):
 
 def test_unavailable_when_book_empty(tmp_path, monkeypatch):
     """Брокер без DOM: книга пустая — UNAVAILABLE, а не штраф зонам."""
+    monkeypatch.setattr(config, "L2_EXTERNAL_SOURCE", "off")
     _write_book(tmp_path, monkeypatch, _book_payload([], []))
     zone = Zone(price=MID - 3, width=1.5, score=7)
     validate_zones_l2([zone], price=MID)
@@ -219,6 +221,7 @@ def test_unavailable_when_book_empty(tmp_path, monkeypatch):
 
 def test_unavailable_when_book_stale(tmp_path, monkeypatch):
     """Протухший снапшот нельзя отличить от мёртвого EA — не доверяем."""
+    monkeypatch.setattr(config, "L2_EXTERNAL_SOURCE", "off")
     payload = _book_payload(*_flat_book(), age_sec=config.L2_MAX_AGE_SEC + 60)
     _write_book(tmp_path, monkeypatch, payload)
     zone = Zone(price=MID - 3, width=1.5, score=7)

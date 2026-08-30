@@ -75,7 +75,8 @@ def run_pipeline(plot: bool = True) -> list[dict]:
     if config.L2_MODE != "off" and zones:
         try:
             from l2_validation import validate_zones_l2
-            zones = validate_zones_l2(zones)
+            from zone_detector import current_price as _current_price
+            zones = validate_zones_l2(zones, price=_current_price(data))
         except Exception as e:
             print(f"  |-- WARN: L2 validation failed: {e}")
 

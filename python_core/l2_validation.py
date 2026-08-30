@@ -77,6 +77,10 @@ class Book:
     asks: list[tuple[float, float]] = field(default_factory=list)
     timestamp: datetime | None = None
     source: str = "none"
+    # True, если книга из внешнего источника (PAXG-прокси), а не из DOM
+    # брокера. Отчёт помечает такие проверки, чтобы прокси не приняли за
+    # брокерский стакан.
+    proxy: bool = False
 
     @property
     def mid(self) -> float | None:
@@ -426,31 +430,34 @@ def validate_zones_l2(zones: list, price: float | None = None) -> list:
     if price is None:
         price = book.mid if book and book.mid else None
 
+    broker_reason = None
     if book is None:
-        report = _unavailable_report("l2_book.json не найден — EA не пишет стакан")
-        for zone in zones:
-            zone.l2, zone.l2_score, zone.l2_verdict = (
-                report.to_dict(), report.score, report.verdict)
-        print("[l2] стакан недоступен: файл l2_book.json не найден — слой в UNAVAILABLE")
-        return zones
+        broker_reason = "l2_book.json не найден — EA не пишет стакан"
+    elif book.is_empty:
+        broker_reason = "стакан пуст — брокер не транслирует DOM"
+    else:
+        age = book.age_sec()
+        if age is not None and age > config.L2_MAX_AGE_SEC:
+            broker_reason = f"снапшоту {age:.0f}с — протух"
 
-    if book.is_empty:
-        report = _unavailable_report("стакан пуст — брокер не транслирует DOM",
-                                     source=book.source)
-        for zone in zones:
-            zone.l2, zone.l2_score, zone.l2_verdict = (
-                report.to_dict(), report.score, report.verdict)
-        print("[l2] стакан пуст (брокер не транслирует DOM) — слой в UNAVAILABLE")
-        return zones
-
-    age = book.age_sec()
-    if age is not None and age > config.L2_MAX_AGE_SEC:
-        report = _unavailable_report(f"снапшоту {age:.0f}с — протух", source=book.source)
-        for zone in zones:
-            zone.l2, zone.l2_score, zone.l2_verdict = (
-                report.to_dict(), report.score, report.verdict)
-        print(f"[l2] снапшот стакана протух ({age:.0f}с > {config.L2_MAX_AGE_SEC}с) — UNAVAILABLE")
-        return zones
+    # Фолбэк на внешний прокси-стакан (PAXG): своего DOM нет — не значит,
+    # что стакана нет вообще. Книга калибруется сдвигом к цене брокера и
+    # помечается proxy. Без цены калибровка невозможна — не врём по ценам.
+    if broker_reason is not None:
+        book = None
+        if config.L2_EXTERNAL_SOURCE != "off" and price is not None:
+            try:
+                from l2_external import fetch_external_book
+                book = fetch_external_book(price)
+            except Exception as e:
+                print(f"[l2] внешний стакан не удался: {e}")
+        if book is None:
+            report = _unavailable_report(broker_reason)
+            for zone in zones:
+                zone.l2, zone.l2_score, zone.l2_verdict = (
+                    report.to_dict(), report.score, report.verdict)
+            print(f"[l2] {broker_reason} — слой в UNAVAILABLE")
+            return zones
 
     if price is None:
         # Без цены не определить сторону зоны — валидировать нечего.
