@@ -35,6 +35,8 @@ input bool     ShowGradient     = false;      // Градиентная визу
 input int      GradientLayers   = 5;          // Кол-во слоёв градиента
 input bool     EnableAlerts     = true;       // Алерты при касании зоны
 input double   AlertDistance    = 5.0;        // Расстояние для алерта ($)
+input bool     AutoFitChart     = true;       // Автоподгон шкалы под все 6 зон
+input double   FitMarginPct     = 3.0;        // Запас шкалы сверху/снизу (%)
 input bool     ShowAccumulation = false;     // Набор позиции крупным участником
 input string   AccumFilePath    = "accumulation_output.json"; // Файл участков набора
 input color    AccumColor       = C'85,45,140';  // Цвет участков набора (фиолетовый)
@@ -117,6 +119,7 @@ int OnInit()
    DeleteAccumulationObjects();
    EventSetTimer(RefreshSeconds);
    LoadZonesFromFile();
+   AutoFitChartToZones();
    LoadAccumulationFromFile();
    DrawBuildStamp();
    Print("[SmartZones MT5] Initialized, build v", SZP_BUILD,
@@ -130,6 +133,7 @@ void OnDeinit(const int reason)
    DeleteAllZoneObjects();
    DeleteAccumulationObjects();
    ObjectDelete(0, buildPrefix + "STAMP");
+   ChartSetInteger(0, CHART_SCALEFIX, false); // отпускаем шкалу
    EventKillTimer();
 }
 
@@ -151,9 +155,39 @@ int OnCalculate(const int rates_total,
 }
 
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Автоподгон шкалы графика под активные зоны.                        |
+//| Без этого зоны ниже цены оставались за пределами видимой области  |
+//| и клиент видел «все уровни сверху», хотя они были посчитаны.       |
+//+------------------------------------------------------------------+
+void AutoFitChartToZones()
+{
+   if(!AutoFitChart || currentZoneCount <= 0) return;
+   double lo = zonePrices[0], hi = zonePrices[0];
+   for(int i = 1; i < currentZoneCount; i++)
+   {
+      if(zonePrices[i] < lo) lo = zonePrices[i];
+      if(zonePrices[i] > hi) hi = zonePrices[i];
+   }
+   // Текущая цена обязана оставаться в кадре
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(bid > 0)
+   {
+      if(bid < lo) lo = bid;
+      if(bid > hi) hi = bid;
+   }
+   double margin = (hi - lo) * FitMarginPct / 100.0;
+   if(margin < 1.0) margin = 1.0;
+   ChartSetDouble(0, CHART_PRICE_MIN, lo - margin);
+   ChartSetDouble(0, CHART_PRICE_MAX, hi + margin);
+   ChartSetInteger(0, CHART_SCALEFIX, true);
+}
+
 void OnTimer()
 {
    LoadZonesFromFile();
+   AutoFitChartToZones();
    LoadAccumulationFromFile();
 }
 
@@ -397,13 +431,13 @@ void DrawSingleZone(int index)
    {
       string textName = baseName + "_text";
       datetime textTime = iTime(_Symbol, PERIOD_CURRENT, 10);
-      ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price + (top - price) * 0.3);
+      ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price);
       // Только цена зоны (без источников/скора) — как просил клиент.
       ObjectSetString(0, textName, OBJPROP_TEXT, DoubleToString(price, 2));
       ObjectSetInteger(0, textName, OBJPROP_COLOR, clrWhite);
       ObjectSetString(0, textName, OBJPROP_FONT, "Arial Bold");
       ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, 9);
-      ObjectSetInteger(0, textName, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
+      ObjectSetInteger(0, textName, OBJPROP_ANCHOR, ANCHOR_LEFT);
       ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, textName, OBJPROP_HIDDEN, true);
    }
