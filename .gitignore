@@ -27,3 +27,7 @@ Thumbs.db
 # Генерируемые при работе файлы — не коммитим
 data_bridge/zones_output.json
 output/last_zones.json
+
+# v3.5: precompiled MQL binaries производятся исключительно CI
+mql/**/*.ex4
+mql/**/*.ex5

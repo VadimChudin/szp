@@ -191,6 +191,39 @@ jobs:
           }
           if ($failed) { exit 1 }
 
+      # ── 2d. Guard: убедимся, что скомпилированные .ex* — реально свежие ─
+      # v3.5: раньше "CI зелёный" не гарантировал, что MetaEditor реально
+      # пересобрал бинарник — файл мог остаться от предыдущей джобы или из
+      # репо, а тихий провал компилятора уходил в упаковку старого .ex.
+      # Сравниваем LastWriteTime с началом job — старше 10 минут = стухший.
+      - name: Verify compiled binaries are fresh
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $threshold = (Get-Date).AddMinutes(-10)
+          $expected = @(
+            'mql\MT5\Indicators\StrongZones.ex5',
+            'mql\MT5\Experts\SmartZonesCollector.ex5',
+            'mql\MT4\Indicators\StrongZones.ex4',
+            'mql\MT4\Experts\SmartZonesCollector.ex4'
+          )
+          $failed = $false
+          foreach ($rel in $expected) {
+            if (-not (Test-Path $rel)) {
+              Write-Error "MISSING: $rel"
+              $failed = $true
+              continue
+            }
+            $item = Get-Item $rel
+            if ($item.LastWriteTime -lt $threshold) {
+              Write-Error "STALE (LastWriteTime $($item.LastWriteTime)): $rel — MetaEditor did not recompile it in this job"
+              $failed = $true
+            } else {
+              Write-Host "FRESH: $rel ($($item.LastWriteTime))"
+            }
+          }
+          if ($failed) { exit 1 }
+
       - name: Upload compiled MT4/MT5 artifacts
         uses: actions/upload-artifact@v4
         with:

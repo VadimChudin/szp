@@ -32,6 +32,14 @@ SolidCompression=yes
 OutputDir={#RepoDir}Output
 OutputBaseFilename=SmartZonesPro_Setup_{#AppChannel}_v{#AppVer}
 
+; v3.5: старый snapshot и zones_output.json из %LOCALAPPDATA% переживали апдейт
+; и footprint/индикатор читали "залипшие" вчерашние зоны до следующего закрытия
+; H4. Сносим их перед копированием новых файлов — при первом запуске нового
+; билда состояние всегда чистое.
+[InstallDelete]
+Type: files; Name: "{localappdata}\SmartZonesPro\data_bridge\active_zones_snapshot.json"
+Type: files; Name: "{localappdata}\SmartZonesPro\data_bridge\zones_output.json"
+
 [Files]
 Source: "{#RepoDir}dist\SmartZonesPro\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#RepoDir}.env.example"; DestDir: "{app}"; Flags: ignoreversion

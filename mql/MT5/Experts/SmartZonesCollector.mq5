@@ -19,15 +19,15 @@
 //+------------------------------------------------------------------+
 #property copyright "Smart Zones Pro"
 #property link      ""
-#property version   "2.00"
+#property version   "3.50"
 
 //--- Input Parameters ------------------------------------------------
 input int      TickBufferMaxLines  = 200000;   // Макс. тиков в буфере (~несколько дней)
 input int      OHLCVRefreshSec     = 30;       // Интервал обновления OHLCV (сек)
-input int      H1_Bars             = 1500;     // Баров H1 (~2 мес): после обвала ниже цены должна быть история для зон
-input int      H4_Bars             = 600;      // Баров H4 (~3.5 мес): иначе после краша ниже цены нет истории — нет зон снизу
-input int      D1_Bars             = 400;      // Баров D1 (>1 года): крупные уровни живут месяцами
-input int      M1_Bars             = 30000;    // Баров M1 для эмуляции истории (~3 недели)
+input int      H1_BarsExport             = 1500;     // Баров H1 (~2 мес): после обвала ниже цены должна быть история для зон
+input int      H4_BarsExport             = 600;      // Баров H4 (~3.5 мес): иначе после краша ниже цены нет истории — нет зон снизу
+input int      D1_BarsExport             = 400;      // Баров D1 (>1 года): крупные уровни живут месяцами
+input int      M1_BarsExport             = 30000;    // Баров M1 для эмуляции истории (~3 недели)
 input color    PanelTextColor      = clrWhite; // Цвет текста панели
 input color    PanelBgColor        = C'30,30,40'; // Фон панели
 input string   AccessPassword      = "";        // Пароль доступа (обязателен)
@@ -263,10 +263,10 @@ void OnChartEvent(const int id,
 //+------------------------------------------------------------------+
 void ExportAllOHLCV()
 {
-   ExportOHLCV(PERIOD_M1, "M1", M1_Bars);
-   ExportOHLCV(PERIOD_H1, "H1", H1_Bars);
-   ExportOHLCV(PERIOD_H4, "H4", H4_Bars);
-   ExportOHLCV(PERIOD_D1, "D1", D1_Bars);
+   ExportOHLCV(PERIOD_M1, "M1", M1_BarsExport);
+   ExportOHLCV(PERIOD_H1, "H1", H1_BarsExport);
+   ExportOHLCV(PERIOD_H4, "H4", H4_BarsExport);
+   ExportOHLCV(PERIOD_D1, "D1", D1_BarsExport);
 
    g_lastOHLCV = TimeCurrent();
 

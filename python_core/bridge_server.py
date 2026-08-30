@@ -193,7 +193,28 @@ def calculate_and_export_zones(refresh_data: bool = True):
     try:
         data = fetch_all_timeframes(config.SYMBOL)
     except DataUnavailableError as e:
-        print(f"[bridge] ERROR: no market data, keeping previous zones. {e}")
+        # v3.5: раньше при отсутствии данных мы МОЛЧА оставляли прошлый
+        # zones_output.json — footprint и индикатор до 4 часов рисовали
+        # вчерашние зоны, а трейдер считал их актуальными. Теперь пишем
+        # пустой payload с явным статусом: клиент увидит "нет сигнала",
+        # а не неверный сигнал.
+        print(f"[bridge] ERROR: no market data. Writing empty payload. {e}")
+        try:
+            empty = {
+                "symbol": config.SYMBOL,
+                "calculated_at": datetime.now().isoformat(),
+                "current_price": None,
+                "zone_count": 0,
+                "min_score": config.MIN_ZONE_SCORE,
+                "fp_status": "waiting_for_terminal",
+                "status": "waiting_for_terminal",
+                "zones": [],
+            }
+            with open(ZONES_OUTPUT, "w") as f:
+                json.dump(empty, f, indent=2)
+            sync_to_mt4()
+        except OSError as write_err:
+            print(f"[bridge] WARN: could not write empty zones file: {write_err}")
         return None
 
     # ── Фильтр крупного игрока ───────────────────────────────────────
