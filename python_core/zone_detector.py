@@ -343,7 +343,12 @@ def detect_zones(
             })
 
     # ── Шаг 1.5: Добавляем эталонные уровни из Footprint (POC) ───────
-    try:
+    # При DETERMINISTIC_RECALC пропускаем: тики копятся локально с момента
+    # установки, и POC-бонусы делали score — а значит и состав зон —
+    # зависимым от аптайма клиента. Два клиента у одного брокера должны
+    # видеть одно и то же.
+    if config.INCLUDE_FOOTPRINT_POC and not config.DETERMINISTIC_RECALC:
+      try:
         from footprint_data import get_collector
         # Используем кэшированный синглтон (данные уже загружены bridge_server'ом)
         collector = get_collector()
@@ -377,7 +382,7 @@ def detect_zones(
                                     'time': pd.Timestamp(c.timestamp, unit='ms'),
                                     'wick_type': 'HVN',
                                 })
-    except Exception as e:
+      except Exception as e:
         print(f"[zone_detector] Could not extract Footprint POCs: {e}")
 
     if not all_levels:

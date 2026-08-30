@@ -339,6 +339,16 @@ def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FI
                 append_event("snapshot_version_reset", None, h4,
                              old_version=state.get("version", ""))
             current = []
+        elif config.DETERMINISTIC_RECALC and h4 and h4 != state.get("last_h4", ""):
+            # Детерминированный пересчёт: новая H4-свеча = полная пересборка
+            # из свежей детекции. Перенос прошлых зон давал им приоритет в
+            # слотах, и состав зависел от того, когда клиент запустил сборку:
+            # два клиента у одного брокера видели разные зоны. Теперь вход
+            # у всех одинаковый → и выход одинаковый.
+            if current:
+                append_event("snapshot_deterministic_reset", None, h4,
+                             carried=len(current))
+            current = []
         elif h4 and h4 == state.get("last_h4", ""):
             # Тот же бар: снапшот валиден, только если ВСЕ зоны в полосе.
             # Зона вплотную к цене или за горизонтом = снапшот записан сборкой

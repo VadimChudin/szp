@@ -1,11 +1,21 @@
 import json
 
 import pandas as pd
+import pytest
 
 import config
 import active_zones
 from active_zones import update_snapshot
 from zone_detector import Zone
+
+
+@pytest.fixture(autouse=True)
+def _carry_mode(monkeypatch):
+    """Эти тесты проверяют инкрементальную carry-механику снапшота —
+    закрепляем её явно: DETERMINISTIC_RECALC по умолчанию включён и
+    пересобирает снапшот на каждой новой H4-свече без переноса. Детермин-
+    режим покрыт в test_deterministic_recalc.py."""
+    monkeypatch.setattr(config, "DETERMINISTIC_RECALC", False)
 
 
 def bars(*rows):

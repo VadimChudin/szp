@@ -48,12 +48,17 @@ def run_pipeline(plot: bool = True) -> list[dict]:
     print("\n[3/4] Detecting strong zones...")
     zones = detect_zones(data, volume_flags)
     
-    try:
-        from persistent_zones import process_persistent_zones
-        zones = process_persistent_zones(zones, data)
-        print("  |-- Mixed with Persistent/Historical DB")
-    except Exception as e:
-        print(f"  |-- WARN: Could not process persistent zones: {e}")
+    # При детерминированном пересчёте локальный архив в показ не мешаем:
+    # он копится на машине клиента с момента установки, и состав зон снова
+    # стал бы зависеть от аптайма. Архив продолжает вестись для истории
+    # (bridge вызывает его отдельно), но на график не влияет.
+    if not config.DETERMINISTIC_RECALC:
+        try:
+            from persistent_zones import process_persistent_zones
+            zones = process_persistent_zones(zones, data)
+            print("  |-- Mixed with Persistent/Historical DB")
+        except Exception as e:
+            print(f"  |-- WARN: Could not process persistent zones: {e}")
 
     # ── 3.5. Подтверждение по ликвидности ────────────────────────────────
     # Детектор сказал, ГДЕ уровень. Этот шаг проверяет, ЖИВ ЛИ он: стоит ли
