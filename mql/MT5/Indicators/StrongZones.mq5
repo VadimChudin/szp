@@ -433,11 +433,12 @@ void DrawSingleZone(int index)
       datetime textTime = iTime(_Symbol, PERIOD_CURRENT, 10);
       ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price);
       // Только цена зоны (без источников/скора) — как просил клиент.
+      // Якорь LOWER: текст стоит НАД линией, а не пересекает её.
       ObjectSetString(0, textName, OBJPROP_TEXT, DoubleToString(price, 2));
       ObjectSetInteger(0, textName, OBJPROP_COLOR, clrWhite);
       ObjectSetString(0, textName, OBJPROP_FONT, "Arial Bold");
       ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, 9);
-      ObjectSetInteger(0, textName, OBJPROP_ANCHOR, ANCHOR_LEFT);
+      ObjectSetInteger(0, textName, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
       ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, textName, OBJPROP_HIDDEN, true);
    }
