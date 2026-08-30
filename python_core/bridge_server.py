@@ -271,9 +271,15 @@ def calculate_and_export_zones(refresh_data: bool = True):
         zones_for_mt4.append(zone_data)
 
     # ── Записываем JSON ──────────────────────────────────────────────
+    # current_price обязателен: footprint и диагностика считают стороны зон
+    # относительно него. Без этого поля сверка "3 сверху / 3 снизу" невозможна.
+    h4_frame = data.get(config.PRIMARY_TIMEFRAME)
+    cur_price = (float(h4_frame["close"].iloc[-1])
+                 if h4_frame is not None and not h4_frame.empty else None)
     output = {
         "symbol": config.SYMBOL,
         "calculated_at": datetime.now().isoformat(),
+        "current_price": cur_price,
         "zone_count": len(zones_for_mt4),
         "min_score": config.MIN_ZONE_SCORE,
         "fp_status": current_fp_status,

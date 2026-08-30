@@ -24,3 +24,6 @@ Output/
 .vscode/
 .DS_Store
 Thumbs.db
+# Генерируемые при работе файлы — не коммитим
+data_bridge/zones_output.json
+output/last_zones.json
