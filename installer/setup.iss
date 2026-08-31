@@ -96,6 +96,7 @@ var
   SearchRec: TFindRec;
   SourceDir, DestDir: String;
   Found: Boolean;
+  Failed: Integer;
 
   // Копирует индикатор/EA в папку терминала: и исходник (.mq5 — для
   // перекомпиляции в MetaEditor), и бинарник (.ex5 — чтобы индикатор был в
@@ -106,10 +107,16 @@ var
     // создаём сами, иначе файлы молча не копировались.
     if not DirExists(DestDir) then
       ForceDirectories(DestDir);
+    // FileCopy при ЗАПУЩЕННОМ терминале может молча не заменить занятый
+    // .ex4/.ex5 — и клиент навсегда остаётся на старом бинарнике (реальный
+    // кейс: новая версия установлена, а терминал показывает старое).
+    // Считаем провалы и покажем их в конце установки.
     if FileExists(SourceDir + '\' + Base + SrcExt) then
-      FileCopy(SourceDir + '\' + Base + SrcExt, DestDir + '\' + Base + SrcExt, False);
+      if not FileCopy(SourceDir + '\' + Base + SrcExt, DestDir + '\' + Base + SrcExt, False) then
+        Failed := Failed + 1;
     if FileExists(SourceDir + '\' + Base + BinExt) then
-      FileCopy(SourceDir + '\' + Base + BinExt, DestDir + '\' + Base + BinExt, False);
+      if not FileCopy(SourceDir + '\' + Base + BinExt, DestDir + '\' + Base + BinExt, False) then
+        Failed := Failed + 1;
     Log('Installed ' + Base + ' to: ' + DestDir);
   end;
 
@@ -117,6 +124,7 @@ begin
   TerminalBase := ExpandConstant('{userappdata}') + '\MetaQuotes\Terminal';
   SourceDir := ExpandConstant('{app}') + '\mql';
   Found := False;
+  Failed := 0;
 
   if not DirExists(TerminalBase) then
   begin
@@ -158,6 +166,12 @@ begin
       FindClose(SearchRec);
     end;
   end;
+
+  if Failed > 0 then
+    MsgBox('Не удалось заменить ' + IntToStr(Failed) + ' файл(ов) индикатора — они заняты РАБОТАЮЩИМ терминалом.' + #13#10#13#10 +
+           'Сделайте так: 1) полностью закройте MetaTrader, 2) запустите установку ещё раз.' + #13#10 +
+           'Иначе терминал продолжит показывать СТАРУЮ версию.',
+           mbCriticalError, MB_OK);
 
   if not Found then
     // Раньше установка молча завершалась без индикаторов, и клиент не
