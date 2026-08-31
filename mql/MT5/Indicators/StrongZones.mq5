@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                                              StrongZones.mq5     |
 //|                                          Smart Zones Pro v1.0    |
 //|                                                                  |
@@ -426,12 +426,24 @@ void DrawSingleZone(int index)
    ObjectSetInteger(0, lineName, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, lineName, OBJPROP_BACK, true);
 
+   // Левый край видимой области — общая точка привязки подписей.
+   // Позиция пересчитывается каждый проход и двигается вместе со скроллом:
+   // так подпись не уезжает за правый край и не наезжает на ценовую шкалу.
+   int firstVisible = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR);
+
    // ── 3. Текстовая подпись ──────────────────────────────────────────
    if(ShowPriceLabels)
    {
       string textName = baseName + "_text";
-      datetime textTime = iTime(_Symbol, PERIOD_CURRENT, 10);
-      ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price);
+      int labelShift = firstVisible - 5;
+      if(labelShift > Bars(_Symbol, PERIOD_CURRENT) - 1)
+         labelShift = Bars(_Symbol, PERIOD_CURRENT) - 1;
+      if(labelShift < 0) labelShift = 0;
+      datetime textTime = iTime(_Symbol, PERIOD_CURRENT, labelShift);
+      if(ObjectFind(0, textName) < 0)
+         ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price);
+      else
+         ObjectMove(0, textName, 0, textTime, price);
       // Только цена зоны (без источников/скора) — как просил клиент.
       // Якорь LOWER: текст стоит НАД линией, а не пересекает её.
       ObjectSetString(0, textName, OBJPROP_TEXT, DoubleToString(price, 2));
@@ -447,8 +459,16 @@ void DrawSingleZone(int index)
    if(ShowScoreBadge)
    {
       string badgeName = baseName + "_badge";
-      datetime badgeTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 4;
-      ObjectCreate(0, badgeName, OBJ_TEXT, 0, badgeTime, price);
+      // Бейдж скора — правее подписи цены, тоже у левого края.
+      int badgeShift = firstVisible - 16;
+      if(badgeShift > Bars(_Symbol, PERIOD_CURRENT) - 1)
+         badgeShift = Bars(_Symbol, PERIOD_CURRENT) - 1;
+      if(badgeShift < 0) badgeShift = 0;
+      datetime badgeTime = iTime(_Symbol, PERIOD_CURRENT, badgeShift);
+      if(ObjectFind(0, badgeName) < 0)
+         ObjectCreate(0, badgeName, OBJ_TEXT, 0, badgeTime, price);
+      else
+         ObjectMove(0, badgeName, 0, badgeTime, price);
       ObjectSetString(0, badgeName, OBJPROP_TEXT,
                       " S:" + IntegerToString(score) + " ");
       ObjectSetInteger(0, badgeName, OBJPROP_COLOR, zoneColor);

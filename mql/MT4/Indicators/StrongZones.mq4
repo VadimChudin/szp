@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                                              StrongZones.mq4     |
 //|                                          Smart Zones Pro v1.0    |
 //|                                                                  |
@@ -600,16 +600,24 @@ void DrawSingleZone(int index)
    ObjectSetInteger(0, lineName, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, lineName, OBJPROP_BACK, true);
    
+   // Левый край видимой области — общая точка привязки подписей.
+   int firstVisible = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR);
+
    // ── 3. Текстовая подпись зоны ────────────────────────────────────
    if(ShowPriceLabels)
    {
       string textName = baseName + "_text";
-      // Подпись ставится ВНУТРИ видимой области (10 баров назад), как в MT5.
-      // Раньше было Time[0] + 12 баров в будущее: без широкого правого отступа
-      // (chart shift) подписи оказывались за краем графика — «зоны без подписей».
-      int labelShift = (int)MathMin(10, Bars - 1);
+      // Подпись у ЛЕВОГО края видимой области: не уезжает за правый край
+      // (старая болезнь Time[0]+12 баров) и не наезжает на ценовую шкалу.
+      // Позиция пересчитывается каждый проход и двигается вместе со скроллом.
+      int labelShift = firstVisible - 5;
+      if(labelShift > Bars - 1) labelShift = Bars - 1;
+      if(labelShift < 0) labelShift = 0;
       datetime labelTime = Time[labelShift];
-      ObjectCreate(textName, OBJ_TEXT, 0, labelTime, price);
+      if(ObjectFind(0, textName) < 0)
+         ObjectCreate(textName, OBJ_TEXT, 0, labelTime, price);
+      else
+         ObjectMove(textName, 0, labelTime, price);
       // Только цена зоны (без источников/скора) — как просил клиент.
       // Якорь LOWER: текст стоит НАД линией, а не пересекает её.
       ObjectSetString(0, textName, OBJPROP_TEXT, DoubleToString(price, 2));
@@ -625,9 +633,15 @@ void DrawSingleZone(int index)
    if(ShowScoreBadge)
    {
       string badgeName = baseName + "_badge";
-      // Небольшой задел в будущее допустим (2 бара), 12 — уже за краем.
-      datetime badgeTime = Time[0] + PeriodSeconds() * 2;
-      ObjectCreate(badgeName, OBJ_TEXT, 0, badgeTime, price);
+      // Бейдж скора — правее подписи цены, тоже у левого края видимой области.
+      int badgeShift = firstVisible - 16;
+      if(badgeShift > Bars - 1) badgeShift = Bars - 1;
+      if(badgeShift < 0) badgeShift = 0;
+      datetime badgeTime = Time[badgeShift];
+      if(ObjectFind(0, badgeName) < 0)
+         ObjectCreate(badgeName, OBJ_TEXT, 0, badgeTime, price);
+      else
+         ObjectMove(badgeName, 0, badgeTime, price);
       ObjectSetString(0, badgeName, OBJPROP_TEXT,
                       " S:" + IntegerToString(score) + " ");
       ObjectSetInteger(0, badgeName, OBJPROP_COLOR, zoneColor);

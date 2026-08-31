@@ -4,7 +4,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _source(relative: str) -> str:
-    return (ROOT / relative).read_text(encoding="utf-8")
+    # Исходники MT4/MT5 хранятся в UTF-16 LE BOM — родном формате
+    # MetaEditor: иначе кириллические подписи input-параметров зависели от
+    # локали Windows и у клиентов превращались в "????".
+    return (ROOT / relative).read_text(encoding="utf-16")
 
 
 def test_mt4_mt5_cap_active_json_at_six():
