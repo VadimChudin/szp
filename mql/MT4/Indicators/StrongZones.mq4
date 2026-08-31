@@ -600,20 +600,15 @@ void DrawSingleZone(int index)
    ObjectSetInteger(0, lineName, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, lineName, OBJPROP_BACK, true);
    
-   // Левый край видимой области — общая точка привязки подписей.
-   int firstVisible = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR);
-
    // ── 3. Текстовая подпись зоны ────────────────────────────────────
    if(ShowPriceLabels)
    {
       string textName = baseName + "_text";
-      // Подпись у ЛЕВОГО края видимой области: не уезжает за правый край
-      // (старая болезнь Time[0]+12 баров) и не наезжает на ценовую шкалу.
-      // Позиция пересчитывается каждый проход и двигается вместе со скроллом.
-      int labelShift = firstVisible - 5;
-      if(labelShift > Bars - 1) labelShift = Bars - 1;
-      if(labelShift < 0) labelShift = 0;
-      datetime labelTime = Time[labelShift];
+      // Подпись у ПРАВОГО края — в зазоре chart shift между последней свечой
+      // и ценовой шкалой: рядом с текущим движением цены и не за краем.
+      // ObjectMove на повторном проходе держит подпись на месте по мере
+      // прихода новых баров.
+      datetime labelTime = Time[0] + PeriodSeconds() * 2;
       if(ObjectFind(0, textName) < 0)
          ObjectCreate(textName, OBJ_TEXT, 0, labelTime, price);
       else
@@ -633,11 +628,9 @@ void DrawSingleZone(int index)
    if(ShowScoreBadge)
    {
       string badgeName = baseName + "_badge";
-      // Бейдж скора — правее подписи цены, тоже у левого края видимой области.
-      int badgeShift = firstVisible - 16;
-      if(badgeShift > Bars - 1) badgeShift = Bars - 1;
-      if(badgeShift < 0) badgeShift = 0;
-      datetime badgeTime = Time[badgeShift];
+      // Бейдж скора — там же у правого края, ПОД линией (якорь UPPER):
+      // цена над линией, S:xx под линией — читаются как единый блок.
+      datetime badgeTime = Time[0] + PeriodSeconds() * 2;
       if(ObjectFind(0, badgeName) < 0)
          ObjectCreate(badgeName, OBJ_TEXT, 0, badgeTime, price);
       else
@@ -647,7 +640,7 @@ void DrawSingleZone(int index)
       ObjectSetInteger(0, badgeName, OBJPROP_COLOR, zoneColor);
       ObjectSetString(0, badgeName, OBJPROP_FONT, "Consolas");
       ObjectSetInteger(0, badgeName, OBJPROP_FONTSIZE, 9);
-      ObjectSetInteger(0, badgeName, OBJPROP_ANCHOR, ANCHOR_LEFT);
+      ObjectSetInteger(0, badgeName, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
       ObjectSetInteger(0, badgeName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, badgeName, OBJPROP_HIDDEN, true);
    }

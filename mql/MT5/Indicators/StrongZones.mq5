@@ -426,20 +426,13 @@ void DrawSingleZone(int index)
    ObjectSetInteger(0, lineName, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, lineName, OBJPROP_BACK, true);
 
-   // Левый край видимой области — общая точка привязки подписей.
-   // Позиция пересчитывается каждый проход и двигается вместе со скроллом:
-   // так подпись не уезжает за правый край и не наезжает на ценовую шкалу.
-   int firstVisible = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR);
-
    // ── 3. Текстовая подпись ──────────────────────────────────────────
    if(ShowPriceLabels)
    {
       string textName = baseName + "_text";
-      int labelShift = firstVisible - 5;
-      if(labelShift > Bars(_Symbol, PERIOD_CURRENT) - 1)
-         labelShift = Bars(_Symbol, PERIOD_CURRENT) - 1;
-      if(labelShift < 0) labelShift = 0;
-      datetime textTime = iTime(_Symbol, PERIOD_CURRENT, labelShift);
+      // Подпись у ПРАВОГО края — в зазоре chart shift между последней свечой
+      // и ценовой шкалой: рядом с текущим движением цены и не за краем.
+      datetime textTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 2;
       if(ObjectFind(0, textName) < 0)
          ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price);
       else
@@ -459,12 +452,8 @@ void DrawSingleZone(int index)
    if(ShowScoreBadge)
    {
       string badgeName = baseName + "_badge";
-      // Бейдж скора — правее подписи цены, тоже у левого края.
-      int badgeShift = firstVisible - 16;
-      if(badgeShift > Bars(_Symbol, PERIOD_CURRENT) - 1)
-         badgeShift = Bars(_Symbol, PERIOD_CURRENT) - 1;
-      if(badgeShift < 0) badgeShift = 0;
-      datetime badgeTime = iTime(_Symbol, PERIOD_CURRENT, badgeShift);
+      // Бейдж скора — там же у правого края, ПОД линией (якорь UPPER).
+      datetime badgeTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 2;
       if(ObjectFind(0, badgeName) < 0)
          ObjectCreate(0, badgeName, OBJ_TEXT, 0, badgeTime, price);
       else
@@ -474,7 +463,7 @@ void DrawSingleZone(int index)
       ObjectSetInteger(0, badgeName, OBJPROP_COLOR, zoneColor);
       ObjectSetString(0, badgeName, OBJPROP_FONT, "Consolas");
       ObjectSetInteger(0, badgeName, OBJPROP_FONTSIZE, 9);
-      ObjectSetInteger(0, badgeName, OBJPROP_ANCHOR, ANCHOR_LEFT);
+      ObjectSetInteger(0, badgeName, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
       ObjectSetInteger(0, badgeName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, badgeName, OBJPROP_HIDDEN, true);
    }
