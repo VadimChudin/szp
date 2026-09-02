@@ -504,6 +504,10 @@ def detect_zones(
                  if config.FALLBACK_MIN_ZONE_SCORE <= z.score < config.MIN_ZONE_SCORE]
     if config.REQUIRE_H4_ANCHOR:
         weak_pool = [z for z in weak_pool if config.PRIMARY_TIMEFRAME in z.sources]
+    # Клиент просит только сильные зоны: слабые НЕ достраиваем «для заполнения».
+    # Если сильных зон нет — список пуст, и на графике ничего не рисуется.
+    if config.STRONG_ZONES_ONLY:
+        weak_pool = []
     if not limit_output:
         # Для incremental snapshot bridge нужен полный pool кандидатов.
         # Иначе ранний лимит в пять зон мог скрыть новый сильный уровень.
