@@ -206,6 +206,8 @@ canvas { display:block; cursor:crosshair; }
   <button class="tf-btn active" data-tf="4h" onclick="switchTF('4h')">4H</button>
   <button class="tf-btn" data-tf="1d" onclick="switchTF('1d')">1D</button>
   <span class="sep"></span>
+  <button id="zk-btn" class="tf-btn active" onclick="toggleZakrep()" title="Показать/скрыть метку ЗАКРЕП">ZAKREP</button>
+  <span class="sep"></span>
   <button class="nav-btn" onclick="sc(-10)" title="Home">⏮</button>
   <button class="nav-btn" onclick="sc(-3)">◀</button>
   <button class="nav-btn" onclick="sc(3)">▶</button>
@@ -235,6 +237,13 @@ canvas { display:block; cursor:crosshair; }
 
 <script>
 let DATA = null;
+let showZakrep = true;
+function toggleZakrep() {
+  showZakrep = !showZakrep;
+  const b = document.getElementById('zk-btn');
+  if (b) b.classList.toggle('active', showZakrep);
+  if (DATA) draw();
+}
 let W, H;
 let scrollPos = 0;
 let visibleCount = 14;
@@ -463,7 +472,7 @@ function draw() {
     ctx.fillText(label, badgeX + badgeW - padX, badgeY + badgeH / 2);
 
     // Метка «ЗАКРЕП» — цена закрылась и удержалась за зоной (reaction на H1).
-    if (z.reaction && z.reaction.type === 'BREAKOUT') {
+    if (showZakrep && z.reaction && z.reaction.type === 'BREAKOUT') {
       const zkArrow = z.reaction.direction === 'UP' ? '\u2191'
                     : z.reaction.direction === 'DOWN' ? '\u2193' : '';
       ctx.font = 'bold 11px "JetBrains Mono","Courier New",monospace';
