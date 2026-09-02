@@ -1,0 +1,202 @@
+{
+  "groups": {
+    "zones": {
+      "levels": 576,
+      "touched": 153,
+      "touch_rate": 0.2656,
+      "median_dwell_minutes": 450,
+      "mean_dwell_minutes": 518.5,
+      "returned_rate": 0.549,
+      "slowdown_ratio": 0.868
+    },
+    "random": {
+      "levels": 576,
+      "touched": 383,
+      "touch_rate": 0.6649,
+      "median_dwell_minutes": 465,
+      "mean_dwell_minutes": 515.0,
+      "returned_rate": 0.5379,
+      "slowdown_ratio": 0.854
+    },
+    "round": {
+      "levels": 576,
+      "touched": 510,
+      "touch_rate": 0.8854,
+      "median_dwell_minutes": 502,
+      "mean_dwell_minutes": 571.4,
+      "returned_rate": 0.6216,
+      "slowdown_ratio": 0.854
+    }
+  },
+  "thresholds": {
+    ">=15min": {
+      "zones": {
+        "rate": 1.0,
+        "hits": 153,
+        "n": 153,
+        "ci95": [
+          0.9755,
+          1.0
+        ]
+      },
+      "random": {
+        "rate": 1.0,
+        "hits": 383,
+        "n": 383,
+        "ci95": [
+          0.9901,
+          1.0
+        ]
+      },
+      "round": {
+        "rate": 1.0,
+        "hits": 510,
+        "n": 510,
+        "ci95": [
+          0.9925,
+          1.0
+        ]
+      },
+      "p_zones_vs_random": 1.0,
+      "p_zones_vs_round": 1.0
+    },
+    ">=30min": {
+      "zones": {
+        "rate": 0.9804,
+        "hits": 150,
+        "n": 153,
+        "ci95": [
+          0.9439,
+          0.9933
+        ]
+      },
+      "random": {
+        "rate": 0.9478,
+        "hits": 363,
+        "n": 383,
+        "ci95": [
+          0.9207,
+          0.9659
+        ]
+      },
+      "round": {
+        "rate": 0.9725,
+        "hits": 496,
+        "n": 510,
+        "ci95": [
+          0.9545,
+          0.9836
+        ]
+      },
+      "p_zones_vs_random": 0.092457,
+      "p_zones_vs_round": 0.590359
+    },
+    ">=60min": {
+      "zones": {
+        "rate": 0.9085,
+        "hits": 139,
+        "n": 153,
+        "ci95": [
+          0.8523,
+          0.9447
+        ]
+      },
+      "random": {
+        "rate": 0.8903,
+        "hits": 341,
+        "n": 383,
+        "ci95": [
+          0.8551,
+          0.9178
+        ]
+      },
+      "round": {
+        "rate": 0.9157,
+        "hits": 467,
+        "n": 510,
+        "ci95": [
+          0.8884,
+          0.9368
+        ]
+      },
+      "p_zones_vs_random": 0.534813,
+      "p_zones_vs_round": 0.78083
+    },
+    ">=120min": {
+      "zones": {
+        "rate": 0.8497,
+        "hits": 130,
+        "n": 153,
+        "ci95": [
+          0.7845,
+          0.8977
+        ]
+      },
+      "random": {
+        "rate": 0.7963,
+        "hits": 305,
+        "n": 383,
+        "ci95": [
+          0.7532,
+          0.8336
+        ]
+      },
+      "round": {
+        "rate": 0.851,
+        "hits": 434,
+        "n": 510,
+        "ci95": [
+          0.8175,
+          0.8793
+        ]
+      },
+      "p_zones_vs_random": 0.153904,
+      "p_zones_vs_round": 0.968261
+    },
+    ">=240min": {
+      "zones": {
+        "rate": 0.719,
+        "hits": 110,
+        "n": 153,
+        "ci95": [
+          0.643,
+          0.7841
+        ]
+      },
+      "random": {
+        "rate": 0.6815,
+        "hits": 261,
+        "n": 383,
+        "ci95": [
+          0.6332,
+          0.7261
+        ]
+      },
+      "round": {
+        "rate": 0.7275,
+        "hits": 371,
+        "n": 510,
+        "ci95": [
+          0.6872,
+          0.7643
+        ]
+      },
+      "p_zones_vs_random": 0.395739,
+      "p_zones_vs_round": 0.836359
+    }
+  },
+  "significance": {
+    "returned_p": 0.814846
+  },
+  "meta": {
+    "source": "yfinance GC=F (H1 2y для зон, M15 60d для замеров; ПРОКСИ, не спот брокера)",
+    "generated_at": "2026-09-02T21:57:42.484718+00:00",
+    "horizon_hours": 48,
+    "m15_bars": 4601,
+    "min_zone_score": 11,
+    "nearest_zone_pips": [
+      200.0,
+      300.0
+    ]
+  }
+}
