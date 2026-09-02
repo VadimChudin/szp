@@ -206,12 +206,21 @@ def calculate_and_export_zones(refresh_data: bool = True):
     # ── Active H4 snapshot ───────────────────────────────────────────
     # Архивная БД обновляется для истории, но displayed zones живут в
     # incremental snapshot: для того же H4 bar список не пересоздаётся.
-    try:
-        from persistent_zones import process_persistent_zones
-        process_persistent_zones(zones, data)
-    except Exception as e:
-        print(f"[bridge] WARN: Could not update persistent archive: {e}")
-    zones = update_snapshot(zones, data)
+    if config.USE_ZONE_LADDER:
+        try:
+            from persistent_zones import process_persistent_zones
+            process_persistent_zones(zones, data)
+        except Exception as e:
+            print(f"[bridge] WARN: Could not update persistent archive: {e}")
+        zones = update_snapshot(zones, data)
+    else:
+        # Поведение старой версии: без лестницы и слотов 3+3 — топ по score,
+        # сжигание пробитых зон, историчные показываются тусклее (HIST).
+        from persistent_zones import process_legacy_zones
+        zones = process_legacy_zones(zones, data)
+        print(f"[bridge] Legacy zone mode: {len(zones)} zones "
+              f"(лимит {config.MAX_ZONES_ON_CHART}, коридор "
+              f"{config.MAX_ZONE_DISTANCE_PIPS:.0f} пипсов)")
 
     # ── Единые зоны на всех брокерах: валидация/канон по Dukascopy + оффсет ──
     # У разных брокеров цена XAU/USD отличается на оффсет, поэтому одни и те же

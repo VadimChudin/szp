@@ -2,6 +2,8 @@ import json
 
 import pandas as pd
 
+import pytest
+
 import config
 from active_zones import update_snapshot
 from zone_detector import Zone
@@ -16,6 +18,15 @@ def z(price, score):
 
 
 PRICE = 4000.0
+
+
+@pytest.fixture(autouse=True)
+def _wide_corridor(monkeypatch):
+    """Лестница 3+3 теперь опциональна (USE_ZONE_LADDER), а рабочий коридор
+    сжат до 300 пипсов. Эти тесты проверяют именно логику слотов, поэтому
+    коридор расширяем локально — иначе синтетические зоны отсекаются по
+    расстоянию и тест проверяет не то, что задумано."""
+    monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 200.0)
 # Смещения в пределах диапазона показа (0..MAX_ZONE_DISTANCE), кратные и различимые.
 OFFS = [20.0, 40.0, 60.0, 80.0]
 

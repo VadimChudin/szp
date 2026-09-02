@@ -8,11 +8,24 @@ from __future__ import annotations
 import pandas as pd
 
 import active_zones
+import pytest
+
 import config
 from zone_detector import Zone
 
 
 PRICE = 4000.00
+
+@pytest.fixture(autouse=True)
+def _wide_corridor(monkeypatch, request):
+    """Лестница 3+3 теперь опциональна (USE_ZONE_LADDER), а рабочий коридор
+    сжат до 300 пипсов. Эти тесты проверяют именно логику слотов, поэтому
+    коридор расширяем локально — иначе синтетические зоны отсекаются по
+    расстоянию и тест проверяет не то, что задумано."""
+    if request.node.name == "test_range_config_is_sane":
+        return          # этот тест проверяет сами значения конфига, не слоты
+    monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 200.0)
+
 
 
 def _h4_frame(price: float = PRICE) -> dict:

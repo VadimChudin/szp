@@ -163,3 +163,88 @@ def process_persistent_zones(current_zones: list[Zone], all_data: dict[str, pd.D
     historic.sort(key=lambda z: z.score, reverse=True)
 
     return (fresh + historic)[:config.MAX_ZONES_ON_CHART]
+
+
+def _legacy_h4_bodies(all_data: dict[str, pd.DataFrame]) -> list[tuple[float, float]]:
+    """(open, close) последних H4 свечей — как в старой версии, ровно 15 штук."""
+    if "H4" in all_data and not all_data["H4"].empty:
+        tail = all_data["H4"].tail(config.LEGACY_BREAKOUT_LOOKBACK)
+        return list(zip(tail["open"], tail["close"]))
+    return []
+
+
+def process_legacy_zones(current_zones: list[Zone],
+                         all_data: dict[str, pd.DataFrame]) -> list[Zone]:
+    """Жизненный цикл зон как в старой версии (та, что нравилась клиенту).
+
+    Отличия от текущего пути:
+      • нет лестницы по расстоянию и нет слотов 3+3 — просто топ по score;
+      • зона «сгорает» после LEGACY_BREAKOUT_MIN пробоев телом H4 среди
+        последних LEGACY_BREAKOUT_LOOKBACK свечей;
+      • возрастного истечения нет: зона живёт, пока её не пробили;
+      • архивные зоны, которых нет в свежем наборе, показываются с пометкой
+        HIST и ослабленным score — на графике они выглядят тусклее;
+      • итог сортируется по score и режется до MAX_ZONES_ON_CHART.
+    """
+    db_zones = load_db()
+
+    # 1. Сильные зоны уходят в архив («титаники»).
+    for cz in current_zones:
+        if cz.score < config.LEGACY_ARCHIVE_MIN_SCORE:
+            continue
+        merged = False
+        for dz in db_zones:
+            if abs(cz.price - dz.price) <= config.ZONE_WIDTH * 2:
+                if cz.score >= dz.score:
+                    dz.score = cz.score
+                    dz.sources = cz.sources
+                    dz.touch_count = cz.touch_count
+                    dz.has_big_player = cz.has_big_player
+                    dz.label_suffix = cz.label_suffix
+                dz.archived_at = datetime.now().isoformat()
+                merged = True
+                break
+        if not merged:
+            archived = copy.deepcopy(cz)
+            archived.archived_at = datetime.now().isoformat()
+            db_zones.append(archived)
+            print(f"[persistent] New Titanic Zone archived: ${cz.price:.2f} (S: {cz.score})")
+
+    # 2. Сжигание пробитых зон.
+    h4_bodies = _legacy_h4_bodies(all_data)
+    valid_db_zones = []
+    for dz in db_zones:
+        breakouts = 0
+        for op, cl in h4_bodies:
+            zone_top = dz.top + dz.width * 2
+            zone_bottom = dz.bottom - dz.width * 2
+            if op < zone_bottom and cl > zone_top:
+                breakouts += 1
+            elif op > zone_top and cl < zone_bottom:
+                breakouts += 1
+        if breakouts >= config.LEGACY_BREAKOUT_MIN:
+            print(f"[persistent] Zone at ${dz.price:.2f} burned "
+                  f"(broken {breakouts} times by H4)")
+            continue
+        valid_db_zones.append(dz)
+    save_db(valid_db_zones)
+
+    # 3. Свежие зоны + архивные, которых нет среди свежих.
+    final_output: list[Zone] = list(current_zones)
+    for dz in valid_db_zones:
+        if any(abs(cz.price - dz.price) <= config.ZONE_WIDTH * 2 for cz in final_output):
+            continue
+        historic = copy.deepcopy(dz)
+        historic.label_suffix = " HIST"
+        historic.score = max(config.LEGACY_HIST_SCORE_FLOOR,
+                             historic.score - config.LEGACY_HIST_SCORE_PENALTY)
+        final_output.append(historic)
+
+    # 4. Коридор отображения: от 0 и не дальше MAX_ZONE_DISTANCE_PIPS.
+    price = get_current_price(all_data)
+    if price:
+        final_output = [z for z in final_output
+                        if abs(z.price - price) <= config.MAX_ZONE_DISTANCE]
+
+    final_output.sort(key=lambda z: z.score, reverse=True)
+    return final_output[:config.MAX_ZONES_ON_CHART]

@@ -13,7 +13,13 @@ def test_mt4_mt5_cap_active_json_at_six():
         assert "currentZoneCount < 6" in source
         assert "currentZoneCount < 20" not in source
         assert "zoneFallback" in source
-        assert "ZoneColorFallback" in source
+        # Цвет зоны теперь градацией по силе (как в старой версии): сильные
+        # ярко-красные, слабые и историчные — тусклее. Инпуты переименованы,
+        # чтобы старые значения из профиля графика не оживали.
+        assert "ZoneColorHigh" in source
+        assert "ZoneColorMid" in source
+        assert "ZoneColorLow" in source
+        assert "ZoneColorStrong" not in source.replace("ZoneColorStrong=clrGold", "")
 
 
 def test_active_zone_drawers_use_horizontal_lines_not_rectangle_ranges():

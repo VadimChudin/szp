@@ -18,11 +18,13 @@
 //--- Настройки (Input Parameters) ------------------------------------
 input string   ZonesFilePath    = "zones_output.json";   // Имя файла с зонами (в Common/Files)
 input int      RefreshSeconds   = 10;         // Интервал обновления (сек)
-input color    ZoneColorStrong  = clrGold;        // Цвет сильных зон (Score >= 11)
-input color    ZoneColorMedium  = C'200,170,60';  // Цвет средних зон
-input color    ZoneColorWeak    = C'120,110,80';  // Цвет слабых зон
-input color    ZoneColorFallback = clrTomato;      // Сомнительный fallback-уровень
-input color    ZoneColor        = clrRed;          // Единый цвет всех зон
+// Градация как в старой версии, которая нравилась клиенту: все зоны красные,
+// но чем слабее уровень — тем тусклее линия. Инпуты переименованы намеренно:
+// терминал хранит значения в профиле графика, и старый ZoneColorStrong=clrGold
+// оживал после обновления сборки, делая сильные зоны золотыми.
+input color    ZoneColorHigh    = clrRed;            // Сильная зона (score >= 9)
+input color    ZoneColorMid     = C'255,77,77';       // Средняя зона (score 7-8)
+input color    ZoneColorLow     = C'255,153,153';     // Слабая / историчная (HIST)
 input int      ZoneLineWidth    = 2;          // Толщина линии
 // Параметр переименован из ShowLabels: терминал хранит значения инпутов в
 // профиле графика, и у клиентов оставался ShowLabels=false из старой сборки —
@@ -565,9 +567,13 @@ void DrawSingleZone(int index)
    bool  fallback = zoneFallback[index];
    string reaction    = zoneReaction[index];
    string reactionDir = zoneReactionDir[index];
-   // Цвет всегда один (ZoneColor). Раскраска по реакции удалена: она давала
-   // clrLimeGreen на BOUNCE, и при смене реакции линия мигала красным/зелёным.
-   color zoneColor = ZoneColor;
+   // Цвет по силе уровня (как в старой версии): ярко-красный у сильных,
+   // тусклее у слабых и историчных (HIST приходит с пониженным score).
+   // Раскраска по РЕАКЦИИ удалена — именно она давала мигание красным/зелёным.
+   color zoneColor = score >= 9 ? ZoneColorHigh
+                   : score >= 7 ? ZoneColorMid
+                                : ZoneColorLow;
+   if(fallback) zoneColor = ZoneColorLow;
    int   lineWidth = score >= 11 ? ZoneLineWidth + 1
                    : score >= 9  ? ZoneLineWidth
                                  : MathMax(1, ZoneLineWidth - 1);

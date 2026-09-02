@@ -134,7 +134,19 @@ ROUND_LEVEL_STEP = 50.0          # Шаг круглого уровня ($50 д�
 # чтобы установленная сборка не возвращалась к несимметричному списку.
 ZONES_PER_SIDE = _env_int("ZONES_PER_SIDE", 3)
 MIN_ZONES_PER_SIDE = ZONES_PER_SIDE
-MAX_ZONES_ON_CHART = ZONES_PER_SIDE * 2
+# Клиент попросил вернуть поведение старой версии: никакой лестницы по
+# расстоянию, просто сильнейшие зоны (топ по score), слабые — тусклее.
+# Лестница остаётся в коде и включается флагом, чтобы можно было вернуться.
+USE_ZONE_LADDER = _env_bool("USE_ZONE_LADDER", False)
+# Жизненный цикл зон как в старой версии: сжигание после N пробоев телом H4,
+# историчные зоны помечаются HIST и слабеют, без возрастного истечения.
+LEGACY_ZONE_LIFECYCLE = _env_bool("LEGACY_ZONE_LIFECYCLE", True)
+LEGACY_BREAKOUT_LOOKBACK = _env_int("LEGACY_BREAKOUT_LOOKBACK", 15)  # последние H4 свечи
+LEGACY_BREAKOUT_MIN = _env_int("LEGACY_BREAKOUT_MIN", 2)             # пробоев для сжигания
+LEGACY_ARCHIVE_MIN_SCORE = _env_int("LEGACY_ARCHIVE_MIN_SCORE", 12)  # «титаник»-зоны в архив
+LEGACY_HIST_SCORE_PENALTY = _env_int("LEGACY_HIST_SCORE_PENALTY", 2) # насколько слабеет HIST
+LEGACY_HIST_SCORE_FLOOR = _env_int("LEGACY_HIST_SCORE_FLOOR", 8)     # ниже не опускаем
+MAX_ZONES_ON_CHART = _env_int("MAX_ZONES_ON_CHART", ZONES_PER_SIDE * 2)
 
 # ── Полоса отображения зон (главное требование клиента) ─────────────────────
 # Раньше отбор шёл ТОЛЬКО по score: расстояние от цены не ограничивалось ни
@@ -200,7 +212,9 @@ DUKA_DAYS = _env_int("DUKA_DAYS", 5)
 # Показываем сильные зоны в пределах 0…MAX_ZONE_DISTANCE_PIPS пунктов от цены,
 # В ОБЕ стороны, начиная от самых близких. Никакой «лестницы» с минимальным
 # отступом — близкие к цене зоны (напр. 4786 в $1 от цены) обязаны показываться.
-MAX_ZONE_DISTANCE_PIPS = _env_float("MAX_ZONE_DISTANCE_PIPS", 900.0)   # ~$90 при 0.1$/pip
+# Договорённость с клиентом: зона может стоять от 0 (вплотную к цене) и не
+# дальше 300 пипсов. Нижней границы нет — именно она прятала близкие уровни.
+MAX_ZONE_DISTANCE_PIPS = _env_float("MAX_ZONE_DISTANCE_PIPS", 300.0)   # ~$30 при 0.1$/pip
 MAX_ZONE_DISTANCE = MAX_ZONE_DISTANCE_PIPS * PIP_SIZE
 
 # ── Реакция цены на зону (zone_reaction.py) ────────────────────────────────
