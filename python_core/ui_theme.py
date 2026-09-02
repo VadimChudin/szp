@@ -15,26 +15,26 @@ import tkinter as tk
 # ── Палитра ────────────────────────────────────────────────────────────
 CHROMA        = "#ff00ff"          # цвет-ключ для прозрачных углов (Windows)
 
-BG_BASE       = "#070b12"          # фон «пустоты» вокруг карточки
-CARD_TOP      = "#182330"          # верхний слой стеклянной панели
-CARD_BOT      = "#0d151f"          # базовый слой панели
-CARD_FLAT     = "#111c28"          # нейтральная стеклянная карточка
-CARD_HI       = "#1b2a39"          # активная карточка / hover
-FIELD_BG      = "#09121c"          # фон полей ввода
-STROKE        = "#2a4054"          # видимая граница стекла
-STROKE_SOFT   = "#1b2b3a"          # мягкая граница
+BG_BASE       = "#000000"          # фон «пустоты» вокруг карточки (Apple black)
+CARD_TOP      = "#2c2c2e"          # верхний слой панели
+CARD_BOT      = "#1c1c1e"          # базовый слой панели
+CARD_FLAT     = "#242426"          # нейтральная карточка
+CARD_HI       = "#3a3a3c"          # активная карточка / hover
+FIELD_BG      = "#1c1c1e"          # фон полей ввода
+STROKE        = "#3a3a3c"          # видимая граница
+STROKE_SOFT   = "#2c2c2e"          # мягкая граница
 
-TXT           = "#f4f8fb"          # основной текст
-TXT_DIM       = "#9aabb9"          # вторичный текст
-TXT_MUTE      = "#607688"          # подписи секций
-ACCENT        = "#b8f35a"          # основной акцент
-ACCENT_DK     = "#d0ff78"          # hover-акцент
-ACCENT_GLOW   = "#496e2b"          # мягкое свечение
-ACCENT_TXT    = "#0a1309"          # текст на ярком акценте
-AQUA          = "#77e4d0"          # вторичный glass-акцент
-GOLD          = "#f3c969"          # редкий акцент для POC/важных значений
-OK            = "#8ee6b0"
-BAD           = "#ff7186"
+TXT           = "#f5f5f7"          # основной текст
+TXT_DIM       = "#aeaeb2"          # вторичный текст
+TXT_MUTE      = "#8e8e93"          # подписи секций
+ACCENT        = "#0a84ff"          # основной акцент (Apple systemBlue)
+ACCENT_DK     = "#409cff"          # hover-акцент
+ACCENT_GLOW   = "#0a3a66"          # мягкое свечение
+ACCENT_TXT    = "#ffffff"          # текст на ярком акценте
+AQUA          = "#64d2ff"          # вторичный акцент
+GOLD          = "#ffd60a"          # редкий акцент (Apple systemYellow)
+OK            = "#30d158"          # Apple systemGreen
+BAD           = "#ff453a"          # Apple systemRed
 
 FONT          = "Segoe UI"
 FONT_MONO     = "Cascadia Mono"

@@ -33,6 +33,7 @@ input bool     ShowScoreBadge   = false;      // Бейдж со скором
 input bool     ShowSL           = false;      // Уровни SL Pool (по умолчанию выкл.)
 input bool     ShowGradient     = false;      // Градиентная визуализация (выкл. по умолчанию)
 input int      GradientLayers   = 5;          // Кол-во слоёв градиента
+input bool     EnableIndicator  = true;       // Включить/выключить индикатор целиком
 input bool     EnableAlerts     = true;       // Алерты при касании зоны
 input double   AlertDistance    = 5.0;        // Расстояние для алерта ($)
 input bool     ShowReaction     = false;      // (выкл) Красить зоны по реакции; клиент хочет ВСЕ зоны красными
@@ -124,6 +125,11 @@ int OnInit()
    // индикатора, «мигают» до первой успешной загрузки JSON.
    DeleteAllZoneObjects();
    DeleteAccumulationObjects();
+   if(!EnableIndicator)
+   {
+      Print("[SmartZones MT5] Disabled (EnableIndicator=false)");
+      return(INIT_SUCCEEDED);
+   }
    EventSetTimer(RefreshSeconds);
    LoadZonesFromFile();
    AutoFitChartToZones();

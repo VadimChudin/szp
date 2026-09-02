@@ -31,6 +31,7 @@ input bool     ShowPriceLabels  = true;      // Показывать тольк�
 input bool     ShowRectangles   = false;      // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;     // Показывать бейдж со скором зоны
 input bool     ShowSL           = false;     // Уровни SL Pool (по умолчанию выкл.)
+input bool     EnableIndicator  = true;      // Включить/выключить индикатор целиком
 input bool     EnableAlerts     = true;      // Алерты при касании зоны
 input double   AlertDistance    = 5.0;       // Расстояние до зоны для алерта ($)
 input bool     ShowReaction     = false;      // (выкл) Красить зоны по реакции; клиент хочет ВСЕ зоны красными
@@ -128,6 +129,12 @@ int OnInit()
    // индикатора, «мигают» до первой успешной загрузки JSON.
    DeleteAllZoneObjects();
    DeleteAccumulationObjects();
+
+   if(!EnableIndicator)
+   {
+      Print("[SmartZones] Disabled (EnableIndicator=false)");
+      return(INIT_SUCCEEDED);
+   }
 
    // Таймер для периодического обновления
    EventSetTimer(RefreshSeconds);

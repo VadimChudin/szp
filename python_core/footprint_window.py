@@ -97,14 +97,14 @@ HTML = """<!DOCTYPE html>
 <style>
 /* ── Liquid Glass theme ──────────────────────────────────────────── */
 :root{
-  --accent:#b8f35a; --accent-dk:#d0ff78;
-  --accent-soft:rgba(184,243,90,0.14); --accent-glow:rgba(184,243,90,0.28);
-  --aqua:#77e4d0; --gold:#f3c969;
-  --panel:#0d151f; --panel-hi:#1b2a39; --card:#111c28;
-  --glass:rgba(177,214,235,0.055); --glass-strong:rgba(177,214,235,0.10);
-  --stroke:rgba(167,207,231,0.16); --stroke-soft:rgba(167,207,231,0.08);
-  --txt:#f4f8fb; --txt-dim:#9aabb9; --txt-mute:#607688;
-  --ok:#8ee6b0; --bad:#ff7186;
+  --accent:#0a84ff; --accent-dk:#409cff;
+  --accent-soft:rgba(10,132,255,0.14); --accent-glow:rgba(10,132,255,0.30);
+  --aqua:#64d2ff; --gold:#ffd60a;
+  --panel:#1c1c1e; --panel-hi:#2c2c2e; --card:#242426;
+  --glass:rgba(255,255,255,0.045); --glass-strong:rgba(255,255,255,0.09);
+  --stroke:rgba(255,255,255,0.12); --stroke-soft:rgba(255,255,255,0.06);
+  --txt:#f5f5f7; --txt-dim:#aeaeb2; --txt-mute:#8e8e93;
+  --ok:#30d158; --bad:#ff453a;
 }
 * { margin:0; padding:0; box-sizing:border-box; user-select:none;
     -webkit-font-smoothing:antialiased; }
@@ -112,16 +112,16 @@ button, input { font:inherit; }
 button:focus-visible, input:focus-visible { outline:2px solid var(--aqua); outline-offset:2px; }
 body {
   overflow:hidden; color:var(--txt);
-  font-family:'Inter','SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Inter','Segoe UI',Roboto,sans-serif;
   background:
-    radial-gradient(900px 560px at 4% -12%, rgba(119,228,208,0.10), transparent 58%),
-    radial-gradient(760px 520px at 98% 2%, rgba(184,243,90,0.07), transparent 58%),
-    linear-gradient(145deg,#070b12 0%,#0b141e 52%,#091019 100%);
+    radial-gradient(1000px 600px at 6% -10%, rgba(10,132,255,0.10), transparent 60%),
+    radial-gradient(820px 520px at 98% 0%, rgba(100,210,255,0.06), transparent 60%),
+    #000000;
 }
 #toolbar {
   height:54px; display:flex; align-items:center; gap:8px;
   padding:0 16px; font-size:13px; position:relative; z-index:5;
-  background:linear-gradient(180deg,rgba(22,38,51,0.78),rgba(10,22,33,0.68));
+  background:rgba(28,28,30,0.72); backdrop-filter:saturate(180%) blur(20px); -webkit-backdrop-filter:saturate(180%) blur(20px);
   backdrop-filter:blur(24px) saturate(150%);
   -webkit-backdrop-filter:blur(24px) saturate(150%);
   border-bottom:1px solid var(--stroke);
@@ -421,24 +421,10 @@ function draw() {
 
     const score = z.score || 0;
 
-    // Цвет: лаймово-зелёный по умолчанию (акцент бренда),
-    // bull/bear оттенки если есть лейбл.
-    let bgFill   = 'rgba(184,243,90,0.10)';
-    let edgeCol  = 'rgba(184,243,90,0.58)';
-    let textCol2 = '#c8f77a';
-    if (z.is_fallback) {
-      bgFill   = 'rgba(239,117,132,0.10)';
-      edgeCol  = 'rgba(239,117,132,0.82)';
-      textCol2 = '#ff9aa8';
-    } else if (z.label && z.label.includes('Bull')) {
-      bgFill   = 'rgba(95,224,190,0.13)';
-      edgeCol  = 'rgba(95,224,190,0.72)';
-      textCol2 = '#78e8ca';
-    } else if (z.label && z.label.includes('Bear')) {
-      bgFill   = 'rgba(239,117,132,0.13)';
-      edgeCol  = 'rgba(239,117,132,0.72)';
-      textCol2 = '#ff9aa8';
-    }
+    // Клиент: ВСЕ зоны красные (Apple systemRed). Никакой цветовой иерархии.
+    let bgFill   = 'rgba(255,59,48,0.10)';
+    let edgeCol  = 'rgba(255,59,48,0.85)';
+    let textCol2 = '#ff6961';
 
     // Одна тонкая линия вместо прямоугольного диапазона.
     ctx.strokeStyle = edgeCol;
@@ -475,6 +461,17 @@ function draw() {
     ctx.stroke();
     ctx.fillStyle = textCol2;
     ctx.fillText(label, badgeX + badgeW - padX, badgeY + badgeH / 2);
+
+    // Метка «ЗАКРЕП» — цена закрылась и удержалась за зоной (reaction на H1).
+    if (z.reaction && z.reaction.type === 'BREAKOUT') {
+      const zkArrow = z.reaction.direction === 'UP' ? '\u2191'
+                    : z.reaction.direction === 'DOWN' ? '\u2193' : '';
+      ctx.font = 'bold 11px "JetBrains Mono","Courier New",monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffd60a';
+      ctx.fillText('ZAKREP ' + zkArrow, ml + 10, zy - 9);
+    }
 
     // Possible SL is shown as a separate structural liquidity line.
     if (z.sl && z.sl.price !== undefined) {
