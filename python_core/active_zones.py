@@ -135,10 +135,8 @@ def _slot_window(index: int) -> tuple[float, float]:
 
 
 def _in_display_band(zone: Zone, price: float) -> bool:
-    """Зона внутри полосы отображения: не вплотную к цене и не за горизонтом."""
-    distance = _distance(zone, price)
-    nearest_low, _ = _slot_window(0)
-    return nearest_low <= distance <= config.ZONE_BAND_OUTER_MAX
+    """Зона в пределах максимальной дистанции показа (0..MAX_ZONE_DISTANCE)."""
+    return _distance(zone, price) <= config.MAX_ZONE_DISTANCE
 
 
 def _mark_display(zone: Zone, side: str, h4: str, new: bool = False) -> None:
@@ -197,7 +195,12 @@ def _candidate_pool(candidates: Iterable[Zone]) -> list[Zone]:
 
 def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
                  price: float, h4: str) -> list[Zone]:
-    slots = config.MIN_ZONES_PER_SIDE
+    """Ближайшие сильные зоны на стороне в пределах MAX_ZONE_DISTANCE.
+
+    Никакой «лестницы» с минимальным отступом: клиент хочет видеть зоны близко
+    к цене (напр. 4786 в $1). Отбор — по близости к цене, до ZONES_PER_SIDE штук.
+    """
+    slots = config.ZONES_PER_SIDE
     current = [zone for zone in existing if _side(zone, price) == side]
     candidates = [zone for zone in candidates if _side(zone, price) == side]
 
@@ -215,8 +218,7 @@ def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
             append_event("zone_strengthened", match, h4)
         _mark_display(match, side, h4)
 
-    # Зона, вышедшая из полосы отображения (цена ушла далеко или уровень оказался
-    # вплотную к цене), снимается с графика: клиент должен видеть только ренж.
+    # Зона, ушедшая за пределы диапазона показа, снимается с графика.
     in_band: list[Zone] = []
     for zone in current:
         if _in_display_band(zone, price):
@@ -229,62 +231,28 @@ def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
     visible_ids = {id(zone) for zone in current}
     pool = current + [zone for zone in unmatched if _in_display_band(zone, price)]
 
-    # Лестница строится ОТНОСИТЕЛЬНО предыдущей выбранной зоны, а не по
-    # фиксированным окнам от цены. Абсолютные окна давали жадный перекос: слот
-    # хватал дальний край своего диапазона, и ближняя полоса оставалась пустой.
-    # Относительный шаг самокорректируется, когда реальных теней в окне нет.
-    min_gap = config.ZONE_GAP_MIN * (1.0 - config.ZONE_BAND_TOLERANCE)
-    near_slack = (config.ZONE_NEAREST_MAX - config.ZONE_NEAREST_MIN) * config.ZONE_BAND_TOLERANCE
-    gap_slack = (config.ZONE_GAP_MAX - config.ZONE_GAP_MIN) * config.ZONE_BAND_TOLERANCE
-    chosen: list[Zone] = []
-    previous = 0.0
+    # Склейка близких уровней: в кластере оставляем самый сильный.
+    deduped: list[Zone] = []
+    for zone in sorted(pool, key=lambda z: (-z.score, _distance(z, price))):
+        if any(_same_zone(zone, kept) for kept in deduped):
+            continue
+        deduped.append(zone)
 
-    for index in range(slots):
-        if index == 0:
-            low = max(config.ZONE_NEAREST_MIN - near_slack, 0.0)
-            high = config.ZONE_NEAREST_MAX + near_slack
-            ideal = (config.ZONE_NEAREST_MIN + config.ZONE_NEAREST_MAX) / 2.0
-            floor_distance = 0.0
-        else:
-            low = previous + config.ZONE_GAP_MIN - gap_slack
-            high = previous + config.ZONE_GAP_MAX + gap_slack
-            ideal = previous + (config.ZONE_GAP_MIN + config.ZONE_GAP_MAX) / 2.0
-            floor_distance = previous + min_gap
+    # Отбор по БЛИЗОСТИ к цене — ближайшие зоны важнее дальних.
+    deduped.sort(key=lambda z: _distance(z, price))
+    chosen = deduped[:slots]
 
-        def _gap_ok(zone: Zone) -> bool:
-            return all(abs(zone.price - taken.price) >= min_gap for taken in chosen)
-
-        preferred = [zone for zone in pool
-                     if low <= _distance(zone, price) <= high and _gap_ok(zone)]
-        # «Примерно там»: если в окне шага теней нет, берём ближайший доступный
-        # уровень, не нарушая минимальный шаг и внешнюю границу полосы.
-        relaxed = [zone for zone in pool
-                   if _distance(zone, price) >= floor_distance and _gap_ok(zone)]
-        eligible = preferred or relaxed
-        if not eligible:
-            break
-
-        # Уже видимая зона удерживает слот — иначе состав дёргался бы на каждом H4.
-        eligible.sort(key=lambda zone: (
-            0 if id(zone) in visible_ids else 1,
-            abs(_distance(zone, price) - ideal),
-            -zone.score,
-        ))
-        pick = eligible[0]
-        pool = [zone for zone in pool if id(zone) != id(pick)]
+    for pick in chosen:
         if id(pick) in visible_ids:
             _mark_display(pick, side, h4)
         else:
             _mark_display(pick, side, h4, new=True)
-            append_event("zone_added", pick, h4, slot=index,
-                         relaxed=not preferred)
-        chosen.append(pick)
-        previous = _distance(pick, price)
+            append_event("zone_added", pick, h4)
 
     chosen_ids = {id(zone) for zone in chosen}
     for dropped in current:
         if id(dropped) not in chosen_ids:
-            append_event("zone_demoted", dropped, h4, reason="band_slot_limit")
+            append_event("zone_demoted", dropped, h4, reason="range_slot_limit")
 
     return sorted(chosen, key=lambda zone: _distance(zone, price))
 

@@ -243,8 +243,11 @@ def classify_reaction(
 
 
 def classify_zone(zone, data: dict) -> ReactionResult:
-    """Обёртка для объекта Zone и словаря данных {tf: DataFrame}."""
-    tf = _cfg("PRIMARY_TIMEFRAME", "H4")
+    """Обёртка для объекта Zone и словаря данных {tf: DataFrame}.
+
+    Таймфрейм закрепа берётся из config.REACTION_TIMEFRAME (клиент смотрит H1).
+    """
+    tf = _cfg("REACTION_TIMEFRAME", None) or _cfg("PRIMARY_TIMEFRAME", "H4")
     df = data.get(tf)
     if df is None or (hasattr(df, "empty") and df.empty):
         for alt in ("H1", "H4", "D1"):

@@ -36,6 +36,7 @@ input int      GradientLayers   = 5;          // Кол-во слоёв град
 input bool     EnableAlerts     = true;       // Алерты при касании зоны
 input double   AlertDistance    = 5.0;        // Расстояние для алерта ($)
 input bool     ShowReaction     = false;      // (выкл) Красить зоны по реакции; клиент хочет ВСЕ зоны красными
+input bool     ShowZakrep       = true;       // Пометка/алерт «ЗАКРЕП за зоной» (H1 закрытие и удержание за уровнем)
 input color    ReactionBounceColor        = clrLimeGreen;  // Отскок (BOUNCE)
 input color    ReactionBreakoutColor      = clrRed;        // Пробой (BREAKOUT)
 input color    ReactionConsolidationColor = clrOrange;     // Консолидация (CONSOLIDATION)
@@ -479,6 +480,22 @@ void DrawSingleZone(int index)
    }
 
    // ── 3b. Бейдж со скором зоны ──────────────────────────────────────
+   // ── 3z. Пометка «ЗАКРЕП за зоной» (H1 закрытие и удержание за уровнем) ──
+   if(ShowZakrep && reaction == "BREAKOUT")
+   {
+      string zkName = baseName + "_zakrep";
+      datetime zkTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 8;
+      string zkArrow = reactionDir == "UP" ? "^" : reactionDir == "DOWN" ? "v" : "";
+      ObjectCreate(0, zkName, OBJ_TEXT, 0, zkTime, price);
+      ObjectSetString(0, zkName, OBJPROP_TEXT, "ZAKREP " + zkArrow);
+      ObjectSetInteger(0, zkName, OBJPROP_COLOR, clrYellow);
+      ObjectSetString(0, zkName, OBJPROP_FONT, "Arial Bold");
+      ObjectSetInteger(0, zkName, OBJPROP_FONTSIZE, 10);
+      ObjectSetInteger(0, zkName, OBJPROP_ANCHOR, ANCHOR_LEFT);
+      ObjectSetInteger(0, zkName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, zkName, OBJPROP_HIDDEN, true);
+   }
+
    if(ShowScoreBadge)
    {
       string badgeName = baseName + "_badge";

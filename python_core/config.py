@@ -184,11 +184,20 @@ FALLBACK_MIN_ZONE_SCORE = _env_int("FALLBACK_MIN_ZONE_SCORE", 7)
 # Клиент: «алгоритм должен только находить сильные зоны; если их нет — не строить».
 STRONG_ZONES_ONLY = _env_bool("STRONG_ZONES_ONLY", True)
 
+# ── Диапазон отображения зон (требование клиента) ──────────────────────────
+# Показываем сильные зоны в пределах 0…MAX_ZONE_DISTANCE_PIPS пунктов от цены,
+# В ОБЕ стороны, начиная от самых близких. Никакой «лестницы» с минимальным
+# отступом — близкие к цене зоны (напр. 4786 в $1 от цены) обязаны показываться.
+MAX_ZONE_DISTANCE_PIPS = _env_float("MAX_ZONE_DISTANCE_PIPS", 900.0)   # ~$90 при 0.1$/pip
+MAX_ZONE_DISTANCE = MAX_ZONE_DISTANCE_PIPS * PIP_SIZE
+
 # ── Реакция цены на зону (zone_reaction.py) ────────────────────────────────
 # Классификация: отскок / консолидация / пробой. Пороги в единицах ATR,
 # чтобы фильтровать шум (идея из pymarket-structure), пробой — по закрытию
 # за уровень (идея из neurotrader888).
 REACTION_ENABLED = _env_bool("REACTION_ENABLED", True)
+# Таймфрейм для «закрепа» за зоной: клиент смотрит закрепление на H1.
+REACTION_TIMEFRAME = _env_str("REACTION_TIMEFRAME", "H1")
 REACTION_LOOKBACK_BARS = _env_int("REACTION_LOOKBACK_BARS", 60)   # сколько баров анализировать
 REACTION_ATR_PERIOD = _env_int("REACTION_ATR_PERIOD", 14)        # период ATR (масштаб шума)
 REACTION_WINDOW_AFTER = _env_int("REACTION_WINDOW_AFTER", 8)     # баров после касания на исход
