@@ -36,11 +36,15 @@ input int      GradientLayers   = 5;          // Кол-во слоёв град
 input bool     EnableIndicator  = true;       // Включить/выключить индикатор целиком
 input bool     EnableAlerts     = true;       // Алерты при касании зоны
 input double   AlertDistance    = 5.0;        // Расстояние для алерта ($)
-input bool     ShowReaction     = false;      // (выкл) Красить зоны по реакции; клиент хочет ВСЕ зоны красными
 input bool     ShowZakrep       = true;       // Пометка/алерт «ЗАКРЕП за зоной» (H1 закрытие и удержание за уровнем)
-input color    ReactionBounceColor        = clrLimeGreen;  // Отскок (BOUNCE)
-input color    ReactionBreakoutColor      = clrRed;        // Пробой (BREAKOUT)
-input color    ReactionConsolidationColor = clrOrange;     // Консолидация (CONSOLIDATION)
+// Раскраска зон по реакции удалена намеренно: зона BOUNCE подсвечивалась clrLimeGreen, и при
+// каждом пересчёте реакция могла переключиться BOUNCE <-> NONE — линия мигала красным/зелёным.
+// Клиенту нужны ВСЕ зоны одним красным цветом, сила уровня передаётся только толщиной линии.
+// Инпут переименован (был ShowReaction): терминал хранит значения инпутов в профиле графика,
+// и у клиентов со старой сборкой ShowReaction=true оживал после обновления.
+input bool     ShowReactionTag  = false;      // Текстовая метка реакции у цены (цвет линии НЕ меняет)
+input bool     LabelAboveLine   = true;       // Подпись цены НАД линией зоны (не поверх неё)
+input double   LabelOffsetUSD   = 0.0;        // Доп. отступ подписи от линии ($)
 input bool     AutoFitChart     = true;       // Автоподгон шкалы под все 6 зон
 input double   FitMarginPct     = 3.0;        // Запас шкалы сверху/снизу (%)
 input bool     ShowAccumulation = false;     // Набор позиции крупным участником
@@ -66,6 +70,62 @@ bool           zoneBigPlayer[];
 bool           zoneFallback[];
 string         zoneReaction[];
 string         zoneReactionDir[];
+
+// ── Состояние для защиты от мерцания ──────────────────────────────────────────
+// Раньше OnTimer каждые RefreshSeconds делал DeleteAllZoneObjects() + DrawAllZones():
+// объекты уничтожались и создавались заново, и график заметно мигал каждые 10 секунд.
+// Теперь перерисовка идёт только когда реально поменялось содержимое JSON или сдвинулся
+// бар привязки подписей, а сами объекты обновляются на месте (ObjectMove / ObjectSet*).
+string         lastZonesRaw     = "";  // содержимое zones_output.json на прошлой отрисовке
+string         lastAccumRaw     = "";  // содержимое accumulation_output.json
+datetime       lastAnchorBar    = 0;   // бар, к которому привязаны текстовые подписи
+int            drawnZoneCount   = 0;   // сколько зон реально отрисовано (для чистки хвостов)
+bool           zoneSetChanged   = false;
+
+//+------------------------------------------------------------------+
+//| Идемпотентные операции над объектами.                            |
+//| Ключевая идея анти-мерцания: не удалять и создавать заново, а     |
+//| менять свойство только если оно действительно другое. Любой       |
+//| ObjectSet* помечает график «грязным», поэтому лишние вызовы —     |
+//| это лишние перерисовки.                                          |
+//+------------------------------------------------------------------+
+bool EnsureObject(string name, ENUM_OBJECT type, datetime t1, double p1)
+{
+   if(ObjectFind(0, name) >= 0)
+      return false;                       // объект уже на графике — не пересоздаём
+   ObjectCreate(0, name, type, 0, t1, p1);
+   return true;
+}
+
+void SetIntIfChanged(string name, ENUM_OBJECT_PROPERTY_INTEGER prop, long value)
+{
+   if(ObjectGetInteger(0, name, prop) != value)
+      ObjectSetInteger(0, name, prop, value);
+}
+
+void SetStrIfChanged(string name, ENUM_OBJECT_PROPERTY_STRING prop, string value)
+{
+   if(ObjectGetString(0, name, prop) != value)
+      ObjectSetString(0, name, prop, value);
+}
+
+void MovePointIfChanged(string name, int point, datetime t, double price)
+{
+   datetime curT = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME, point);
+   double   curP = ObjectGetDouble(0, name, OBJPROP_PRICE, point);
+   if(curT != t || MathAbs(curP - price) > 1e-8)
+      ObjectMove(0, name, point, t, price);
+}
+
+//+------------------------------------------------------------------+
+//| Бар, к которому крепятся текстовые подписи. Меняется только при  |
+//| появлении новой свечи — тогда подписи сдвигаются (ObjectMove),   |
+//| а не пересоздаются.                                              |
+//+------------------------------------------------------------------+
+datetime AnchorBar()
+{
+   return iTime(_Symbol, PERIOD_CURRENT, 0);
+}
 
 
 //+------------------------------------------------------------------+
@@ -113,8 +173,10 @@ void DrawBuildStamp()
       ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 7);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    }
-   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   // Ставим свойства только при фактическом изменении: этот штамп вызывается
+   // каждые RefreshSeconds, а безусловный ObjectSet* помечает график «грязным».
+   SetIntIfChanged(name, OBJPROP_COLOR, clr);
+   SetStrIfChanged(name, OBJPROP_TEXT, text);
 }
 
 //+------------------------------------------------------------------+
@@ -125,6 +187,11 @@ int OnInit()
    // индикатора, «мигают» до первой успешной загрузки JSON.
    DeleteAllZoneObjects();
    DeleteAccumulationObjects();
+   // Сбрасываем кэш содержимого, иначе после смены ТФ объекты удалены,
+   // а индикатор считает, что «данные те же», и график остаётся пустым.
+   lastZonesRaw  = "";
+   lastAccumRaw  = "";
+   lastAnchorBar = 0;
    if(!EnableIndicator)
    {
       Print("[SmartZones MT5] Disabled (EnableIndicator=false)");
@@ -177,6 +244,9 @@ int OnCalculate(const int rates_total,
 void AutoFitChartToZones()
 {
    if(!AutoFitChart || currentZoneCount <= 0) return;
+   // Раньше шкала переустанавливалась каждые RefreshSeconds, и график «дёргался»
+   // даже когда набор зон не менялся. Теперь подгоняем только при смене набора.
+   if(!zoneSetChanged) return;
    double lo = zonePrices[0], hi = zonePrices[0];
    for(int i = 1; i < currentZoneCount; i++)
    {
@@ -237,6 +307,11 @@ void LoadAccumulationFromFile()
 
    string content = ReadDataFile(AccumFilePath);
    if(StringLen(content) < 10) return;
+
+   // Участки набора тоже пересоздавались на каждом тике таймера и мигали.
+   // Пересобираем их только при изменении файла.
+   if(content == lastAccumRaw) return;
+   lastAccumRaw = content;
 
    DeleteAccumulationObjects();
 
@@ -311,12 +386,62 @@ void LoadZonesFromFile()
 
    if(StringLen(content) < 10) return;
 
-   DeleteAllZoneObjects();
-   ParseZonesJSON(content);
-   zonesCalcTime = ParseIsoTime(ExtractString(content, "\"calculated_at\":", 0));
-   DrawAllZones();
+   datetime anchor       = AnchorBar();
+   bool     dataChanged  = (content != lastZonesRaw);
+   bool     anchorMoved  = (anchor  != lastAnchorBar);
+
+   // Главный фикс мерцания: если ни JSON, ни бар привязки не изменились —
+   // на графике менять нечего. Раньше здесь безусловно выполнялось
+   // DeleteAllZoneObjects() + DrawAllZones(), то есть все линии и подписи
+   // уничтожались и создавались заново каждые RefreshSeconds секунд.
+   if(!dataChanged && !anchorMoved)
+   {
+      zoneSetChanged = false;
+      DrawBuildStamp();   // в углу обновляется только возраст данных
+      return;
+   }
+
+   lastZonesRaw   = content;
+   lastAnchorBar  = anchor;
+   zoneSetChanged = dataChanged;
+
+   if(dataChanged)
+   {
+      ParseZonesJSON(content);
+      zonesCalcTime = ParseIsoTime(ExtractString(content, "\"calculated_at\":", 0));
+   }
+
+   DrawAllZones();                            // обновление на месте, без пересоздания
+   DeleteStaleZoneObjects(currentZoneCount);  // убираем хвосты от прошлого набора зон
    DrawBuildStamp();
    ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Удаляет объекты зон с индексом >= keepCount.                     |
+//| Нужно только когда зон стало меньше: живые зоны не трогаем, поэтому|
+//| мерцания нет.                                                    |
+//+------------------------------------------------------------------+
+void DeleteStaleZoneObjects(int keepCount)
+{
+   for(int i = ObjectsTotal(0) - 1; i >= 0; i--)
+   {
+      string name = ObjectName(0, i);
+      if(StringFind(name, accumPrefix) == 0) continue;
+      if(StringFind(name, buildPrefix) == 0) continue;
+      if(StringFind(name, zonePrefix) != 0)  continue;
+
+      // Имя выглядит как SZP_<index>_<suffix>. Достаём index.
+      string tail = StringSubstr(name, StringLen(zonePrefix));
+      int    sep  = StringFind(tail, "_");
+      if(sep <= 0) continue;
+      string idxStr = StringSubstr(tail, 0, sep);
+      int    idx    = (int)StringToInteger(idxStr);
+      if(IntegerToString(idx) != idxStr) continue;   // не наш служебный объект
+
+      if(idx >= keepCount)
+         ObjectDelete(0, name);
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -440,14 +565,9 @@ void DrawSingleZone(int index)
    bool  fallback = zoneFallback[index];
    string reaction    = zoneReaction[index];
    string reactionDir = zoneReactionDir[index];
+   // Цвет всегда один (ZoneColor). Раскраска по реакции удалена: она давала
+   // clrLimeGreen на BOUNCE, и при смене реакции линия мигала красным/зелёным.
    color zoneColor = ZoneColor;
-   // Цвет по реакции цены: отскок / пробой / консолидация.
-   if(ShowReaction && reaction != "")
-   {
-      if(reaction == "BOUNCE")             zoneColor = ReactionBounceColor;
-      else if(reaction == "BREAKOUT")      zoneColor = ReactionBreakoutColor;
-      else if(reaction == "CONSOLIDATION") zoneColor = ReactionConsolidationColor;
-   }
    int   lineWidth = score >= 11 ? ZoneLineWidth + 1
                    : score >= 9  ? ZoneLineWidth
                                  : MathMax(1, ZoneLineWidth - 1);
@@ -455,67 +575,81 @@ void DrawSingleZone(int index)
 
    // ── 1. Горизонтальная линия ───────────────────────────────────────
    string lineName = baseName + "_line";
-   ObjectCreate(0, lineName, OBJ_HLINE, 0, 0, price);
-   ObjectSetInteger(0, lineName, OBJPROP_COLOR, zoneColor);
-   ObjectSetInteger(0, lineName, OBJPROP_WIDTH, lineWidth);
-   ObjectSetInteger(0, lineName, OBJPROP_STYLE, STYLE_SOLID);
-   ObjectSetInteger(0, lineName, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, lineName, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, lineName, OBJPROP_BACK, true);
+   EnsureObject(lineName, OBJ_HLINE, 0, price);
+   MovePointIfChanged(lineName, 0, 0, price);
+   SetIntIfChanged(lineName, OBJPROP_COLOR, zoneColor);
+   SetIntIfChanged(lineName, OBJPROP_WIDTH, lineWidth);
+   SetIntIfChanged(lineName, OBJPROP_STYLE, STYLE_SOLID);
+   SetIntIfChanged(lineName, OBJPROP_SELECTABLE, false);
+   SetIntIfChanged(lineName, OBJPROP_HIDDEN, true);
+   SetIntIfChanged(lineName, OBJPROP_BACK, true);
 
    // ── 3. Текстовая подпись ──────────────────────────────────────────
+   string textName = baseName + "_text";
    if(ShowPriceLabels)
    {
-      string textName = baseName + "_text";
-      datetime textTime = iTime(_Symbol, PERIOD_CURRENT, 10);
-      ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price);
-      // Цена зоны + тип реакции (отскок/консолидация/пробой) со стрелкой направления.
+      // Подпись ставим НАД линией: ANCHOR_LEFT_LOWER прижимает низ текста к цене
+      // зоны, поэтому цифры больше не лежат поверх самой линии.
+      datetime textTime  = AnchorBar() - PeriodSeconds() * 10;
+      double   textPrice = price + (LabelAboveLine ? LabelOffsetUSD : -LabelOffsetUSD);
+
+      EnsureObject(textName, OBJ_TEXT, textTime, textPrice);
+      MovePointIfChanged(textName, 0, textTime, textPrice);
+
       string rtag = "";
-      if(ShowReaction && reaction != "" && reaction != "NONE")
+      if(ShowReactionTag && reaction != "" && reaction != "NONE")
       {
          string arrow = reactionDir == "UP" ? " ^" : reactionDir == "DOWN" ? " v" : "";
          rtag = "  [" + reaction + arrow + "]";
       }
-      ObjectSetString(0, textName, OBJPROP_TEXT, DoubleToString(price, 2) + rtag);
-      ObjectSetInteger(0, textName, OBJPROP_COLOR, clrWhite);
-      ObjectSetString(0, textName, OBJPROP_FONT, "Arial Bold");
-      ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, 9);
-      ObjectSetInteger(0, textName, OBJPROP_ANCHOR, ANCHOR_LEFT);
-      ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, textName, OBJPROP_HIDDEN, true);
+      SetStrIfChanged(textName, OBJPROP_TEXT, DoubleToString(price, 2) + rtag);
+      SetIntIfChanged(textName, OBJPROP_COLOR, clrWhite);
+      SetStrIfChanged(textName, OBJPROP_FONT, "Arial Bold");
+      SetIntIfChanged(textName, OBJPROP_FONTSIZE, 9);
+      SetIntIfChanged(textName, OBJPROP_ANCHOR,
+                      LabelAboveLine ? ANCHOR_LEFT_LOWER : ANCHOR_LEFT_UPPER);
+      SetIntIfChanged(textName, OBJPROP_SELECTABLE, false);
+      SetIntIfChanged(textName, OBJPROP_HIDDEN, true);
    }
+   else if(ObjectFind(0, textName) >= 0)
+      ObjectDelete(0, textName);
 
    // ── 3b. Бейдж со скором зоны ──────────────────────────────────────
    // ── 3z. Пометка «ЗАКРЕП за зоной» (H1 закрытие и удержание за уровнем) ──
+   string zkName = baseName + "_zakrep";
    if(ShowZakrep && reaction == "BREAKOUT")
    {
-      string zkName = baseName + "_zakrep";
-      datetime zkTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 8;
+      datetime zkTime = AnchorBar() + PeriodSeconds() * 8;
       string zkArrow = reactionDir == "UP" ? "^" : reactionDir == "DOWN" ? "v" : "";
-      ObjectCreate(0, zkName, OBJ_TEXT, 0, zkTime, price);
-      ObjectSetString(0, zkName, OBJPROP_TEXT, "ZAKREP " + zkArrow);
-      ObjectSetInteger(0, zkName, OBJPROP_COLOR, clrYellow);
-      ObjectSetString(0, zkName, OBJPROP_FONT, "Arial Bold");
-      ObjectSetInteger(0, zkName, OBJPROP_FONTSIZE, 10);
-      ObjectSetInteger(0, zkName, OBJPROP_ANCHOR, ANCHOR_LEFT);
-      ObjectSetInteger(0, zkName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, zkName, OBJPROP_HIDDEN, true);
+      EnsureObject(zkName, OBJ_TEXT, zkTime, price);
+      MovePointIfChanged(zkName, 0, zkTime, price);
+      SetStrIfChanged(zkName, OBJPROP_TEXT, "ZAKREP " + zkArrow);
+      SetIntIfChanged(zkName, OBJPROP_COLOR, clrYellow);
+      SetStrIfChanged(zkName, OBJPROP_FONT, "Arial Bold");
+      SetIntIfChanged(zkName, OBJPROP_FONTSIZE, 10);
+      SetIntIfChanged(zkName, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
+      SetIntIfChanged(zkName, OBJPROP_SELECTABLE, false);
+      SetIntIfChanged(zkName, OBJPROP_HIDDEN, true);
    }
+   else if(ObjectFind(0, zkName) >= 0)
+      ObjectDelete(0, zkName);
 
+   string badgeName = baseName + "_badge";
    if(ShowScoreBadge)
    {
-      string badgeName = baseName + "_badge";
-      datetime badgeTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 4;
-      ObjectCreate(0, badgeName, OBJ_TEXT, 0, badgeTime, price);
-      ObjectSetString(0, badgeName, OBJPROP_TEXT,
-                      " S:" + IntegerToString(score) + " ");
-      ObjectSetInteger(0, badgeName, OBJPROP_COLOR, zoneColor);
-      ObjectSetString(0, badgeName, OBJPROP_FONT, "Consolas");
-      ObjectSetInteger(0, badgeName, OBJPROP_FONTSIZE, 9);
-      ObjectSetInteger(0, badgeName, OBJPROP_ANCHOR, ANCHOR_LEFT);
-      ObjectSetInteger(0, badgeName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, badgeName, OBJPROP_HIDDEN, true);
+      datetime badgeTime = AnchorBar() + PeriodSeconds() * 4;
+      EnsureObject(badgeName, OBJ_TEXT, badgeTime, price);
+      MovePointIfChanged(badgeName, 0, badgeTime, price);
+      SetStrIfChanged(badgeName, OBJPROP_TEXT, " S:" + IntegerToString(score) + " ");
+      SetIntIfChanged(badgeName, OBJPROP_COLOR, zoneColor);
+      SetStrIfChanged(badgeName, OBJPROP_FONT, "Consolas");
+      SetIntIfChanged(badgeName, OBJPROP_FONTSIZE, 9);
+      SetIntIfChanged(badgeName, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
+      SetIntIfChanged(badgeName, OBJPROP_SELECTABLE, false);
+      SetIntIfChanged(badgeName, OBJPROP_HIDDEN, true);
    }
+   else if(ObjectFind(0, badgeName) >= 0)
+      ObjectDelete(0, badgeName);
 
    // ── 4. Structural SL Pool ─────────────────────────────────────────
    // SL is placed outside the zone using a bounded ATR buffer and the nearest
@@ -523,7 +657,13 @@ void DrawSingleZone(int index)
    // Клиент просил «только зоны, ничего лишнего»: ранее этот блок выполнялся
    // безусловно для каждой зоны и добавлял на график 6 пунктиров + 6 подписей.
    if(!ShowSL)
+   {
+      // Инпут выключили на живом графике — снимаем ранее нарисованные объекты SL,
+      // иначе они висят до перезапуска индикатора.
+      if(ObjectFind(0, baseName + "_sl_line")  >= 0) ObjectDelete(0, baseName + "_sl_line");
+      if(ObjectFind(0, baseName + "_sl_label") >= 0) ObjectDelete(0, baseName + "_sl_label");
       return;
+   }
 
    int lookback = (int)MathMin(Bars(_Symbol, PERIOD_CURRENT) - 2, 40);
    if(lookback < 5) lookback = 5;
@@ -565,23 +705,26 @@ void DrawSingleZone(int index)
    slProb = (int)MathMin(slProb, 92);
    color slColor = C'189,167,255'; // violet SL; red is reserved for fallback zones
    string slLineName = baseName + "_sl_line";
-   ObjectCreate(0, slLineName, OBJ_HLINE, 0, 0, slLevel);
-   ObjectSetInteger(0, slLineName, OBJPROP_COLOR, slColor);
-   ObjectSetInteger(0, slLineName, OBJPROP_WIDTH, 1);
-   ObjectSetInteger(0, slLineName, OBJPROP_STYLE, STYLE_DASH);
-   ObjectSetInteger(0, slLineName, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, slLineName, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, slLineName, OBJPROP_BACK, true);
+   EnsureObject(slLineName, OBJ_HLINE, 0, slLevel);
+   MovePointIfChanged(slLineName, 0, 0, slLevel);
+   SetIntIfChanged(slLineName, OBJPROP_COLOR, slColor);
+   SetIntIfChanged(slLineName, OBJPROP_WIDTH, 1);
+   SetIntIfChanged(slLineName, OBJPROP_STYLE, STYLE_DASH);
+   SetIntIfChanged(slLineName, OBJPROP_SELECTABLE, false);
+   SetIntIfChanged(slLineName, OBJPROP_HIDDEN, true);
+   SetIntIfChanged(slLineName, OBJPROP_BACK, true);
+
    string slTextName = baseName + "_sl_label";
-   datetime slTextTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 80;
-   ObjectCreate(0, slTextName, OBJ_TEXT, 0, slTextTime, slLevel);
-   ObjectSetString(0, slTextName, OBJPROP_TEXT, " SL Pool " + DoubleToString(slLevel, _Digits) + " ~" + IntegerToString(slProb) + "%");
-   ObjectSetInteger(0, slTextName, OBJPROP_COLOR, slColor);
-   ObjectSetString(0, slTextName, OBJPROP_FONT, "Consolas");
-   ObjectSetInteger(0, slTextName, OBJPROP_FONTSIZE, 8);
-   ObjectSetInteger(0, slTextName, OBJPROP_ANCHOR, ANCHOR_LEFT);
-   ObjectSetInteger(0, slTextName, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, slTextName, OBJPROP_HIDDEN, true);
+   datetime slTextTime = AnchorBar() + PeriodSeconds() * 80;
+   EnsureObject(slTextName, OBJ_TEXT, slTextTime, slLevel);
+   MovePointIfChanged(slTextName, 0, slTextTime, slLevel);
+   SetStrIfChanged(slTextName, OBJPROP_TEXT, " SL Pool " + DoubleToString(slLevel, _Digits) + " ~" + IntegerToString(slProb) + "%");
+   SetIntIfChanged(slTextName, OBJPROP_COLOR, slColor);
+   SetStrIfChanged(slTextName, OBJPROP_FONT, "Consolas");
+   SetIntIfChanged(slTextName, OBJPROP_FONTSIZE, 8);
+   SetIntIfChanged(slTextName, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
+   SetIntIfChanged(slTextName, OBJPROP_SELECTABLE, false);
+   SetIntIfChanged(slTextName, OBJPROP_HIDDEN, true);
 
 }
 
@@ -634,12 +777,15 @@ void DrawGradientZone(string baseName, double price, double top, double bottom,
       layerTop    = MathMin(layerTop, top);
       layerBottom = MathMax(layerBottom, bottom);
 
-      ObjectCreate(0, rectName, OBJ_RECTANGLE, 0, timeLeft, layerTop, timeRight, layerBottom);
-      ObjectSetInteger(0, rectName, OBJPROP_COLOR, gradColors[i]);
-      ObjectSetInteger(0, rectName, OBJPROP_FILL, true);
-      ObjectSetInteger(0, rectName, OBJPROP_BACK, true);
-      ObjectSetInteger(0, rectName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, rectName, OBJPROP_HIDDEN, true);
+      if(ObjectFind(0, rectName) < 0)
+         ObjectCreate(0, rectName, OBJ_RECTANGLE, 0, timeLeft, layerTop, timeRight, layerBottom);
+      MovePointIfChanged(rectName, 0, timeLeft,  layerTop);
+      MovePointIfChanged(rectName, 1, timeRight, layerBottom);
+      SetIntIfChanged(rectName, OBJPROP_COLOR, gradColors[i]);
+      SetIntIfChanged(rectName, OBJPROP_FILL, true);
+      SetIntIfChanged(rectName, OBJPROP_BACK, true);
+      SetIntIfChanged(rectName, OBJPROP_SELECTABLE, false);
+      SetIntIfChanged(rectName, OBJPROP_HIDDEN, true);
    }
 }
 

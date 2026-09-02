@@ -18,6 +18,7 @@ import paths
 import ui_theme as ui
 
 DATA_SOURCES = ["mt5", "csv", "yfinance", "binance", "mt4_ticks", "dukascopy"]
+VALIDATION_MODES = ["validate", "canonical", "off"]
 BROKER_SLOTS = 3
 
 _DEFAULT_BROKERS = {
@@ -138,6 +139,40 @@ class SettingsWindow(tk.Tk):
         ttk.Combobox(ds_frame, textvariable=self._data_source, values=DATA_SOURCES,
                      state="readonly", width=14).pack(side="left", padx=8)
 
+        # ── Валидация зон по внешнему эталону (Dukascopy) ──
+        # Клиент просил возможность ВЫКЛЮЧАТЬ валидацию: раньше режим задавался
+        # только переменной VALIDATION_MODE в .env, руками.
+        val_box = tk.LabelFrame(self, text="  ВАЛИДАЦИЯ ЗОН (DUKASCOPY)  ", fg=ui.AQUA,
+                                bg=ui.CARD_BOT, font=(ui.FONT, 8, "bold"),
+                                bd=1, relief="solid", padx=10, pady=10)
+        val_box.pack(fill="x", pady=8)
+
+        val_row = tk.Frame(val_box, bg=ui.CARD_BOT)
+        val_row.pack(fill="x")
+        self._label(val_row, "Режим (VALIDATION_MODE):").pack(side="left")
+        self._validation_mode = tk.StringVar(
+            value=str(self._env.get("VALIDATION_MODE", "validate")).strip().lower())
+        ttk.Combobox(val_row, textvariable=self._validation_mode, values=VALIDATION_MODES,
+                     state="readonly", width=14).pack(side="left", padx=8)
+
+        tk.Label(val_box, text=("validate — показывать только зоны, подтверждённые эталонным фидом\n"
+                                "canonical — считать зоны целиком по Dukascopy (одинаковы у всех брокеров)\n"
+                                "off — без валидации, зоны как их посчитал брокерский фид"),
+                 fg=ui.TXT_DIM, bg=ui.CARD_BOT, font=(ui.FONT, 8),
+                 justify="left", anchor="w").pack(fill="x", pady=(6, 4))
+
+        self._broker_offset = tk.BooleanVar(
+            value=str(self._env.get("BROKER_OFFSET_ENABLED", "true")).lower() in {"1", "true", "yes", "on"})
+        tk.Checkbutton(val_box, text="Сдвигать линии на оффсет брокера (BROKER_OFFSET_ENABLED)",
+                       variable=self._broker_offset,
+                       fg=ui.TXT, bg=ui.CARD_BOT, selectcolor=ui.FIELD_BG,
+                       activebackground=ui.CARD_BOT, activeforeground=ui.TXT,
+                       font=(ui.FONT, 9)).pack(anchor="w")
+
+        self._validation_tolerance = tk.StringVar(
+            value=str(self._env.get("VALIDATION_TOLERANCE", "5.0")))
+        self._row(val_box, "Допуск совпадения, $", self._validation_tolerance)
+
         # ── Buttons (pinned to bottom so they're always visible) ──
         btns = tk.Frame(self, bg=ui.CARD_BOT)
         btns.pack(side="bottom", fill="x", pady=(12, 0))
@@ -231,6 +266,9 @@ class SettingsWindow(tk.Tk):
         ok_brokers = save_brokers(self._collect_brokers())
         ok_env = update_env({
             "DATA_SOURCE": self._data_source.get(),
+            "VALIDATION_MODE": self._validation_mode.get().strip().lower(),
+            "BROKER_OFFSET_ENABLED": "true" if self._broker_offset.get() else "false",
+            "VALIDATION_TOLERANCE": self._validation_tolerance.get().strip() or "5.0",
             "ENABLE_TELEGRAM": "true" if self._tg_enabled.get() else "false",
             "TELEGRAM_BOT_TOKEN": self._tg_token.get().strip(),
             "TELEGRAM_CHAT_ID": self._tg_chat.get().strip(),
