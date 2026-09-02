@@ -135,7 +135,12 @@ def _slot_window(index: int) -> tuple[float, float]:
 
 
 def _in_display_band(zone: Zone, price: float) -> bool:
-    """Зона в пределах максимальной дистанции показа (0..MAX_ZONE_DISTANCE)."""
+    """Зона в пределах максимальной дистанции показа.
+
+    MAX_ZONE_DISTANCE = 0 означает «ограничения нет» (поведение старой версии).
+    """
+    if config.MAX_ZONE_DISTANCE <= 0:
+        return True
     return _distance(zone, price) <= config.MAX_ZONE_DISTANCE
 
 

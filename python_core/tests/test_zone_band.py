@@ -51,7 +51,8 @@ def _select(candidates, tmp_path):
 
 
 def test_range_config_is_sane():
-    assert config.MAX_ZONE_DISTANCE > 0
+    # 0 означает «коридора нет» (поведение старой версии) — это валидно.
+    assert config.MAX_ZONE_DISTANCE >= 0
     assert config.MAX_ZONE_DISTANCE == config.MAX_ZONE_DISTANCE_PIPS * config.PIP_SIZE
     assert config.ZONES_PER_SIDE >= 1
 

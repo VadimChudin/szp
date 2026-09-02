@@ -240,11 +240,14 @@ def process_legacy_zones(current_zones: list[Zone],
                              historic.score - config.LEGACY_HIST_SCORE_PENALTY)
         final_output.append(historic)
 
-    # 4. Коридор отображения: от 0 и не дальше MAX_ZONE_DISTANCE_PIPS.
-    price = get_current_price(all_data)
-    if price:
-        final_output = [z for z in final_output
-                        if abs(z.price - price) <= config.MAX_ZONE_DISTANCE]
+    # 4. Коридор отображения. В старой версии его не было вообще, поэтому по
+    # умолчанию MAX_ZONE_DISTANCE = 0 и фильтр не применяется: зона стоит там,
+    # где её нашёл детектор. Коридор включается положительным значением.
+    if config.MAX_ZONE_DISTANCE > 0:
+        price = get_current_price(all_data)
+        if price:
+            final_output = [z for z in final_output
+                            if abs(z.price - price) <= config.MAX_ZONE_DISTANCE]
 
     final_output.sort(key=lambda z: z.score, reverse=True)
     return final_output[:config.MAX_ZONES_ON_CHART]

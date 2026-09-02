@@ -336,7 +336,9 @@ def run(frames: dict[str, pd.DataFrame], cfg: RunConfig) -> list[LevelOutcome]:
 
         # Контроль строится с тем же количеством уровней и той же шириной.
         width = zones[0].width if zones else config.ZONE_WIDTH
-        max_dist = config.MAX_ZONE_DISTANCE
+        # Коридор зон может быть отключён (0 = без ограничения), но случайным
+        # и круглым уровням нужен конечный диапазон, иначе сравнивать не с чем.
+        max_dist = config.MAX_ZONE_DISTANCE if config.MAX_ZONE_DISTANCE > 0 else 90.0
         count = max(len(zones), 1)
 
         for level in random_levels(price, count, max_dist, rng):
