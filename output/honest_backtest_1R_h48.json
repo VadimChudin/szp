@@ -1,0 +1,244 @@
+{
+  "groups": {
+    "zones": {
+      "levels": 5718,
+      "touched": 1279,
+      "touch_rate": 0.2237,
+      "reacted": 1267,
+      "reaction_rate_given_touch": 0.9906,
+      "ci95": [
+        0.9837,
+        0.9946
+      ],
+      "bounce": 504,
+      "breakout": 763,
+      "consolidation": 12,
+      "median_excursion_atr": 1.317,
+      "trades_closed": 1196,
+      "trades_open": 83,
+      "winrate_1R": 0.4515,
+      "winrate_1R_ci95": [
+        0.4235,
+        0.4798
+      ],
+      "expectancy_R": -0.097
+    },
+    "random": {
+      "levels": 5718,
+      "touched": 3368,
+      "touch_rate": 0.589,
+      "reacted": 3345,
+      "reaction_rate_given_touch": 0.9932,
+      "ci95": [
+        0.9898,
+        0.9954
+      ],
+      "bounce": 1347,
+      "breakout": 1998,
+      "consolidation": 23,
+      "median_excursion_atr": 1.337,
+      "trades_closed": 3186,
+      "trades_open": 182,
+      "winrate_1R": 0.4391,
+      "winrate_1R_ci95": [
+        0.422,
+        0.4564
+      ],
+      "expectancy_R": -0.1218
+    },
+    "round": {
+      "levels": 5718,
+      "touched": 4710,
+      "touch_rate": 0.8237,
+      "reacted": 4692,
+      "reaction_rate_given_touch": 0.9962,
+      "ci95": [
+        0.994,
+        0.9976
+      ],
+      "bounce": 1876,
+      "breakout": 2816,
+      "consolidation": 18,
+      "median_excursion_atr": 1.358,
+      "trades_closed": 4540,
+      "trades_open": 170,
+      "winrate_1R": 0.4672,
+      "winrate_1R_ci95": [
+        0.4527,
+        0.4817
+      ],
+      "expectancy_R": -0.0656
+    }
+  },
+  "by_segment": {
+    "IS": {
+      "zones": {
+        "levels": 3444,
+        "touched": 770,
+        "touch_rate": 0.2236,
+        "reacted": 762,
+        "reaction_rate_given_touch": 0.9896,
+        "ci95": [
+          0.9796,
+          0.9947
+        ],
+        "bounce": 333,
+        "breakout": 429,
+        "consolidation": 8,
+        "median_excursion_atr": 1.389,
+        "trades_closed": 708,
+        "trades_open": 62,
+        "winrate_1R": 0.4746,
+        "winrate_1R_ci95": [
+          0.438,
+          0.5114
+        ],
+        "expectancy_R": -0.0508
+      },
+      "random": {
+        "levels": 3444,
+        "touched": 1778,
+        "touch_rate": 0.5163,
+        "reacted": 1758,
+        "reaction_rate_given_touch": 0.9888,
+        "ci95": [
+          0.9827,
+          0.9927
+        ],
+        "bounce": 800,
+        "breakout": 958,
+        "consolidation": 20,
+        "median_excursion_atr": 1.392,
+        "trades_closed": 1630,
+        "trades_open": 148,
+        "winrate_1R": 0.473,
+        "winrate_1R_ci95": [
+          0.4489,
+          0.4973
+        ],
+        "expectancy_R": -0.054
+      },
+      "round": {
+        "levels": 3444,
+        "touched": 2732,
+        "touch_rate": 0.7933,
+        "reacted": 2715,
+        "reaction_rate_given_touch": 0.9938,
+        "ci95": [
+          0.9901,
+          0.9961
+        ],
+        "bounce": 1197,
+        "breakout": 1518,
+        "consolidation": 17,
+        "median_excursion_atr": 1.392,
+        "trades_closed": 2586,
+        "trades_open": 146,
+        "winrate_1R": 0.4772,
+        "winrate_1R_ci95": [
+          0.458,
+          0.4965
+        ],
+        "expectancy_R": -0.0456
+      }
+    },
+    "OOS": {
+      "zones": {
+        "levels": 2274,
+        "touched": 509,
+        "touch_rate": 0.2238,
+        "reacted": 505,
+        "reaction_rate_given_touch": 0.9921,
+        "ci95": [
+          0.98,
+          0.9969
+        ],
+        "bounce": 171,
+        "breakout": 334,
+        "consolidation": 4,
+        "median_excursion_atr": 1.209,
+        "trades_closed": 488,
+        "trades_open": 21,
+        "winrate_1R": 0.418,
+        "winrate_1R_ci95": [
+          0.3751,
+          0.4623
+        ],
+        "expectancy_R": -0.1639
+      },
+      "random": {
+        "levels": 2274,
+        "touched": 1590,
+        "touch_rate": 0.6992,
+        "reacted": 1587,
+        "reaction_rate_given_touch": 0.9981,
+        "ci95": [
+          0.9945,
+          0.9994
+        ],
+        "bounce": 547,
+        "breakout": 1040,
+        "consolidation": 3,
+        "median_excursion_atr": 1.304,
+        "trades_closed": 1556,
+        "trades_open": 34,
+        "winrate_1R": 0.4036,
+        "winrate_1R_ci95": [
+          0.3795,
+          0.4282
+        ],
+        "expectancy_R": -0.1928
+      },
+      "round": {
+        "levels": 2274,
+        "touched": 1978,
+        "touch_rate": 0.8698,
+        "reacted": 1977,
+        "reaction_rate_given_touch": 0.9995,
+        "ci95": [
+          0.9971,
+          0.9999
+        ],
+        "bounce": 679,
+        "breakout": 1298,
+        "consolidation": 1,
+        "median_excursion_atr": 1.304,
+        "trades_closed": 1954,
+        "trades_open": 24,
+        "winrate_1R": 0.4539,
+        "winrate_1R_ci95": [
+          0.432,
+          0.4761
+        ],
+        "expectancy_R": -0.0921
+      }
+    }
+  },
+  "significance": {
+    "zones_vs_random_p": 0.368565,
+    "zones_vs_round_p": 0.012487,
+    "trade_1R_zones_vs_random_p": 0.461739,
+    "trade_1R_zones_vs_round_p": 0.333488
+  },
+  "meta": {
+    "source": "yfinance GC=F 1h 2y (ПРОКСИ, не спот брокера)",
+    "generated_at": "2026-09-02T21:23:55.134810+00:00",
+    "rows": {
+      "H1": 11506,
+      "H4": 3051,
+      "D1": 614
+    },
+    "period": [
+      "2024-09-03 04:00:00",
+      "2026-09-02 20:00:00"
+    ],
+    "horizon_h1_bars": 48,
+    "step_h4_bars": 3,
+    "min_zone_score": 11,
+    "strong_zones_only": true,
+    "max_zone_distance_pips": 900.0,
+    "reaction_bounce_atr": 0.75,
+    "reaction_breakout_atr": 0.5,
+    "spread_usd": 0.2
+  }
+}

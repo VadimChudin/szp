@@ -100,6 +100,7 @@ class LevelOutcome:
     outcome: str              # bounce | breakout | consolidation | no_touch
     excursion: float          # уход от зоны после касания, в ATR
     segment: str = "IS"       # IS | OOS
+    trade: str = "no_touch"   # target | stop | open | no_touch (ретест со стопом за зоной)
 
 
 def atr_of(frame: pd.DataFrame, period: int) -> float:
@@ -154,6 +155,70 @@ def evaluate_level(price: float, top: float, bottom: float, future: pd.DataFrame
         return True, "bounce", best_away / atr
     return True, "consolidation", best_away / atr
 
+
+
+# ── Решающий тест: ретест зоны, стоп за зоной, цель 1R ────────────────────────
+def simulate_retest_trade(top: float, bottom: float, future: pd.DataFrame,
+                          atr: float, spread: float) -> str:
+    """Единственная метрика, которая отличает рабочий уровень от случайной линии.
+
+    Правило нарочно тупое и одинаковое для всех групп, без подгонки:
+      • вход — когда цена коснулась уровня (ретест), в сторону от уровня;
+      • стоп — за уровнем на STOP_ATR·ATR (плюс спред);
+      • цель — 1R от входа;
+      • если ни стоп, ни цель не сработали до конца горизонта — исход "open".
+
+    Направление берётся из того, с какой стороны цена подошла: подошла сверху →
+    уровень как поддержка → лонг; подошла снизу → как сопротивление → шорт.
+    Никакого выбора направления «по факту» нет, это и делает тест честным.
+    """
+    stop_pad = 0.35 * atr
+
+    touch_idx = None
+    for i, bar in enumerate(future.itertuples(index=False)):
+        if bar.low <= top and bar.high >= bottom:
+            touch_idx = i
+            break
+    if touch_idx is None:
+        return "no_touch"
+
+    approach_from_above = bool(future.iloc[0].close > top)
+    entry_bar = future.iloc[touch_idx]
+
+    if approach_from_above:                      # поддержка → лонг
+        entry = max(float(entry_bar.close), bottom) + spread
+        stop = bottom - stop_pad - spread
+        risk = entry - stop
+        if risk <= 0:
+            return "invalid"
+        target = entry + risk
+        for bar in future.iloc[touch_idx + 1:].itertuples(index=False):
+            hit_stop = bar.low <= stop
+            hit_target = bar.high >= target
+            if hit_stop and hit_target:
+                return "stop"                    # неоднозначный бар считаем против себя
+            if hit_stop:
+                return "stop"
+            if hit_target:
+                return "target"
+        return "open"
+
+    entry = min(float(entry_bar.close), top) - spread          # сопротивление → шорт
+    stop = top + stop_pad + spread
+    risk = stop - entry
+    if risk <= 0:
+        return "invalid"
+    target = entry - risk
+    for bar in future.iloc[touch_idx + 1:].itertuples(index=False):
+        hit_stop = bar.high >= stop
+        hit_target = bar.low <= target
+        if hit_stop and hit_target:
+            return "stop"
+        if hit_stop:
+            return "stop"
+        if hit_target:
+            return "target"
+    return "open"
 
 # ── Контрольные группы ────────────────────────────────────────────────────────
 def random_levels(price: float, count: int, max_distance: float,
@@ -218,6 +283,7 @@ class RunConfig:
     h4_window: int = 800
     d1_window: int = 300
     round_step: float = 10.0
+    spread: float = 0.20            # $ спред XAU/USD у брокера, учитывается в входе и стопе
     source: str = ""
     rows: dict = field(default_factory=dict)
 
@@ -264,8 +330,9 @@ def run(frames: dict[str, pd.DataFrame], cfg: RunConfig) -> list[LevelOutcome]:
         for zone in zones:
             touched, result, excursion = evaluate_level(
                 zone.price, zone.top, zone.bottom, future, atr)
+            trade = simulate_retest_trade(zone.top, zone.bottom, future, atr, cfg.spread)
             outcomes.append(LevelOutcome("zones", str(cut), zone.price, zone.score,
-                                         touched, result, excursion, segment))
+                                         touched, result, excursion, segment, trade))
 
         # Контроль строится с тем же количеством уровней и той же шириной.
         width = zones[0].width if zones else config.ZONE_WIDTH
@@ -275,17 +342,37 @@ def run(frames: dict[str, pd.DataFrame], cfg: RunConfig) -> list[LevelOutcome]:
         for level in random_levels(price, count, max_dist, rng):
             touched, result, excursion = evaluate_level(
                 level, level + width, level - width, future, atr)
+            trade = simulate_retest_trade(level + width, level - width, future, atr, cfg.spread)
             outcomes.append(LevelOutcome("random", str(cut), level, 0.0,
-                                         touched, result, excursion, segment))
+                                         touched, result, excursion, segment, trade))
 
         for level in round_levels(price, count, cfg.round_step, max_dist):
             touched, result, excursion = evaluate_level(
                 level, level + width, level - width, future, atr)
+            trade = simulate_retest_trade(level + width, level - width, future, atr, cfg.spread)
             outcomes.append(LevelOutcome("round", str(cut), level, 0.0,
-                                         touched, result, excursion, segment))
+                                         touched, result, excursion, segment, trade))
 
     return outcomes
 
+
+
+def _trade_block(part: pd.DataFrame) -> dict:
+    """Итог по правилу «ретест + стоп за зоной + 1R». Незакрытые сделки не
+    считаем ни победой, ни поражением — иначе цифра врёт."""
+    if "trade" not in part.columns:
+        return {}
+    closed = part[part["trade"].isin(["target", "stop"])]
+    wins = int((closed["trade"] == "target").sum())
+    total = int(len(closed))
+    lo, hi = wilson_interval(wins, total)
+    return {
+        "trades_closed": total,
+        "trades_open": int((part["trade"] == "open").sum()),
+        "winrate_1R": round(wins / total, 4) if total else 0.0,
+        "winrate_1R_ci95": [round(lo, 4), round(hi, 4)],
+        "expectancy_R": round((wins - (total - wins)) / total, 4) if total else 0.0,
+    }
 
 def summarize(outcomes: list[LevelOutcome]) -> dict:
     frame = pd.DataFrame([asdict(o) for o in outcomes])
@@ -308,6 +395,7 @@ def summarize(outcomes: list[LevelOutcome]) -> dict:
             "breakout": int((touched["outcome"] == "breakout").sum()),
             "consolidation": int((touched["outcome"] == "consolidation").sum()),
             "median_excursion_atr": round(float(touched["excursion"].median()), 3) if len(touched) else 0.0,
+            **_trade_block(part),
         }
 
     for group in ("zones", "random", "round"):
@@ -329,9 +417,19 @@ def summarize(outcomes: list[LevelOutcome]) -> dict:
     def hits(part: pd.DataFrame) -> int:
         return int(part["outcome"].isin(["bounce", "breakout"]).sum())
 
+    def closed(group: str) -> tuple[int, int]:
+        part = frame[(frame["group"] == group) & frame["trade"].isin(["target", "stop"])]
+        return int((part["trade"] == "target").sum()), len(part)
+
+    zw, zn = closed("zones")
+    rw, rn = closed("random")
+    ow, on = closed("round")
+
     report["significance"] = {
         "zones_vs_random_p": round(two_proportion_p(hits(zt), len(zt), hits(rt), len(rt)), 6),
         "zones_vs_round_p": round(two_proportion_p(hits(zt), len(zt), hits(ot), len(ot)), 6),
+        "trade_1R_zones_vs_random_p": round(two_proportion_p(zw, zn, rw, rn), 6),
+        "trade_1R_zones_vs_round_p": round(two_proportion_p(zw, zn, ow, on), 6),
     }
     return report
 
@@ -375,6 +473,7 @@ def main() -> None:
         "max_zone_distance_pips": config.MAX_ZONE_DISTANCE_PIPS,
         "reaction_bounce_atr": config.REACTION_BOUNCE_ATR,
         "reaction_breakout_atr": config.REACTION_BREAKOUT_ATR,
+        "spread_usd": cfg.spread,
     }
 
     args.out.mkdir(parents=True, exist_ok=True)
