@@ -177,6 +177,20 @@ ZONE_WIDTH = min(ZONE_WIDTH, ZONE_WIDTH_MAX)
 # Запасной порог: если с одной стороны сильных зон нет, берём лучшие из более
 # слабых кандидатов (только чтобы заполнить пустую сторону).
 FALLBACK_MIN_ZONE_SCORE = _env_int("FALLBACK_MIN_ZONE_SCORE", 7)
+
+# ── Реакция цены на зону (zone_reaction.py) ────────────────────────────────
+# Классификация: отскок / консолидация / пробой. Пороги в единицах ATR,
+# чтобы фильтровать шум (идея из pymarket-structure), пробой — по закрытию
+# за уровень (идея из neurotrader888).
+REACTION_ENABLED = _env_bool("REACTION_ENABLED", True)
+REACTION_LOOKBACK_BARS = _env_int("REACTION_LOOKBACK_BARS", 60)   # сколько баров анализировать
+REACTION_ATR_PERIOD = _env_int("REACTION_ATR_PERIOD", 14)        # период ATR (масштаб шума)
+REACTION_WINDOW_AFTER = _env_int("REACTION_WINDOW_AFTER", 8)     # баров после касания на исход
+REACTION_BREAKOUT_ATR = _env_float("REACTION_BREAKOUT_ATR", 0.5)  # пробой: закрытие > k·ATR за зоной
+REACTION_BOUNCE_ATR = _env_float("REACTION_BOUNCE_ATR", 0.75)     # отскок: уход прочь > k·ATR
+REACTION_CONSOLIDATION_ATR = _env_float("REACTION_CONSOLIDATION_ATR", 1.2)  # консолидация: разброс закрытий < k·ATR
+REACTION_MIN_CONSOLIDATION_BARS = _env_int("REACTION_MIN_CONSOLIDATION_BARS", 3)  # мин. баров подряд у зоны
+REACTION_APPROACH_ATR = _env_float("REACTION_APPROACH_ATR", 0.6)  # «подходит»: ближе k·ATR к зоне
 # Когда цена на историческом максимуме, над ней теней просто нет — детектор
 # физически не может найти уровень, и график остаётся пустым сверху. В этом
 # случае проецируем ближайшие круглые уровни (шаг ROUND_LEVEL_STEP).

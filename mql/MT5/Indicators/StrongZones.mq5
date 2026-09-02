@@ -35,6 +35,10 @@ input bool     ShowGradient     = false;      // Градиентная визу
 input int      GradientLayers   = 5;          // Кол-во слоёв градиента
 input bool     EnableAlerts     = true;       // Алерты при касании зоны
 input double   AlertDistance    = 5.0;        // Расстояние для алерта ($)
+input bool     ShowReaction     = true;       // Красить зоны по реакции цены (отскок/консолидация/пробой)
+input color    ReactionBounceColor        = clrLimeGreen;  // Отскок (BOUNCE)
+input color    ReactionBreakoutColor      = clrRed;        // Пробой (BREAKOUT)
+input color    ReactionConsolidationColor = clrOrange;     // Консолидация (CONSOLIDATION)
 input bool     AutoFitChart     = true;       // Автоподгон шкалы под все 6 зон
 input double   FitMarginPct     = 3.0;        // Запас шкалы сверху/снизу (%)
 input bool     ShowAccumulation = false;     // Набор позиции крупным участником
@@ -58,6 +62,8 @@ int            zoneScores[];
 string         zoneLabels[];
 bool           zoneBigPlayer[];
 bool           zoneFallback[];
+string         zoneReaction[];
+string         zoneReactionDir[];
 
 
 //+------------------------------------------------------------------+
@@ -327,6 +333,17 @@ void ParseZonesJSON(string json)
       bool   fallback = (StringFind(json, "\"is_fallback\": true", pricePos) > 0 &&
                          StringFind(json, "\"is_fallback\": true", pricePos) < pricePos + 900);
 
+      // Реакция цены на зону: парсим внутри блока "reaction":{...} этой зоны,
+      // чтобы не зацепить ключи соседних объектов.
+      string reaction = "";
+      string reactionDir = "";
+      int reactionPos = StringFind(json, "\"reaction\":", pricePos);
+      if(reactionPos > 0 && reactionPos < pricePos + 1200)
+      {
+         reaction    = ExtractString(json, "\"type\":", reactionPos);
+         reactionDir = ExtractString(json, "\"direction\":", reactionPos);
+      }
+
       // Hard UI guard: never draw more than six active levels.
       if(price > 0 && currentZoneCount < 6)
       {
@@ -337,6 +354,8 @@ void ParseZonesJSON(string json)
          ArrayResize(zoneLabels, currentZoneCount + 1);
          ArrayResize(zoneBigPlayer, currentZoneCount + 1);
          ArrayResize(zoneFallback, currentZoneCount + 1);
+         ArrayResize(zoneReaction, currentZoneCount + 1);
+         ArrayResize(zoneReactionDir, currentZoneCount + 1);
 
          zonePrices[currentZoneCount]    = price;
          zoneTops[currentZoneCount]      = top;
@@ -345,6 +364,8 @@ void ParseZonesJSON(string json)
          zoneLabels[currentZoneCount]    = label;
          zoneBigPlayer[currentZoneCount] = bp;
          zoneFallback[currentZoneCount]  = fallback;
+         zoneReaction[currentZoneCount]    = reaction;
+         zoneReactionDir[currentZoneCount] = reactionDir;
 
          currentZoneCount++;
       }
@@ -410,7 +431,16 @@ void DrawSingleZone(int index)
    // Клиент просил все зоны ОДНИМ красным цветом. Сила уровня теперь передаётся
    // только толщиной линии — цветовой иерархии (золото/средний/слабый) больше нет.
    bool  fallback = zoneFallback[index];
+   string reaction    = zoneReaction[index];
+   string reactionDir = zoneReactionDir[index];
    color zoneColor = ZoneColor;
+   // Цвет по реакции цены: отскок / пробой / консолидация.
+   if(ShowReaction && reaction != "")
+   {
+      if(reaction == "BOUNCE")             zoneColor = ReactionBounceColor;
+      else if(reaction == "BREAKOUT")      zoneColor = ReactionBreakoutColor;
+      else if(reaction == "CONSOLIDATION") zoneColor = ReactionConsolidationColor;
+   }
    int   lineWidth = score >= 11 ? ZoneLineWidth + 1
                    : score >= 9  ? ZoneLineWidth
                                  : MathMax(1, ZoneLineWidth - 1);
@@ -432,8 +462,14 @@ void DrawSingleZone(int index)
       string textName = baseName + "_text";
       datetime textTime = iTime(_Symbol, PERIOD_CURRENT, 10);
       ObjectCreate(0, textName, OBJ_TEXT, 0, textTime, price);
-      // Только цена зоны (без источников/скора) — как просил клиент.
-      ObjectSetString(0, textName, OBJPROP_TEXT, DoubleToString(price, 2));
+      // Цена зоны + тип реакции (отскок/консолидация/пробой) со стрелкой направления.
+      string rtag = "";
+      if(ShowReaction && reaction != "" && reaction != "NONE")
+      {
+         string arrow = reactionDir == "UP" ? " ^" : reactionDir == "DOWN" ? " v" : "";
+         rtag = "  [" + reaction + arrow + "]";
+      }
+      ObjectSetString(0, textName, OBJPROP_TEXT, DoubleToString(price, 2) + rtag);
       ObjectSetInteger(0, textName, OBJPROP_COLOR, clrWhite);
       ObjectSetString(0, textName, OBJPROP_FONT, "Arial Bold");
       ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, 9);
@@ -605,6 +641,8 @@ void DeleteAllZoneObjects()
    ArrayFree(zoneLabels);
    ArrayFree(zoneBigPlayer);
    ArrayFree(zoneFallback);
+   ArrayFree(zoneReaction);
+   ArrayFree(zoneReactionDir);
 }
 
 //+------------------------------------------------------------------+
@@ -620,9 +658,13 @@ void CheckAlerts()
       if(dist <= AlertDistance)
       {
          string direction = currentPrice > zonePrices[i] ? "ABOVE" : "BELOW";
+         string rx = zoneReaction[i];
+         string rxinfo = (rx != "" && rx != "NONE")
+                         ? " | reaction: " + rx + (zoneReactionDir[i] != "" ? " " + zoneReactionDir[i] : "")
+                         : "";
          string msg = StringFormat(
-            "[SmartZones] Price %.2f is %.1f$ %s zone %.2f (S:%d)",
-            currentPrice, dist, direction, zonePrices[i], zoneScores[i]
+            "[SmartZones] Price %.2f is %.1f$ %s zone %.2f (S:%d)%s",
+            currentPrice, dist, direction, zonePrices[i], zoneScores[i], rxinfo
          );
 
          Alert(msg);

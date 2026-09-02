@@ -32,6 +32,7 @@ from data_fetcher import DataUnavailableError, fetch_from_csv, fetch_all_timefra
 from volume_filter import get_volume_flags_all_tf, calculate_delta, get_delta_at_zone
 from zone_detector import detect_zones
 from active_zones import update_snapshot
+from zone_reaction import classify_zone
 from sl_model import possible_stop
 from telegram_bot import send_telegram_message, send_alert_line, send_zones_update
 from footprint_data import get_collector as get_fp_collector
@@ -267,6 +268,14 @@ def calculate_and_export_zones(refresh_data: bool = True):
         if delta_df is not None:
             delta_info = get_delta_at_zone(delta_df, z.price)
             zone_data["delta"] = delta_info
+
+        # Реакция цены на зону: отскок / консолидация / пробой.
+        # Индикатор в MT4/5 использует это, чтобы подсветить/оповестить.
+        if getattr(config, "REACTION_ENABLED", True):
+            try:
+                zone_data["reaction"] = classify_zone(z, data).to_dict()
+            except Exception as exc:
+                print(f"[bridge] WARN: reaction classification failed: {exc}")
 
         zones_for_mt4.append(zone_data)
 
