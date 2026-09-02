@@ -184,6 +184,18 @@ FALLBACK_MIN_ZONE_SCORE = _env_int("FALLBACK_MIN_ZONE_SCORE", 7)
 # Клиент: «алгоритм должен только находить сильные зоны; если их нет — не строить».
 STRONG_ZONES_ONLY = _env_bool("STRONG_ZONES_ONLY", True)
 
+# ── Единые зоны на всех брокерах (валидация/канон по Dukascopy) ─────────────
+# Проблема: у разных брокеров цена XAU/USD отличается на оффсет, зоны «не ложатся».
+# Решение — независимый эталон Dukascopy (см. broker_normalize.py):
+#   VALIDATION_MODE = validate   # оставлять только зоны, подтверждённые Dukascopy
+#   VALIDATION_MODE = canonical  # считать зоны целиком по Dukascopy (одинаково у всех)
+#   VALIDATION_MODE = off        # выключить (как раньше)
+VALIDATION_MODE = _env_str("VALIDATION_MODE", "validate")
+VALIDATION_TOLERANCE = _env_float("VALIDATION_TOLERANCE", 5.0)  # $ допуск совпадения
+BROKER_OFFSET_ENABLED = _env_bool("BROKER_OFFSET_ENABLED", True)  # сдвиг на цену брокера
+DUKA_SYMBOL = _env_str("DUKA_SYMBOL", "XAUUSD")
+DUKA_DAYS = _env_int("DUKA_DAYS", 5)
+
 # ── Диапазон отображения зон (требование клиента) ──────────────────────────
 # Показываем сильные зоны в пределах 0…MAX_ZONE_DISTANCE_PIPS пунктов от цены,
 # В ОБЕ стороны, начиная от самых близких. Никакой «лестницы» с минимальным

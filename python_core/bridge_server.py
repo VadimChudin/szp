@@ -213,6 +213,15 @@ def calculate_and_export_zones(refresh_data: bool = True):
         print(f"[bridge] WARN: Could not update persistent archive: {e}")
     zones = update_snapshot(zones, data)
 
+    # ── Единые зоны на всех брокерах: валидация/канон по Dukascopy + оффсет ──
+    # У разных брокеров цена XAU/USD отличается на оффсет, поэтому одни и те же
+    # зоны «не ложатся» на график другого брокера. Приводим к независимому эталону.
+    try:
+        from broker_normalize import normalize_broker_zones
+        zones = normalize_broker_zones(zones, data)
+    except Exception as exc:
+        print(f"[bridge] WARN: broker normalization failed, using broker zones: {exc}")
+
     # ── Дельта-анализ (Футпринт Dukascopy/MT4) ──────
     flow_delta = None
     try:
