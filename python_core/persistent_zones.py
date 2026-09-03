@@ -249,5 +249,23 @@ def process_legacy_zones(current_zones: list[Zone],
             final_output = [z for z in final_output
                             if abs(z.price - price) <= config.MAX_ZONE_DISTANCE]
 
+    # На графике только зоны с реакцией / проторговкой / подходом.
+    # Дальние «мёртвые» уровни (NONE) и уже пробитые (BREAKOUT) не рисуем.
+    allowed = set(getattr(config, "DISPLAY_REACTION_TYPES", ()) or ())
+    if allowed and getattr(config, "REACTION_ENABLED", True):
+        from zone_reaction import classify_zone
+        reacting = []
+        for zone in final_output:
+            try:
+                rx = classify_zone(zone, all_data)
+            except Exception as exc:
+                print(f"[persistent] WARN: reaction filter skipped ${zone.price:.2f}: {exc}")
+                continue
+            if rx.type in allowed:
+                reacting.append(zone)
+        print(f"[persistent] Reaction filter: {len(final_output)} in window -> "
+              f"{len(reacting)} with {sorted(allowed)}")
+        final_output = reacting
+
     final_output.sort(key=lambda z: z.score, reverse=True)
     return final_output[:config.MAX_ZONES_ON_CHART]

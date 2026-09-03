@@ -19,7 +19,9 @@ from persistent_zones import (
     save_db,
     get_h4_closes,
     process_persistent_zones,
+    process_legacy_zones,
 )
+from zone_reaction import ReactionResult, Reaction
 
 
 class TestDefaultSerializer:
@@ -254,3 +256,69 @@ class TestProcessPersistentZones:
             result = process_persistent_zones(current, data)
 
         assert len(result) <= config.MAX_ZONES_ON_CHART
+
+
+class TestProcessLegacyZonesDisplay:
+    def _h4(self, close=2400.0):
+        return {
+            "H4": pd.DataFrame({
+                "open": [close],
+                "close": [close],
+                "high": [close + 1],
+                "low": [close - 1],
+                "time": pd.date_range("2024-01-01", periods=1, freq="4h"),
+            }),
+            "H1": pd.DataFrame({
+                "open": [close],
+                "close": [close],
+                "high": [close + 1],
+                "low": [close - 1],
+                "time": pd.date_range("2024-01-01", periods=1, freq="h"),
+            }),
+        }
+
+    def test_hides_zones_beyond_900_pips(self, tmp_path, monkeypatch):
+        fake_db = tmp_path / "zones_db.json"
+        monkeypatch.setattr(config, "MAX_ZONE_DISTANCE_PIPS", 900.0)
+        monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 90.0)
+        monkeypatch.setattr(config, "REACTION_ENABLED", False)
+        near = Zone(price=2410.0, score=15, sources=["H4"], width=1.0)
+        far = Zone(price=2600.0, score=20, sources=["H4"], width=1.0)
+        with patch("persistent_zones.DB_FILE", fake_db):
+            result = process_legacy_zones([near, far], self._h4(2400.0))
+        prices = [z.price for z in result]
+        assert 2410.0 in prices
+        assert 2600.0 not in prices
+
+    def test_keeps_only_reaction_zones(self, tmp_path, monkeypatch):
+        fake_db = tmp_path / "zones_db.json"
+        monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 0.0)
+        monkeypatch.setattr(config, "REACTION_ENABLED", True)
+        monkeypatch.setattr(
+            config, "DISPLAY_REACTION_TYPES",
+            ("BOUNCE", "CONSOLIDATION", "APPROACHING"),
+        )
+        bounce = Zone(price=2390.0, score=14, sources=["H4"], width=1.0)
+        consol = Zone(price=2410.0, score=13, sources=["H4"], width=1.0)
+        dead = Zone(price=2420.0, score=20, sources=["H4"], width=1.0)
+        broken = Zone(price=2380.0, score=18, sources=["H4"], width=1.0)
+
+        def fake_classify(zone, data):
+            mapping = {
+                2390.0: Reaction.BOUNCE,
+                2410.0: Reaction.CONSOLIDATION,
+                2420.0: Reaction.NONE,
+                2380.0: Reaction.BREAKOUT,
+            }
+            return ReactionResult(type=mapping[zone.price])
+
+        with patch("persistent_zones.DB_FILE", fake_db), \
+             patch("zone_reaction.classify_zone", side_effect=fake_classify):
+            result = process_legacy_zones(
+                [bounce, consol, dead, broken], self._h4(2400.0)
+            )
+        prices = [z.price for z in result]
+        assert 2390.0 in prices
+        assert 2410.0 in prices
+        assert 2420.0 not in prices
+        assert 2380.0 not in prices

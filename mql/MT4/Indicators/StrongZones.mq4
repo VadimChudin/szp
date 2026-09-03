@@ -44,7 +44,7 @@ input bool     ShowZakrep       = true;       // Пометка/алерт «З�
 // и у клиентов со старой сборкой ShowReaction=true оживал после обновления.
 input bool     ShowReactionTag  = false;      // Текстовая метка реакции у цены (цвет линии НЕ меняет)
 input bool     LabelAboveLine   = true;       // Подпись цены НАД линией зоны (не поверх неё)
-input double   LabelOffsetUSD   = 0.0;        // Доп. отступ подписи от линии ($)
+input double   LabelOffsetUSD   = 0.80;       // Отступ подписи от линии ($) — цифры не лежат в уровне
 input bool     AutoFitChart     = true;       // Автоподгон шкалы под все 6 зон
 input double   FitMarginPct     = 3.0;        // Запас шкалы сверху/снизу (%)
 // Имя файла с зонами — лежит в MQL4/Files или Common/Files (положит sync_zones_to_mt4.py).

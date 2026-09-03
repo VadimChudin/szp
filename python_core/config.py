@@ -116,7 +116,9 @@ REGIME_ATR_LOW = _env_float("REGIME_ATR_LOW", 2.0)
 REGIME_ATR_HIGH = _env_float("REGIME_ATR_HIGH", 6.0)
 
 # ── Жизненный цикл active H4-зон ────────────────────────────────────────────
-TEST_INVALIDATES_ZONE = _env_bool("TEST_INVALIDATES_ZONE", True)
+# Касание фитилём — это реакция, не смерть зоны. Снимаем только close-through
+# телом H4 (см. LEGACY_BREAKOUT_MIN), как в старой версии.
+TEST_INVALIDATES_ZONE = _env_bool("TEST_INVALIDATES_ZONE", False)
 ZONE_EVENT_LOG_ENABLED = _env_bool("ZONE_EVENT_LOG_ENABLED", True)
 
 # ── Фильтр "Крупный игрок" (Volume) ────────────────────────────────────────
@@ -146,7 +148,9 @@ LEGACY_BREAKOUT_MIN = _env_int("LEGACY_BREAKOUT_MIN", 2)             # проб�
 LEGACY_ARCHIVE_MIN_SCORE = _env_int("LEGACY_ARCHIVE_MIN_SCORE", 12)  # «титаник»-зоны в архив
 LEGACY_HIST_SCORE_PENALTY = _env_int("LEGACY_HIST_SCORE_PENALTY", 2) # насколько слабеет HIST
 LEGACY_HIST_SCORE_FLOOR = _env_int("LEGACY_HIST_SCORE_FLOOR", 8)     # ниже не опускаем
-MAX_ZONES_ON_CHART = _env_int("MAX_ZONES_ON_CHART", ZONES_PER_SIDE * 2)
+# В окне 0..900 пунктов с каждой стороны показываем ВСЕ подходящие зоны,
+# а не 3+3 слота. Верхняя граница — защита от сотен линий, не контракт.
+MAX_ZONES_ON_CHART = _env_int("MAX_ZONES_ON_CHART", 80)
 
 # ── Полоса отображения зон (главное требование клиента) ─────────────────────
 # Раньше отбор шёл ТОЛЬКО по score: расстояние от цены не ограничивалось ни
@@ -214,10 +218,21 @@ DUKA_DAYS = _env_int("DUKA_DAYS", 5)
 # отступом — близкие к цене зоны (напр. 4786 в $1 от цены) обязаны показываться.
 # Как в старой версии: ограничения по расстоянию НЕТ вообще. Зона живёт там,
 # где её нашёл детектор, отбор идёт только по силе (score) и лимиту на графике.
-# 0 = без ограничения. Любое положительное значение включает коридор обратно
-# (например MAX_ZONE_DISTANCE_PIPS=300 даст зоны в пределах $30 от цены).
-MAX_ZONE_DISTANCE_PIPS = _env_float("MAX_ZONE_DISTANCE_PIPS", 0.0)
+# Окно показа: 0…900 пунктов вверх и 0…900 пунктов вниз от цены.
+# Дальше 900 зона на график не попадает. 900 пунктов × $0.1 = $90.
+MAX_ZONE_DISTANCE_PIPS = _env_float("MAX_ZONE_DISTANCE_PIPS", 900.0)
 MAX_ZONE_DISTANCE = MAX_ZONE_DISTANCE_PIPS * PIP_SIZE
+
+# На графике только зоны, у которых уже есть/идёт реакция:
+# отскок, проторговка (консолидация) или подход/касание. NONE и BREAKOUT скрываем.
+DISPLAY_REACTION_TYPES = tuple(
+    s.strip().upper()
+    for s in _env_str(
+        "DISPLAY_REACTION_TYPES",
+        "BOUNCE,CONSOLIDATION,APPROACHING",
+    ).split(",")
+    if s.strip()
+)
 
 # ── Реакция цены на зону (zone_reaction.py) ────────────────────────────────
 # Классификация: отскок / консолидация / пробой. Пороги в единицах ATR,
