@@ -52,13 +52,26 @@ hiddenimports += [
     'tick_reader', 'sync_zones_to_mt4', 'persistent_zones',
     'telegram_bot', 'smart_zones_tray', 'dukascopy_loader',
     'settings_window', 'paths', 'installer_gui',
+    # ── Слой ИИ ──
+    # ai.keygen сюда НЕ входит осознанно: генератор ключей содержит логику
+    # выпуска лицензий и остаётся только у разработчика (см. excludes ниже).
+    'proc_util', 'ai', 'ai.licensing', 'ai.ed25519', 'ai.hw_profile',
+    'ai.model_catalog', 'ai.runtime', 'ai.downloader', 'ai.annotator',
+    'ai.tools',
 ]
 
 # ── Данные проекта (MQL файлы, splash) ──
 datas += [
     (os.path.join(REPO_DIR, 'mql'), 'mql'),
     (os.path.join(REPO_DIR, 'splash_image.bmp'), '.'),
+    # Грамматика ответа модели: без неё ИИ-слой не сможет ограничить вывод.
+    (os.path.join(PYTHON_CORE, 'ai', 'zone_note.gbnf'), 'ai'),
 ]
+
+# llama-server поставляется рядом с exe, если собран локально.
+# Без него ИИ просто недоступен, остальной продукт работает как обычно.
+if os.path.isdir(os.path.join(PYTHON_CORE, 'llama')):
+    datas += [(os.path.join(PYTHON_CORE, 'llama'), 'llama')]
 
 # Проверяем наличие splash.gif
 if os.path.exists(os.path.join(PYTHON_CORE, 'splash.gif')):
@@ -78,6 +91,8 @@ a = Analysis(
         'psycopg2', 'sqlalchemy', 'botocore', 'boto3', 'cryptography',
         'bcrypt', 'lxml', 'matplotlib', 'mplfinance', 'yfinance',
         'IPython', 'notebook', 'jupyter',
+        # Генератор лицензий не должен попадать клиенту ни в каком виде.
+        'ai.keygen',
     ],
     noarchive=False,
     optimize=1,

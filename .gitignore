@@ -24,3 +24,15 @@ Output/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# ── Лицензии ИИ ─────────────────────────────────────────────────────────────
+# Приватный ключ подписи лицензий. НИКОГДА не должен попасть в репозиторий:
+# утечка = любой сможет выпускать ключи продукта сам.
+python_core/szp_signing_key.txt
+szp_signing_key.txt
+
+# Скачанные модели Qwen (гигабайты) и журнал llama-server.
+python_core/llama/
+*.gguf
+*.gguf.part
+llama-server.log

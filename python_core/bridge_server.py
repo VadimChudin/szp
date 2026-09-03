@@ -241,6 +241,23 @@ def calculate_and_export_zones(refresh_data: bool = True):
     except Exception as exc:
         print(f"[bridge] WARN: broker normalization failed, using broker zones: {exc}")
 
+    # ── Слой ИИ: подписи и ранжирование уже посчитанных зон ────────────────
+    # Ставится ПОСЛЕ детектора, окна показа, confirm_zones и оффсета брокера:
+    # геометрия к этому моменту зафиксирована, модель её не касается. Любая
+    # неудача (нет ключа, нет модели, таймаут) оставляет зоны как есть.
+    if config.AI_ENABLED and zones:
+        try:
+            from ai import annotator, licensing
+            # Время последней свечи эталона — независимый источник времени.
+            # Локальные часы можно открутить назад, это — нет.
+            frame = data.get("H1") if isinstance(data, dict) else None
+            if frame is not None and not frame.empty and "time" in frame.columns:
+                licensing.set_time_anchor(
+                    pd.Timestamp(frame["time"].iloc[-1]).timestamp())
+            zones = annotator.annotate(zones, data)
+        except Exception as exc:
+            print(f"[bridge] WARN: AI layer skipped: {exc}")
+
     # ── Дельта-анализ (Футпринт Dukascopy/MT4) ──────
     flow_delta = None
     try:
@@ -417,12 +434,12 @@ def run_monitor_loop(interval_seconds: int = 5):
                         global is_fp_downloading
                         print(f"[bridge] Launching Footprint window for {timeframe}...")
                         try:
-                            import subprocess
+                            import proc_util
                             if getattr(sys, 'frozen', False):
-                                subprocess.Popen([sys.executable, "--footprint", timeframe])
+                                proc_util.popen([sys.executable, "--footprint", timeframe])
                             else:
                                 fp_script = Path(__file__).parent / "smart_zones_tray.py"
-                                subprocess.Popen([sys.executable, str(fp_script), "--footprint", timeframe])
+                                proc_util.popen([sys.executable, str(fp_script), "--footprint", timeframe])
                         except Exception as e:
                             print(f"[bridge] Failed to launch UI: {e}")
                         is_fp_downloading = False

@@ -146,7 +146,7 @@ def find_metaeditor(terminal_path: Path, is_mt5: bool) -> Path | None:
 
 def compile_mq(mq_path: Path, terminal_path: Path, is_mt5: bool) -> bool:
     """Компилирует .mq4 или .mq5 файл через metaeditor.exe."""
-    import subprocess
+    import proc_util
     
     me = find_metaeditor(terminal_path, is_mt5)
     if me is None:
@@ -156,10 +156,12 @@ def compile_mq(mq_path: Path, terminal_path: Path, is_mt5: bool) -> bool:
     
     print(f"[install] Compiling with: {me}")
     try:
-        # Для MT5/MT4 ключи компиляции одинаковые
-        result = subprocess.run(
+        # Для MT5/MT4 ключи компиляции одинаковые. Запуск через proc_util:
+        # патчер обходит ВСЕ найденные терминалы, и без скрытия окон на каждый
+        # из них выскакивало бы окно metaeditor поверх графика.
+        result = proc_util.run(
             [str(me), "/compile:" + str(mq_path), "/log"],
-            capture_output=True, text=True, timeout=30
+            timeout=30
         )
         if result.returncode == 0:
             print(f"[install] [OK] Compiled: {mq_path.name}")

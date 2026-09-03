@@ -69,6 +69,14 @@ class Zone:
     confirm_score: float = 0.0          # 0..1
     confirm_verdict: str = ""           # LIVE | WATCH | DEAD
 
+    # ── Слой ИИ (ai/annotator) ─────────────────────────────────────────────
+    # Заполняется локальной моделью и НИКОГДА не влияет на price/width/state:
+    # геометрию считает код, иначе канон «одинаковые зоны у всех брокеров»
+    # разошёлся бы между запусками. Пустые значения = ИИ выключен или молчит.
+    ai_verdict: str = ""                # LIVE | WATCH | SKIP
+    ai_note: str = ""                   # одна фраза для подписи на графике
+    ai_rank: int = 0                    # 1 — самая интересная зона, 0 — нет
+
     @property
     def top(self) -> float:
         return self.price + self.width
@@ -113,6 +121,9 @@ class Zone:
             "confirmation": self.confirmation,
             "confirm_score": self.confirm_score,
             "confirm_verdict": self.confirm_verdict,
+            "ai_verdict": self.ai_verdict,
+            "ai_note": self.ai_note,
+            "ai_rank": self.ai_rank,
         }
 
     @classmethod
@@ -141,6 +152,9 @@ class Zone:
             confirmation=d.get("confirmation", {}),
             confirm_score=d.get("confirm_score", 0.0),
             confirm_verdict=d.get("confirm_verdict", ""),
+            ai_verdict=d.get("ai_verdict", ""),
+            ai_note=d.get("ai_note", ""),
+            ai_rank=d.get("ai_rank", 0),
         )
 
     def __repr__(self):

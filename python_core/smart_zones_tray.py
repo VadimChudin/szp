@@ -29,9 +29,9 @@ def create_image():
 icon_global = None
 
 def patch_action(icon, item):
-    import subprocess
+    import proc_util
     patch_script = Path(__file__).parent / "installer_gui.py"
-    subprocess.Popen([sys.executable, str(patch_script)])
+    proc_util.popen([sys.executable, str(patch_script)])
 
 def on_exit(icon, item):
     global icon_global

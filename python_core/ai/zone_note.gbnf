@@ -1,0 +1,12 @@
+root   ::= "[" ws item ("," ws item)* ws "]"
+item   ::= "{" ws
+           "\"zone_id\":" ws integer ws "," ws
+           "\"verdict\":" ws verdict ws "," ws
+           "\"rank\":" ws integer ws "," ws
+           "\"why\":" ws text ws
+           "}"
+verdict ::= "\"LIVE\"" | "\"WATCH\"" | "\"SKIP\""
+integer ::= [0-9] | [1-9] [0-9]
+text    ::= "\"" char{1,180} "\""
+char    ::= [^"\\\x00-\x1F]
+ws      ::= [ \t\n]*

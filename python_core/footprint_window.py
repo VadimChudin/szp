@@ -89,6 +89,68 @@ class API:
             print(f"[footprint] ERROR: Could not save brokers config: {e}")
             return False
 
+    # ── ИИ: ключ продукта, профиль компьютера, модель ──────────────────────
+    # Окно спрашивает состояние одним вызовом: показывать нужно всё сразу —
+    # что за железо, что оно потянет, введён ли ключ и сколько скачано.
+    def ai_state(self):
+        try:
+            from ai import downloader, hw_profile, licensing, runtime
+            profile = hw_profile.build_profile()
+            model_ready = bool(profile.model
+                               and runtime.model_ready(profile.model))
+            return json.dumps({
+                "license": licensing.current_status().to_dict(),
+                "machine_code": licensing.machine_code(),
+                "profile": profile.to_dict(),
+                "download": downloader.progress().to_dict(),
+                "downloading": downloader.busy(),
+                "model_ready": model_ready,
+                "server_ready": runtime.ready(),
+            }, ensure_ascii=False)
+        except Exception as exc:
+            print(f"[ai] состояние недоступно: {exc}")
+            return json.dumps({"error": str(exc)}, ensure_ascii=False)
+
+    def ai_activate(self, key):
+        """Проверяет ключ и сохраняет его при успехе."""
+        try:
+            from ai import licensing
+            return json.dumps(licensing.activate(key or "").to_dict(),
+                              ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"ok": False, "message": str(exc)},
+                              ensure_ascii=False)
+
+    def ai_download(self):
+        """Начинает (или продолжает) загрузку подходящей модели."""
+        try:
+            from ai import downloader, hw_profile, licensing
+            if not licensing.current_status().ok:
+                return json.dumps({"ok": False,
+                                   "message": "Сначала введите ключ продукта"},
+                                  ensure_ascii=False)
+            profile = hw_profile.build_profile()
+            if profile.model is None:
+                return json.dumps({"ok": False, "message": profile.verdict()},
+                                  ensure_ascii=False)
+            downloader.start(profile.model)
+            return json.dumps({"ok": True, "message": "Загрузка начата"},
+                              ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"ok": False, "message": str(exc)},
+                              ensure_ascii=False)
+
+    def ai_disconnect(self):
+        """Отключает ИИ. Файл модели остаётся — ключ можно продлить."""
+        try:
+            from ai import licensing, runtime
+            runtime.stop()
+            licensing.deactivate()
+            return json.dumps({"ok": True}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"ok": False, "message": str(exc)},
+                              ensure_ascii=False)
+
 HTML = """<!DOCTYPE html>
 <html>
 <head>
@@ -208,6 +270,10 @@ canvas { display:block; cursor:crosshair; }
   <span class="sep"></span>
   <button id="zk-btn" class="tf-btn active" onclick="toggleZakrep()" title="Показать/скрыть метку ЗАКРЕП">ZAKREP</button>
   <button id="sl-btn" class="tf-btn" onclick="toggleSL()" title="Показать/скрыть линию SL">SL</button>
+  <button id="ai-btn" class="tf-btn ai-btn" onclick="openAI()" title="Подключить ИИ (Qwen)">
+    <svg class="ai-mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.2 14.2 8 8 14.8 1.8 8Z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.6 11.4 8 8 11.4 4.6 8Z" fill="currentColor" opacity=".75"/></svg>
+    <span>Qwen</span>
+  </button>
   <span class="sep"></span>
   <button class="nav-btn" onclick="sc(-10)" title="Home">⏮</button>
   <button class="nav-btn" onclick="sc(-3)">◀</button>
@@ -236,6 +302,69 @@ canvas { display:block; cursor:crosshair; }
   </div>
 </div>
 
+<style>
+.ai-btn { display:inline-flex; align-items:center; gap:5px; }
+.ai-mark { width:13px; height:13px; }
+.ai-row { margin:14px 0; }
+.ai-label { font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+            color:#6b7f95; margin-bottom:5px; }
+.ai-value { font-size:13px; color:#c8d6e5; line-height:1.5; }
+.ai-box { font-family:Consolas,monospace; font-size:13px; letter-spacing:.05em;
+          background:#0d1826; border:1px solid #1e3350; border-radius:5px;
+          padding:9px 11px; color:#b8f35a; word-break:break-all; }
+.ai-input { width:100%; box-sizing:border-box; font-family:Consolas,monospace;
+            font-size:12px; background:#0d1826; border:1px solid #1e3350;
+            border-radius:5px; padding:9px 11px; color:#e6eef8; }
+.ai-input:focus { outline:none; border-color:#2962ff; }
+.ai-bar { height:7px; background:#0d1826; border-radius:4px; overflow:hidden;
+          border:1px solid #1e3350; }
+.ai-bar span { display:block; height:100%; background:#2962ff; width:0; }
+.ai-note { font-size:12px; color:#8fa3ba; margin-top:6px; }
+.ai-ok { color:#b8f35a; } .ai-bad { color:#ff6b6b; }
+.ai-tier { border-left:2px solid #2962ff; padding-left:10px; }
+</style>
+
+<div id="ai-modal" class="modal-overlay">
+  <div class="modal">
+    <h2>Подключение ИИ — Qwen (локально)</h2>
+
+    <div class="ai-row">
+      <div class="ai-label">Ваш компьютер</div>
+      <div class="ai-value" id="ai-hw">проверяем...</div>
+    </div>
+
+    <div class="ai-row ai-tier">
+      <div class="ai-label">Что будет доступно</div>
+      <div class="ai-value" id="ai-verdict">—</div>
+    </div>
+
+    <div class="ai-row">
+      <div class="ai-label">Код вашей машины — пришлите его для получения ключа</div>
+      <div class="ai-box" id="ai-code">—</div>
+    </div>
+
+    <div class="ai-row">
+      <div class="ai-label">Ключ продукта</div>
+      <input id="ai-key" class="ai-input" spellcheck="false"
+             placeholder="SZP1-XXXXX-XXXXX-..." />
+      <div class="ai-note" id="ai-status">Ключ не введён</div>
+    </div>
+
+    <div class="ai-row" id="ai-dl-row" style="display:none">
+      <div class="ai-label">Загрузка модели</div>
+      <div class="ai-bar"><span id="ai-bar-fill"></span></div>
+      <div class="ai-note" id="ai-dl-note">—</div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-close" onclick="closeAI()">Закрыть</button>
+      <button class="btn-close" onclick="aiDisconnect()">Отключить ИИ</button>
+      <button class="btn-save" onclick="aiDownload()">Скачать модель</button>
+      <button class="btn-save" onclick="aiActivate()">Активировать</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let DATA = null;
 let showZakrep = true;
@@ -251,6 +380,84 @@ function toggleSL() {
   const b = document.getElementById('sl-btn');
   if (b) b.classList.toggle('active', showSL);
   if (DATA) draw();
+}
+
+// ── ИИ: ключ, профиль ПК, загрузка модели ─────────────────────────────────
+let aiTimer = null;
+
+function openAI() {
+  document.getElementById('ai-modal').style.display = 'flex';
+  aiRefresh();
+  if (!aiTimer) aiTimer = setInterval(aiRefresh, 1500);
+}
+
+function closeAI() {
+  document.getElementById('ai-modal').style.display = 'none';
+  if (aiTimer) { clearInterval(aiTimer); aiTimer = null; }
+}
+
+async function aiRefresh() {
+  let s;
+  try { s = JSON.parse(await pywebview.api.ai_state()); }
+  catch (e) { return; }
+  if (s.error) { document.getElementById('ai-hw').textContent = s.error; return; }
+
+  document.getElementById('ai-hw').textContent = s.profile.summary;
+  document.getElementById('ai-verdict').textContent = s.profile.verdict;
+  document.getElementById('ai-code').textContent = s.machine_code;
+
+  const st = document.getElementById('ai-status');
+  st.textContent = s.license.message;
+  st.className = 'ai-note ' + (s.license.ok ? 'ai-ok' : 'ai-bad');
+
+  // Кнопка в панели светится, только когда ИИ реально работает.
+  const btn = document.getElementById('ai-btn');
+  if (btn) btn.classList.toggle('active', !!(s.license.ok && s.model_ready));
+
+  const dl = s.download || {};
+  const row = document.getElementById('ai-dl-row');
+  if (dl.state && dl.state !== 'idle') {
+    row.style.display = 'block';
+    document.getElementById('ai-bar-fill').style.width = (dl.percent || 0) + '%';
+    let note = dl.message || '';
+    if (dl.state === 'downloading') {
+      note = `${dl.downloaded_gib} из ${dl.total_gib} ГБ · ${dl.percent}%`
+           + (dl.speed_mb_s ? ` · ${dl.speed_mb_s} МБ/с` : '');
+    }
+    document.getElementById('ai-dl-note').textContent = note;
+  } else if (s.model_ready) {
+    row.style.display = 'block';
+    document.getElementById('ai-bar-fill').style.width = '100%';
+    document.getElementById('ai-dl-note').textContent = 'Модель на месте';
+  } else {
+    row.style.display = 'none';
+  }
+}
+
+async function aiActivate() {
+  const key = document.getElementById('ai-key').value.trim();
+  if (!key) return;
+  const r = JSON.parse(await pywebview.api.ai_activate(key));
+  const st = document.getElementById('ai-status');
+  st.textContent = r.message || '';
+  st.className = 'ai-note ' + (r.ok ? 'ai-ok' : 'ai-bad');
+  aiRefresh();
+}
+
+async function aiDownload() {
+  const r = JSON.parse(await pywebview.api.ai_download());
+  if (!r.ok) {
+    const st = document.getElementById('ai-status');
+    st.textContent = r.message || '';
+    st.className = 'ai-note ai-bad';
+  }
+  aiRefresh();
+}
+
+async function aiDisconnect() {
+  await pywebview.api.ai_disconnect();
+  document.getElementById('ai-key').value = '';
+  aiRefresh();
 }
 let W, H;
 let scrollPos = 0;

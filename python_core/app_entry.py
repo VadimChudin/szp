@@ -169,24 +169,24 @@ def run_tray(bridge_thread):
         def on_footprint(icon, item):
             """Открыть окно футпринта."""
             try:
-                import subprocess
+                import proc_util
                 fp_script = os.path.join(BASE_DIR, "smart_zones_tray.py")
                 if getattr(sys, 'frozen', False):
-                    subprocess.Popen([sys.executable, "--footprint", "4h"])
+                    proc_util.popen([sys.executable, "--footprint", "4h"])
                 else:
-                    subprocess.Popen([sys.executable, fp_script, "--footprint", "4h"])
+                    proc_util.popen([sys.executable, fp_script, "--footprint", "4h"])
             except Exception as e:
                 print(f"[tray] Footprint launch error: {e}")
         
         def on_settings(icon, item):
             """Открыть окно настроек (брокер MT5 / источник данных / Telegram)."""
             try:
-                import subprocess
+                import proc_util
                 settings_script = os.path.join(BASE_DIR, "settings_window.py")
                 if getattr(sys, 'frozen', False):
-                    subprocess.Popen([sys.executable, "--settings"])
+                    proc_util.popen([sys.executable, "--settings"])
                 else:
-                    subprocess.Popen([sys.executable, settings_script])
+                    proc_util.popen([sys.executable, settings_script])
             except Exception as e:
                 print(f"[tray] Settings launch error: {e}")
         
