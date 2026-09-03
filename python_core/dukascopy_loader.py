@@ -132,6 +132,52 @@ class DukascopyLoader:
             print("[dukascopy] Failed to fetch any historical data.")
             return pd.DataFrame()
 
+    def ticks_to_ohlc(self, ticks: pd.DataFrame) -> dict[str, pd.DataFrame]:
+        """Собирает H1/H4/D1 OHLC из тиков Dukascopy (mid = (bid+ask)/2)."""
+        if ticks is None or ticks.empty or "time" not in ticks.columns:
+            return {}
+        df = ticks.copy()
+        df["time"] = pd.to_datetime(df["time"], utc=True)
+        if getattr(df["time"].dt, "tz", None) is not None:
+            df["time"] = df["time"].dt.tz_convert("UTC").dt.tz_convert(None)
+        if "ask" in df.columns and "bid" in df.columns:
+            df["price"] = (df["ask"].astype(float) + df["bid"].astype(float)) / 2.0
+        elif "price" in df.columns:
+            df["price"] = df["price"].astype(float)
+        else:
+            return {}
+        vol = None
+        if "ask_vol" in df.columns and "bid_vol" in df.columns:
+            vol = df["ask_vol"].astype(float) + df["bid_vol"].astype(float)
+            vol.index = df["time"]
+        df = df.set_index("time").sort_index()
+        if vol is not None:
+            vol = vol.reindex(df.index)
+
+        def _ohlc(rule: str) -> pd.DataFrame:
+            g = df["price"].resample(rule).agg(["first", "max", "min", "last"]).dropna()
+            g = g.rename(columns={"first": "open", "max": "high",
+                                  "min": "low", "last": "close"})
+            if vol is not None:
+                g["tick_volume"] = vol.resample(rule).sum().reindex(g.index).fillna(0)
+            else:
+                g["tick_volume"] = 0.0
+            return g.reset_index()
+
+        out = {}
+        mapping = {"H1": "1h", "H4": "4h", "D1": "1D"}
+        for label, rule in mapping.items():
+            frame = _ohlc(rule)
+            if not frame.empty:
+                out[label] = frame
+        return out
+
+    def fetch_ohlc(self, symbol: str, days_back: int = 40) -> dict[str, pd.DataFrame]:
+        """Тики Dukascopy → OHLC по таймфреймам детектора."""
+        ticks = self.fetch_history(symbol, days_back=days_back)
+        return self.ticks_to_ohlc(ticks)
+
+
 if __name__ == "__main__":
     import time
     start = time.time()

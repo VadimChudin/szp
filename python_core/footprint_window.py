@@ -207,6 +207,7 @@ canvas { display:block; cursor:crosshair; }
   <button class="tf-btn" data-tf="1d" onclick="switchTF('1d')">1D</button>
   <span class="sep"></span>
   <button id="zk-btn" class="tf-btn active" onclick="toggleZakrep()" title="Показать/скрыть метку ЗАКРЕП">ZAKREP</button>
+  <button id="sl-btn" class="tf-btn" onclick="toggleSL()" title="Показать/скрыть линию SL">SL</button>
   <span class="sep"></span>
   <button class="nav-btn" onclick="sc(-10)" title="Home">⏮</button>
   <button class="nav-btn" onclick="sc(-3)">◀</button>
@@ -238,10 +239,17 @@ canvas { display:block; cursor:crosshair; }
 <script>
 let DATA = null;
 let showZakrep = true;
+let showSL = false;
 function toggleZakrep() {
   showZakrep = !showZakrep;
   const b = document.getElementById('zk-btn');
   if (b) b.classList.toggle('active', showZakrep);
+  if (DATA) draw();
+}
+function toggleSL() {
+  showSL = !showSL;
+  const b = document.getElementById('sl-btn');
+  if (b) b.classList.toggle('active', showSL);
   if (DATA) draw();
 }
 let W, H;
@@ -483,7 +491,7 @@ function draw() {
     }
 
     // Possible SL is shown as a separate structural liquidity line.
-    if (z.sl && z.sl.price !== undefined) {
+    if (showSL && z.sl && z.sl.price !== undefined) {
       const slPrice = Number(z.sl.price);
       const slY = py(slPrice);
       const slCol = '#bda7ff'; // SL is violet; red is reserved for fallback zones.

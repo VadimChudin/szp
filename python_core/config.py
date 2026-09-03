@@ -206,11 +206,15 @@ STRONG_ZONES_ONLY = _env_bool("STRONG_ZONES_ONLY", True)
 #   VALIDATION_MODE = validate   # оставлять только зоны, подтверждённые Dukascopy
 #   VALIDATION_MODE = canonical  # считать зоны целиком по Dukascopy (одинаково у всех)
 #   VALIDATION_MODE = off        # выключить (как раньше)
-VALIDATION_MODE = _env_str("VALIDATION_MODE", "validate")
+# Зоны считаем по Dukascopy, на график брокера сдвигаем линию (цена брокера − Duka).
+VALIDATION_MODE = _env_str("VALIDATION_MODE", "canonical")
 VALIDATION_TOLERANCE = _env_float("VALIDATION_TOLERANCE", 5.0)  # $ допуск совпадения
 BROKER_OFFSET_ENABLED = _env_bool("BROKER_OFFSET_ENABLED", True)  # сдвиг на цену брокера
 DUKA_SYMBOL = _env_str("DUKA_SYMBOL", "XAUUSD")
-DUKA_DAYS = _env_int("DUKA_DAYS", 5)
+DUKA_DAYS = _env_int("DUKA_DAYS", 5)  # короткая выборка для валидации/оффсета
+# Глубина тиков Dukascopy для OHLC. 100 дней покрывает H1 720 и H4 600.
+# Больше (до 365) — полная D1-история, первая загрузка дольше, дальше кэш.
+DUKA_OHLC_DAYS = _env_int("DUKA_OHLC_DAYS", 100)
 
 # ── Диапазон отображения зон (требование клиента) ──────────────────────────
 # Показываем сильные зоны в пределах 0…MAX_ZONE_DISTANCE_PIPS пунктов от цены,
@@ -218,9 +222,10 @@ DUKA_DAYS = _env_int("DUKA_DAYS", 5)
 # отступом — близкие к цене зоны (напр. 4786 в $1 от цены) обязаны показываться.
 # Как в старой версии: ограничения по расстоянию НЕТ вообще. Зона живёт там,
 # где её нашёл детектор, отбор идёт только по силе (score) и лимиту на графике.
-# Окно показа: 0…900 пунктов вверх и 0…900 пунктов вниз от цены.
-# Дальше 900 зона на график не попадает. 900 пунктов × $0.1 = $90.
-MAX_ZONE_DISTANCE_PIPS = _env_float("MAX_ZONE_DISTANCE_PIPS", 900.0)
+# Окно показа: k × ATR(H1). 0 пунктов = только ATR (дефолт).
+# Положительный MAX_ZONE_DISTANCE_PIPS — жёсткий потолок в пунктах поверх ATR.
+ZONE_WINDOW_ATR = _env_float("ZONE_WINDOW_ATR", 10.0)
+MAX_ZONE_DISTANCE_PIPS = _env_float("MAX_ZONE_DISTANCE_PIPS", 0.0)
 MAX_ZONE_DISTANCE = MAX_ZONE_DISTANCE_PIPS * PIP_SIZE
 
 # На графике только зоны, у которых уже есть/идёт реакция:
@@ -284,9 +289,9 @@ BINANCE_SYMBOL = "XAUUSDT"
 #   annotate — считаем и показываем, состав зон не меняем (по умолчанию)
 #   filter   — зоны с вердиктом DEAD убираются
 #   rerank   — кандидаты сортируются по score * (0.5 + confirmation)
-CONFIRMATION_MODE = _env_str("CONFIRMATION_MODE", "annotate")
-# Метка подтверждения в подписи зоны на графике: «✓0.78» / «~0.55» / «✗0.21».
-CONFIRMATION_IN_LABEL = _env_bool("CONFIRMATION_IN_LABEL", True)
+CONFIRMATION_MODE = _env_str("CONFIRMATION_MODE", "filter")
+# Метка подтверждения в подписи: выкл. — на графике только линия и цена.
+CONFIRMATION_IN_LABEL = _env_bool("CONFIRMATION_IN_LABEL", False)
 
 # Веса проверок. Чем прямее измерение, тем больше вес: проторгованный объём —
 # это факт из истории сделок, свежесть — производная оценка.
@@ -334,9 +339,9 @@ def zone_color_for_score(score: int) -> tuple[str, float]:
 
 
 # ── Данные ──────────────────────────────────────────────────────────────────
-# Источник данных для алгоритма. "mt5" будет тянуть данные напрямую от терминала
-# в скрытом фоновом режиме. "csv" - через EA.
-DATA_SOURCE = _env_str("DATA_SOURCE", "mt5")
+# Источник свечей для детектора. dukascopy — эталон (зоны одинаковые на всех
+# брокерах). mt5/csv — старый порядок, Duka остаётся в цепочке как fallback.
+DATA_SOURCE = _env_str("DATA_SOURCE", "dukascopy")
 CSV_DIR = str(LOCAL_DATA_DIR)    # Каталог с CSV (вычисляется из BASE_DIR)
 
 # Синтетические (случайные) свечи допустимы ТОЛЬКО для отладки. В продакшене

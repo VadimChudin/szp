@@ -148,16 +148,37 @@ def normalize_broker_zones(broker_zones: list, broker_data: dict) -> list:
     if mode == "off":
         return broker_zones
 
+    source = (getattr(config, "DATA_SOURCE", "") or "").strip().lower()
+    # Детектор уже посчитал зоны по полному OHLC Dukascopy — не пересчитывать
+    # за 5 дней. Нужен только сдвиг на цену брокера.
+    if source in ("dukascopy", "duka"):
+        zones = list(broker_zones)
+        print(f"[broker_normalize] using detector zones as canonical ({len(zones)})")
+        if BROKER_OFFSET_ENABLED:
+            try:
+                from data_fetcher import broker_spot_price
+                live = broker_spot_price()
+            except Exception as exc:
+                print(f"[broker_normalize] WARN: broker spot failed: {exc}")
+                live = None
+            duka_price = current_price(broker_data)
+            offset = compute_offset(live, duka_price)
+            if offset:
+                print(f"[broker_normalize] offset {offset:+.2f}$ applied "
+                      f"(broker {live:.2f} vs duka {duka_price:.2f})")
+                for z in zones:
+                    shift_zone(z, offset)
+        return zones
+
     canonical_data = fetch_canonical_ohlc()
     if not canonical_data:
         print("[broker_normalize] No canonical data — returning broker zones unchanged")
         return broker_zones
 
     if mode == "canonical":
-        # Зоны считаем по эталону целиком.
         zones = canonical_zones(canonical_data)
         print(f"[broker_normalize] canonical mode: {len(zones)} zones from Dukascopy")
-    else:  # validate
+    else:
         canonical = canonical_zones(canonical_data)
         zones = validate_zones(broker_zones, canonical)
         print(f"[broker_normalize] validate: kept {len(zones)}/{len(broker_zones)} "

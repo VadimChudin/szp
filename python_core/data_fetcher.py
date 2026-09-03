@@ -1,9 +1,10 @@
 """
 data_fetcher.py — Получение свечных данных.
 
-Поддерживает два источника:
-  1. MetaTrader5 Python API (требует установленный и запущенный терминал MT5)
-  2. CSV-файлы (для offline-тестирования без MT5)
+Поддерживает источники:
+  1. Dukascopy (публичный тиковый фид → H1/H4/D1) — основной
+  2. MetaTrader5 Python API
+  3. CSV-файлы (советник / yfinance)
 """
 
 import pandas as pd
@@ -213,6 +214,51 @@ def fetch_from_csv(symbol: str, timeframe_label: str) -> pd.DataFrame:
     return df
 
 
+def broker_spot_price(symbol: str | None = None) -> float | None:
+    """Последнее закрытие H1 у брокера (MT5, иначе CSV). Нужно только для сдвига зон."""
+    symbol = symbol or config.SYMBOL
+    try:
+        if MT5_AVAILABLE:
+            df = fetch_from_mt5(symbol, "TIMEFRAME_H1", 3)
+            if df is not None and not df.empty:
+                return float(df["close"].iloc[-1])
+    except Exception as exc:
+        print(f"[data_fetcher] broker spot via MT5 failed: {exc}")
+    try:
+        df = fetch_from_csv(symbol, "H1")
+        if df is not None and not df.empty:
+            return float(df["close"].iloc[-1])
+    except Exception as exc:
+        print(f"[data_fetcher] broker spot via CSV failed: {exc}")
+    return None
+
+
+def fetch_from_dukascopy(symbol: str | None = None) -> dict[str, pd.DataFrame]:
+    """OHLC H1/H4/D1 с публичного тикового фида Dukascopy.
+
+    Глубина — максимум из запрошенных баров (H1/H4/D1) плюс запас,
+    чтобы ATR-окно и D1-год реально наполнялись, а не 5 днями валидации.
+    """
+    symbol = symbol or getattr(config, "DUKA_SYMBOL", None) or config.SYMBOL
+    bars = config.TIMEFRAMES
+    hours_h1 = int(bars.get("H1", {}).get("bars", 720))
+    hours_h4 = int(bars.get("H4", {}).get("bars", 600)) * 4
+    hours_d1 = int(bars.get("D1", {}).get("bars", 365)) * 24
+    configured = int(getattr(config, "DUKA_OHLC_DAYS", 0) or 0)
+    derived = (max(hours_h1, hours_h4, hours_d1) + 24) // 24
+    days = configured if configured > 0 else derived
+    from dukascopy_loader import DukascopyLoader
+    loader = DukascopyLoader(max_workers=8)
+    data = loader.fetch_ohlc(symbol, days_back=days)
+    if not data:
+        raise DataUnavailableError(f"Dukascopy returned no OHLC for {symbol}")
+    for tf_label, tf_cfg in config.TIMEFRAMES.items():
+        n = tf_cfg.get("bars")
+        if n and tf_label in data and not data[tf_label].empty:
+            data[tf_label] = data[tf_label].tail(n).reset_index(drop=True)
+    return data
+
+
 def generate_sample_data(symbol: str = "XAUUSD", bars: int = 500) -> dict[str, pd.DataFrame]:
     """
     Генерирует синтетические данные для тестирования без MT5.
@@ -321,11 +367,10 @@ def fetch_all_timeframes(symbol: str = None) -> dict[str, pd.DataFrame]:
 
 
 def _source_chain(symbol: str):
-    """Источники данных по приоритету: терминал → CSV от советника → yfinance.
+    """Источники: Dukascopy (канон) → терминал/CSV → yfinance.
 
-    Раньше при недоступном MT5 код молча уходил в generate_sample_data() и
-    считал зоны по случайным свечам. Теперь каждый источник проверяется на
-    полноту и свежесть, а синтетика — только по явному флагу.
+    Зоны считаются по эталону Dukascopy. Брокер нужен только чтобы сдвинуть
+    линии на его цену. DATA_SOURCE=mt5/csv оставляет старый порядок.
     """
     def from_mt5():
         if not MT5_AVAILABLE:
@@ -339,13 +384,21 @@ def _source_chain(symbol: str):
         return {tf_label: fetch_from_csv(symbol, tf_label)
                 for tf_label in config.TIMEFRAMES}
 
+    def from_dukascopy():
+        return fetch_from_dukascopy(symbol)
+
     def from_yfinance():
         from download_real_data import download_and_save
         download_and_save()
         return from_csv()
 
-    chain = [("csv", from_csv), ("mt5", from_mt5)] \
-        if config.DATA_SOURCE == "csv" else [("mt5", from_mt5), ("csv", from_csv)]
+    source = (config.DATA_SOURCE or "dukascopy").strip().lower()
+    if source == "csv":
+        chain = [("csv", from_csv), ("dukascopy", from_dukascopy), ("mt5", from_mt5)]
+    elif source == "mt5":
+        chain = [("mt5", from_mt5), ("dukascopy", from_dukascopy), ("csv", from_csv)]
+    else:
+        chain = [("dukascopy", from_dukascopy), ("mt5", from_mt5), ("csv", from_csv)]
     chain.append(("yfinance", from_yfinance))
     return chain
 

@@ -25,6 +25,7 @@ def _wide_corridor(monkeypatch, request):
     if request.node.name == "test_range_config_is_sane":
         return          # этот тест проверяет сами значения конфига, не слоты
     monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 200.0)
+    monkeypatch.setattr(config, "ZONE_WINDOW_ATR", 0.0)
 
 
 
@@ -54,6 +55,7 @@ def test_range_config_is_sane():
     # 0 означает «коридора нет» (поведение старой версии) — это валидно.
     assert config.MAX_ZONE_DISTANCE >= 0
     assert config.MAX_ZONE_DISTANCE == config.MAX_ZONE_DISTANCE_PIPS * config.PIP_SIZE
+    assert config.ZONE_WINDOW_ATR >= 0
     assert config.ZONES_PER_SIDE >= 1
 
 

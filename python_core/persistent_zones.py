@@ -50,6 +50,32 @@ def get_h4_closes(all_data: dict[str, pd.DataFrame]) -> list[tuple[float, float]
         return list(zip(df['open'], df['close']))
     return []
 
+def _atr_h1(all_data: dict[str, pd.DataFrame], period: int = 14) -> float:
+    frame = all_data.get("H1")
+    if frame is None or frame.empty or not {"high", "low", "close"}.issubset(frame.columns):
+        return 0.0
+    prev = frame["close"].shift(1)
+    tr = pd.concat([
+        frame["high"] - frame["low"],
+        (frame["high"] - prev).abs(),
+        (frame["low"] - prev).abs(),
+    ], axis=1).max(axis=1).dropna()
+    if tr.empty:
+        return 0.0
+    return float(tr.tail(period).mean())
+
+
+def display_window(all_data: dict[str, pd.DataFrame]) -> float | None:
+    """Доллары вверх/вниз от цены. None = без ограничения."""
+    k = float(getattr(config, "ZONE_WINDOW_ATR", 0) or 0)
+    cap = float(getattr(config, "MAX_ZONE_DISTANCE", 0) or 0)
+    atr = _atr_h1(all_data, int(getattr(config, "ATR_PERIOD", 14)))
+    dist = k * atr if k > 0 and atr > 0 else 0.0
+    if cap > 0:
+        dist = cap if dist <= 0 else min(dist, cap)
+    return dist if dist > 0 else None
+
+
 def get_current_price(all_data: dict[str, pd.DataFrame]) -> float | None:
     for tf in ("H1", "H4", "D1"):
         df = all_data.get(tf)
@@ -240,14 +266,13 @@ def process_legacy_zones(current_zones: list[Zone],
                              historic.score - config.LEGACY_HIST_SCORE_PENALTY)
         final_output.append(historic)
 
-    # 4. Коридор отображения. В старой версии его не было вообще, поэтому по
-    # умолчанию MAX_ZONE_DISTANCE = 0 и фильтр не применяется: зона стоит там,
-    # где её нашёл детектор. Коридор включается положительным значением.
-    if config.MAX_ZONE_DISTANCE > 0:
+    # 4. Коридор отображения: k × ATR(H1), опциональный потолок в пунктах.
+    window = display_window(all_data)
+    if window:
         price = get_current_price(all_data)
         if price:
             final_output = [z for z in final_output
-                            if abs(z.price - price) <= config.MAX_ZONE_DISTANCE]
+                            if abs(z.price - price) <= window]
 
     # На графике только зоны с реакцией / проторговкой / подходом.
     # Дальние «мёртвые» уровни (NONE) и уже пробитые (BREAKOUT) не рисуем.

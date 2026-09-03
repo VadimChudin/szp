@@ -218,10 +218,19 @@ def calculate_and_export_zones(refresh_data: bool = True):
         # сжигание пробитых зон, историчные показываются тусклее (HIST).
         from persistent_zones import process_legacy_zones
         zones = process_legacy_zones(zones, data)
-        corridor = (f"{config.MAX_ZONE_DISTANCE_PIPS:.0f} пипсов"
-                    if config.MAX_ZONE_DISTANCE > 0 else "без ограничения")
+        from persistent_zones import display_window
+        window = display_window(data)
+        corridor = (f"{window:.1f}$ (~{config.ZONE_WINDOW_ATR:g}×ATR H1)"
+                    if window else "без ограничения")
         print(f"[bridge] Legacy zone mode: {len(zones)} zones "
               f"(лимит {config.MAX_ZONES_ON_CHART}, коридор: {corridor})")
+
+    if config.CONFIRMATION_MODE != "off" and zones:
+        try:
+            from zone_confirmation import confirm_zones
+            zones = confirm_zones(zones, data)
+        except Exception as exc:
+            print(f"[bridge] WARN: confirmation filter failed: {exc}")
 
     # ── Единые зоны на всех брокерах: валидация/канон по Dukascopy + оффсет ──
     # У разных брокеров цена XAU/USD отличается на оффсет, поэтому одни и те же

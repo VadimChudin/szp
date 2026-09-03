@@ -134,14 +134,16 @@ def _slot_window(index: int) -> tuple[float, float]:
     return max(low - slack, 0.0), high + slack
 
 
-def _in_display_band(zone: Zone, price: float) -> bool:
-    """Зона в пределах максимальной дистанции показа.
+def _in_display_band(zone: Zone, price: float, window: float | None = None) -> bool:
+    """Зона в пределах окна показа (k × ATR, иначе MAX_ZONE_DISTANCE).
 
-    MAX_ZONE_DISTANCE = 0 означает «ограничения нет» (поведение старой версии).
+    window is None / 0 — ограничения нет (поведение старой версии).
     """
-    if config.MAX_ZONE_DISTANCE <= 0:
+    if window is None:
+        window = float(getattr(config, "MAX_ZONE_DISTANCE", 0) or 0)
+    if not window or window <= 0:
         return True
-    return _distance(zone, price) <= config.MAX_ZONE_DISTANCE
+    return _distance(zone, price) <= window
 
 
 def _mark_display(zone: Zone, side: str, h4: str, new: bool = False) -> None:
@@ -199,12 +201,8 @@ def _candidate_pool(candidates: Iterable[Zone]) -> list[Zone]:
 
 
 def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
-                 price: float, h4: str) -> list[Zone]:
-    """Ближайшие сильные зоны на стороне в пределах MAX_ZONE_DISTANCE.
-
-    Никакой «лестницы» с минимальным отступом: клиент хочет видеть зоны близко
-    к цене (напр. 4786 в $1). Отбор — по близости к цене, до ZONES_PER_SIDE штук.
-    """
+                 price: float, h4: str, window: float | None = None) -> list[Zone]:
+    """Ближайшие сильные зоны на стороне в пределах окна показа."""
     slots = config.ZONES_PER_SIDE
     current = [zone for zone in existing if _side(zone, price) == side]
     candidates = [zone for zone in candidates if _side(zone, price) == side]
@@ -226,7 +224,7 @@ def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
     # Зона, ушедшая за пределы диапазона показа, снимается с графика.
     in_band: list[Zone] = []
     for zone in current:
-        if _in_display_band(zone, price):
+        if _in_display_band(zone, price, window):
             in_band.append(zone)
         else:
             append_event("zone_out_of_band", zone, h4,
@@ -234,7 +232,7 @@ def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
     current = in_band
 
     visible_ids = {id(zone) for zone in current}
-    pool = current + [zone for zone in unmatched if _in_display_band(zone, price)]
+    pool = current + [zone for zone in unmatched if _in_display_band(zone, price, window)]
 
     # Склейка близких уровней: в кластере оставляем самый сильный.
     deduped: list[Zone] = []
@@ -286,8 +284,10 @@ def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FI
         pool = [zone for zone in _candidate_pool(candidates)
                 if not any(_same_zone(zone, removed) for removed in invalidated)]
 
-        above = _choose_side(current, pool, Side.ABOVE, price, h4)
-        below = _choose_side(current, pool, Side.BELOW, price, h4)
+        from persistent_zones import display_window
+        window = display_window(data)
+        above = _choose_side(current, pool, Side.ABOVE, price, h4, window)
+        below = _choose_side(current, pool, Side.BELOW, price, h4, window)
         if len(above) != config.ZONES_PER_SIDE or len(below) != config.ZONES_PER_SIDE:
             # Жёсткий контракт клиента: 3 сверху + 3 снизу. Если сторона неполная —
             # это видимый дефект, а не тихий перекос: пишем событие в журнал.

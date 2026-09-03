@@ -20,6 +20,7 @@ from persistent_zones import (
     get_h4_closes,
     process_persistent_zones,
     process_legacy_zones,
+    display_window,
 )
 from zone_reaction import ReactionResult, Reaction
 
@@ -117,6 +118,11 @@ class TestGetH4Closes:
 
 
 class TestProcessPersistentZones:
+    @pytest.fixture(autouse=True)
+    def _no_atr_window(self, monkeypatch):
+        monkeypatch.setattr(config, "ZONE_WINDOW_ATR", 0.0)
+        monkeypatch.setattr(config, "REACTION_ENABLED", False)
+
     def test_weak_zones_not_archived(self, tmp_path):
         """Зоны со score < 12 не попадают в архив."""
         fake_db = tmp_path / "zones_db.json"
@@ -277,8 +283,32 @@ class TestProcessLegacyZonesDisplay:
             }),
         }
 
+    def test_atr_window_hides_far_zones(self, tmp_path, monkeypatch):
+        fake_db = tmp_path / "zones_db.json"
+        monkeypatch.setattr(config, "ZONE_WINDOW_ATR", 10.0)
+        monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 0.0)
+        monkeypatch.setattr(config, "REACTION_ENABLED", False)
+        data = self._h4(2400.0)
+        # ATR of the 1-bar fixture is 2.0 → window $20
+        data["H1"] = pd.DataFrame({
+            "open": [2400.0],
+            "close": [2400.0],
+            "high": [2401.0],
+            "low": [2399.0],
+            "time": pd.date_range("2024-01-01", periods=1, freq="h"),
+        })
+        near = Zone(price=2410.0, score=15, sources=["H4"], width=1.0)
+        far = Zone(price=2500.0, score=20, sources=["H4"], width=1.0)
+        with patch("persistent_zones.DB_FILE", fake_db):
+            result = process_legacy_zones([near, far], data)
+        prices = [z.price for z in result]
+        assert 2410.0 in prices
+        assert 2500.0 not in prices
+        assert display_window(data) == pytest.approx(20.0)
+
     def test_hides_zones_beyond_900_pips(self, tmp_path, monkeypatch):
         fake_db = tmp_path / "zones_db.json"
+        monkeypatch.setattr(config, "ZONE_WINDOW_ATR", 0.0)
         monkeypatch.setattr(config, "MAX_ZONE_DISTANCE_PIPS", 900.0)
         monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 90.0)
         monkeypatch.setattr(config, "REACTION_ENABLED", False)
@@ -293,6 +323,7 @@ class TestProcessLegacyZonesDisplay:
     def test_keeps_only_reaction_zones(self, tmp_path, monkeypatch):
         fake_db = tmp_path / "zones_db.json"
         monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 0.0)
+        monkeypatch.setattr(config, "ZONE_WINDOW_ATR", 0.0)
         monkeypatch.setattr(config, "REACTION_ENABLED", True)
         monkeypatch.setattr(
             config, "DISPLAY_REACTION_TYPES",

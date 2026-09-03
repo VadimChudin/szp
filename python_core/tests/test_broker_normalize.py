@@ -65,5 +65,24 @@ def test_current_price():
 
 def test_config_defaults():
     assert config.VALIDATION_MODE in ("validate", "canonical", "off")
+    assert config.DATA_SOURCE in ("dukascopy", "mt5", "csv")
+    assert config.ZONE_WINDOW_ATR > 0
     assert config.VALIDATION_TOLERANCE > 0
     assert isinstance(config.BROKER_OFFSET_ENABLED, bool)
+
+
+def test_ticks_to_ohlc_builds_h1_h4_d1():
+    from dukascopy_loader import DukascopyLoader
+    times = pd.date_range("2024-01-02 00:00", periods=48, freq="h", tz="UTC")
+    ticks = pd.DataFrame({
+        "time": times,
+        "ask": 2000.0 + pd.Series(range(48)).astype(float),
+        "bid": 1999.0 + pd.Series(range(48)).astype(float),
+        "ask_vol": 1.0,
+        "bid_vol": 1.0,
+    })
+    out = DukascopyLoader().ticks_to_ohlc(ticks)
+    assert set(out) >= {"H1", "H4"}
+    assert {"open", "high", "low", "close"}.issubset(out["H1"].columns)
+    assert len(out["H1"]) == 48
+    assert len(out["H4"]) == 12

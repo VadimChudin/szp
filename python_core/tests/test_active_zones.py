@@ -27,6 +27,7 @@ def _wide_corridor(monkeypatch):
     коридор расширяем локально — иначе синтетические зоны отсекаются по
     расстоянию и тест проверяет не то, что задумано."""
     monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 200.0)
+    monkeypatch.setattr(config, "ZONE_WINDOW_ATR", 0.0)
 # Смещения в пределах диапазона показа (0..MAX_ZONE_DISTANCE), кратные и различимые.
 OFFS = [20.0, 40.0, 60.0, 80.0]
 

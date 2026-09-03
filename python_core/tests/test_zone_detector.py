@@ -244,7 +244,12 @@ class TestBalanceAroundPrice:
 
         selected = balance_around_price(strong, weak, price=4390.0)
 
-        assert len(selected) == config.MAX_ZONES_ON_CHART
+        # Лимит графика — потолок, а не ожидаемое число зон: на входе их 6.
+        # Сильные зоны обязаны сохраниться, слабые берутся лишь на пустую
+        # сторону (см. test_real_weak_zone_is_used_as_fallback...).
+        assert len(selected) <= config.MAX_ZONES_ON_CHART
+        for zone in strong:
+            assert zone in selected
         assert sum(1 for z in selected if z.price > 4390.0) >= 1
         assert sum(1 for z in selected if z.price < 4390.0) >= 2
 
