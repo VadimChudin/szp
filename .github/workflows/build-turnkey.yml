@@ -203,6 +203,36 @@ jobs:
           if-no-files-found: error
 
       # ── 3. Сборка приложения (PyInstaller) ──────────────────────────────
+      - name: Download llama.cpp server (Vulkan)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Vulkan-сборка выбрана осознанно: один набор файлов работает на
+          # NVIDIA, AMD и Intel и умеет падать на процессор. CUDA-вариант
+          # быстрее на NVIDIA, но требует ещё ~400 МБ cudart и не работает у
+          # остальных. Клиенту ничего доустанавливать не нужно.
+          # Версия закреплена: обновлять сознательно, а не «как повезёт».
+          $build = 'b10786'
+          $zip = "llama-$build-bin-win-vulkan-x64.zip"
+          $url = "https://github.com/ggml-org/llama.cpp/releases/download/$build/$zip"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+          Expand-Archive -Path $zip -DestinationPath 'llama_tmp' -Force
+
+          $dest = 'python_core\llama'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $server = Get-ChildItem -Path 'llama_tmp' -Recurse -Filter 'llama-server.exe' |
+                    Select-Object -First 1
+          if (-not $server) { throw "llama-server.exe не найден в архиве $zip" }
+          Copy-Item $server.FullName -Destination $dest -Force
+          # Рядом с сервером нужны его .dll, иначе он не стартует.
+          Get-ChildItem -Path $server.Directory -Filter '*.dll' |
+            Copy-Item -Destination $dest -Force
+
+          $mb = [math]::Round((Get-ChildItem $dest -Recurse |
+                Measure-Object -Property Length -Sum).Sum / 1MB, 1)
+          Write-Host "llama-server готов: $mb MB в $dest"
+
       - name: Install Python build deps
         shell: pwsh
         run: |
