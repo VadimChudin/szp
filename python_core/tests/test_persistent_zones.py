@@ -323,6 +323,23 @@ class TestProcessLegacyZonesDisplay:
         assert 2410.0 in prices
         assert 2600.0 not in prices
 
+    def test_custom_scope_is_half_each_side(self, tmp_path, monkeypatch):
+        fake_db = tmp_path / "zones_db.json"
+        monkeypatch.setattr(config, "ZONE_WINDOW_ATR", 0.0)
+        monkeypatch.setattr(config, "ZONE_SCOPE_PIPS", 2400.0)  # ±1200 pips
+        monkeypatch.setattr(config, "PIP_SIZE", 0.1)
+        monkeypatch.setattr(config, "MAX_ZONES_ON_CHART", 6)
+        monkeypatch.setattr(config, "REACTION_ENABLED", False)
+        data = self._h4(2400.0)
+        assert display_window(data) == pytest.approx(120.0)
+        inside = Zone(price=2519.0, score=15, sources=["H4"], width=1.0)
+        outside = Zone(price=2521.0, score=20, sources=["H4"], width=1.0)
+        with patch("persistent_zones.DB_FILE", fake_db):
+            result = process_legacy_zones([inside, outside], data)
+        prices = [z.price for z in result]
+        assert 2519.0 in prices
+        assert 2521.0 not in prices
+
     def test_scope_800_is_400_each_side(self, tmp_path, monkeypatch):
         fake_db = tmp_path / "zones_db.json"
         monkeypatch.setattr(config, "ZONE_WINDOW_ATR", 0.0)
@@ -385,3 +402,12 @@ class TestProcessLegacyZonesDisplay:
         assert 2410.0 in prices
         assert 2420.0 not in prices
         assert 2380.0 not in prices
+
+
+def test_scope_splits_any_value_in_half(monkeypatch):
+    monkeypatch.setattr(config, "ZONE_WINDOW_ATR", 0.0)
+    monkeypatch.setattr(config, "PIP_SIZE", 0.1)
+    data = {"H1": pd.DataFrame({"high": [2401.0], "low": [2399.0], "close": [2400.0]})}
+    for scope, expected in ((200.0, 10.0), (800.0, 40.0), (2400.0, 120.0)):
+        monkeypatch.setattr(config, "ZONE_SCOPE_PIPS", scope)
+        assert display_window(data) == pytest.approx(expected)

@@ -68,7 +68,8 @@ def _atr_h1(all_data: dict[str, pd.DataFrame], period: int = 14) -> float:
 def display_window(all_data: dict[str, pd.DataFrame]) -> float | None:
     """Доллары вверх/вниз от цены. None = без ограничения.
 
-    Скоп (ZONE_SCOPE_PIPS) — вся ширина: 800 пунктов = 400 вверх и 400 вниз.
+    Скоп (ZONE_SCOPE_PIPS) — вся ширина окна: любое положительное число,
+    делится пополам вверх и вниз от цены.
     ATR-окно опционально; если задано, берётся min(ATR, половина скопа).
     """
     k = float(getattr(config, "ZONE_WINDOW_ATR", 0) or 0)

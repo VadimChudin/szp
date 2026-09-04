@@ -33,8 +33,6 @@ input bool     ShowPriceLabels  = true;       // Показывать тольк
 input bool     ShowRectangles   = false;       // Полупрозрачные прямоугольники зон
 input bool     ShowScoreBadge   = false;      // Бейдж со скором
 input bool     ShowSL           = false;      // Уровни SL Pool (по умолчанию выкл.)
-input bool     ShowGradient     = false;      // Градиентная визуализация (выкл. по умолчанию)
-input int      GradientLayers   = 5;          // Кол-во слоёв градиента
 input bool     EnableIndicator  = true;       // Включить/выключить индикатор целиком
 input bool     EnableAlerts     = true;       // Алерты при касании зоны
 input double   AlertDistance    = 5.0;        // Расстояние для алерта ($)
@@ -732,67 +730,6 @@ void DrawSingleZone(int index)
    SetIntIfChanged(slTextName, OBJPROP_SELECTABLE, false);
    SetIntIfChanged(slTextName, OBJPROP_HIDDEN, true);
 
-}
-
-//+------------------------------------------------------------------+
-//| Градиентная визуализация зоны                                     |
-//| Рисует несколько слоёв прямоугольников с убывающей прозрачностью  |
-//| Центр — ярко-красный, края — полупрозрачные                      |
-//+------------------------------------------------------------------+
-void DrawGradientZone(string baseName, double price, double top, double bottom,
-                      color baseColor, int score)
-{
-   int layers = GradientLayers;
-   double zoneHeight = top - bottom;
-   double layerStep  = zoneHeight / (2.0 * layers);
-
-   datetime timeLeft  = iTime(_Symbol, PERIOD_CURRENT, MathMin(Bars(_Symbol, PERIOD_CURRENT) - 1, 200));
-   datetime timeRight = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds() * 50;
-
-   // Градация цветов от яркого (центр) к бледному (края)
-   // MQL5 не поддерживает alpha, поэтому используем разные оттенки красного
-   color gradColors[];
-   ArrayResize(gradColors, layers);
-
-   // Генерируем градиент: центр = baseColor, края = более светлый
-   int r_base = (int)((baseColor) & 0xFF);
-   int g_base = (int)((baseColor >> 8) & 0xFF);
-   int b_base = (int)((baseColor >> 16) & 0xFF);
-
-   for(int i = 0; i < layers; i++)
-   {
-      double fade = (double)i / (double)(layers - 1);  // 0.0 (центр) → 1.0 (край)
-      int r = r_base + (int)((255 - r_base) * fade * 0.7);
-      int g = g_base + (int)((255 - g_base) * fade * 0.7);
-      int b = b_base + (int)((255 - b_base) * fade * 0.7);
-      r = MathMin(r, 255);
-      g = MathMin(g, 255);
-      b = MathMin(b, 255);
-
-      gradColors[i] = (color)((b << 16) | (g << 8) | r);
-   }
-
-   // Рисуем слои от краёв к центру
-   for(int i = layers - 1; i >= 0; i--)
-   {
-      string rectName = baseName + "_grad_" + IntegerToString(i);
-      double layerTop    = price + layerStep * (i + 1);
-      double layerBottom = price - layerStep * (i + 1);
-
-      // Ограничиваем границами зоны
-      layerTop    = MathMin(layerTop, top);
-      layerBottom = MathMax(layerBottom, bottom);
-
-      if(ObjectFind(0, rectName) < 0)
-         ObjectCreate(0, rectName, OBJ_RECTANGLE, 0, timeLeft, layerTop, timeRight, layerBottom);
-      MovePointIfChanged(rectName, 0, timeLeft,  layerTop);
-      MovePointIfChanged(rectName, 1, timeRight, layerBottom);
-      SetIntIfChanged(rectName, OBJPROP_COLOR, gradColors[i]);
-      SetIntIfChanged(rectName, OBJPROP_FILL, true);
-      SetIntIfChanged(rectName, OBJPROP_BACK, true);
-      SetIntIfChanged(rectName, OBJPROP_SELECTABLE, false);
-      SetIntIfChanged(rectName, OBJPROP_HIDDEN, true);
-   }
 }
 
 //+------------------------------------------------------------------+

@@ -184,14 +184,14 @@ class SettingsWindow(tk.Tk):
             value=str(self._env.get("MAX_ZONES_ON_CHART", "6")))
         self._row(zone_box, "Скоп, пункты", self._zone_scope)
         tk.Label(zone_box,
-                 text="800 = 400 вверх и 400 вниз от цены. Дальше линии не рисуем.",
+                 text="Любое положительное число. Половина вверх и половина вниз от цены.",
                  fg=ui.TXT_DIM, bg=ui.CARD_BOT, font=(ui.FONT, 8),
-                 justify="left", anchor="w").pack(fill="x", pady=(0, 4))
+                 justify="left", wraplength=520, anchor="w").pack(fill="x", pady=(0, 4))
         self._row(zone_box, "Макс. зон на графике", self._max_zones)
         tk.Label(zone_box,
-                 text="Если в скопе зон меньше — показываем сколько есть, новые не придумываем.",
+                 text="Общий лимит, без схемы 3+3. Если реальных зон меньше — рисуем сколько есть.",
                  fg=ui.TXT_DIM, bg=ui.CARD_BOT, font=(ui.FONT, 8),
-                 justify="left", anchor="w").pack(fill="x")
+                 justify="left", wraplength=520, anchor="w").pack(fill="x")
 
         # ── Buttons (pinned to bottom so they're always visible) ──
         btns = tk.Frame(self, bg=ui.CARD_BOT)
@@ -283,14 +283,28 @@ class SettingsWindow(tk.Tk):
         return {"active_broker": int(self._active_var.get()), "brokers": brokers}
 
     def _save(self):
+        try:
+            scope_raw = self._zone_scope.get().replace(" ", "").replace(",", ".")
+            max_raw = self._max_zones.get().replace(" ", "")
+            scope = float(scope_raw)
+            max_zones = int(max_raw)
+            if scope <= 0:
+                raise ValueError("Скоп должен быть больше 0")
+            if not 1 <= max_zones <= 500:
+                raise ValueError("Количество зон должно быть от 1 до 500")
+        except ValueError as exc:
+            messagebox.showerror("Ошибка", str(exc))
+            return
+
         ok_brokers = save_brokers(self._collect_brokers())
         ok_env = update_env({
             "DATA_SOURCE": self._data_source.get(),
             "VALIDATION_MODE": self._validation_mode.get().strip().lower(),
             "BROKER_OFFSET_ENABLED": "true" if self._broker_offset.get() else "false",
             "VALIDATION_TOLERANCE": self._validation_tolerance.get().strip() or "5.0",
-            "ZONE_SCOPE_PIPS": self._zone_scope.get().strip() or "800",
-            "MAX_ZONES_ON_CHART": self._max_zones.get().strip() or "6",
+            "ZONE_SCOPE_PIPS": f"{scope:g}",
+            "MAX_ZONE_DISTANCE_PIPS": f"{scope / 2.0:g}",
+            "MAX_ZONES_ON_CHART": str(max_zones),
             "ENABLE_TELEGRAM": "true" if self._tg_enabled.get() else "false",
             "TELEGRAM_BOT_TOKEN": self._tg_token.get().strip(),
             "TELEGRAM_CHAT_ID": self._tg_chat.get().strip(),

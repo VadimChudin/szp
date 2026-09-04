@@ -36,3 +36,5 @@ python_core/llama/
 *.gguf
 *.gguf.part
 llama-server.log
+installer/build2/
+installer/innosetup*.exe

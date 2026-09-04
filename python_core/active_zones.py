@@ -201,9 +201,11 @@ def _candidate_pool(candidates: Iterable[Zone]) -> list[Zone]:
 
 
 def _choose_side(existing: list[Zone], candidates: list[Zone], side: str,
-                 price: float, h4: str, window: float | None = None) -> list[Zone]:
-    """Ближайшие сильные зоны на стороне в пределах окна показа."""
-    slots = config.ZONES_PER_SIDE
+                 price: float, h4: str, window: float | None = None,
+                 slots: int | None = None) -> list[Zone]:
+    """Ближайшие реальные зоны на одной стороне в пределах скопа."""
+    if slots is None:
+        slots = max(0, int(getattr(config, "MAX_ZONES_ON_CHART", 6) or 0))
     current = [zone for zone in existing if _side(zone, price) == side]
     candidates = [zone for zone in candidates if _side(zone, price) == side]
 
@@ -286,14 +288,14 @@ def update_snapshot(candidates: list[Zone], data: dict, path: Path = SNAPSHOT_FI
 
         from persistent_zones import display_window
         window = display_window(data)
-        above = _choose_side(current, pool, Side.ABOVE, price, h4, window)
-        below = _choose_side(current, pool, Side.BELOW, price, h4, window)
-        if len(above) != config.ZONES_PER_SIDE or len(below) != config.ZONES_PER_SIDE:
-            # Жёсткий контракт клиента: 3 сверху + 3 снизу. Если сторона неполная —
-            # это видимый дефект, а не тихий перекос: пишем событие в журнал.
-            append_event("snapshot_unbalanced", None, h4,
-                         above=len(above), below=len(below))
-        result = above + below
+        limit = max(0, int(getattr(config, "MAX_ZONES_ON_CHART", 6) or 0))
+        # Каждая сторона может отдать весь лимит: если реальные зоны есть только
+        # сверху или только снизу, не теряем их из-за старого контракта 3+3.
+        above = _choose_side(current, pool, Side.ABOVE, price, h4, window, limit)
+        below = _choose_side(current, pool, Side.BELOW, price, h4, window, limit)
+        combined = above + below
+        combined.sort(key=lambda zone: _distance(zone, price))
+        result = combined[:limit] if limit else combined
         save_snapshot(result, h4, path)
         return result
     finally:

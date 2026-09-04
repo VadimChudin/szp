@@ -27,7 +27,7 @@ os.chdir(BASE_DIR)
 # SHA-256 правильного пароля (не сам пароль). Приложение не запустится,
 # пока не введён пароль, чьим хэшем является эта строка.
 # Чтобы сменить пароль — посчитайте SHA-256 нового и впишите сюда.
-# По умолчанию пароль: Satpayeva82/2
+# В репозитории хранится только SHA-256, исходный пароль не публикуется.
 EXPECTED_PWD_SHA256 = "42459edc1f376dd9b7d045b2f33372a2b775f693a260c591c9d182807b34171f"
 
 
@@ -45,7 +45,7 @@ def ask_password() -> bool:
 
     cv.create_text(W / 2, 56, text="Smart Zones Pro", fill=ui.TXT,
                    font=(ui.FONT, 20, "bold"))
-    cv.create_text(W / 2, 82, text=f"NoName Trader  •  v{version.app_version()}",
+    cv.create_text(W / 2, 82, text=f"Smart Zones Pro  •  v{version.app_version()}",
                    fill=ui.GOLD, font=(ui.FONT, 10, "bold"))
     cv.create_text(W / 2, 118, text="Введите пароль доступа", fill=ui.TXT_DIM,
                    font=(ui.FONT, 11))

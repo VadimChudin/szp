@@ -220,10 +220,10 @@ def calculate_and_export_zones(refresh_data: bool = True):
         zones = process_legacy_zones(zones, data)
         from persistent_zones import display_window
         window = display_window(data)
-        corridor = (f"{window:.1f}$ (~{config.ZONE_WINDOW_ATR:g}×ATR H1)"
+        corridor = (f"±{window:.1f}$ (скоп {config.ZONE_SCOPE_PIPS:g} пунктов)"
                     if window else "без ограничения")
         print(f"[bridge] Legacy zone mode: {len(zones)} zones "
-              f"(лимит {config.MAX_ZONES_ON_CHART}, коридор: {corridor})")
+              f"(лимит {config.MAX_ZONES_ON_CHART}, область: {corridor})")
 
     if config.CONFIRMATION_MODE != "off" and zones:
         try:

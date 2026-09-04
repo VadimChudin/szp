@@ -1,7 +1,7 @@
-"""Отбор зон: ближайшие сильные зоны в диапазоне 0..MAX_ZONE_DISTANCE от цены.
+"""Отбор зон: ближайшие сильные зоны в диапазоне скопа от цены.
 
-Требование клиента: показывать зоны недалеко от цены (в т.ч. вплотную, как 4786
-в $1 от цены), в обе стороны, до ZONES_PER_SIDE на сторону; дальние — не показывать.
+Требование: показывать реальные зоны недалеко от цены (в т.ч. вплотную),
+без квоты по сторонам; дальние за скопом — не показывать.
 """
 from __future__ import annotations
 
@@ -18,10 +18,7 @@ PRICE = 4000.00
 
 @pytest.fixture(autouse=True)
 def _wide_corridor(monkeypatch, request):
-    """Лестница 3+3 теперь опциональна (USE_ZONE_LADDER), а рабочий коридор
-    сжат до 300 пипсов. Эти тесты проверяют именно логику слотов, поэтому
-    коридор расширяем локально — иначе синтетические зоны отсекаются по
-    расстоянию и тест проверяет не то, что задумано."""
+    """Коридор расширяем локально, иначе синтетические уровни отсекаются по скопу."""
     if request.node.name == "test_range_config_is_sane":
         return          # этот тест проверяет сами значения конфига, не слоты
     monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 200.0)
@@ -57,7 +54,7 @@ def test_range_config_is_sane():
     assert config.MAX_ZONE_DISTANCE >= 0
     assert config.MAX_ZONE_DISTANCE == config.MAX_ZONE_DISTANCE_PIPS * config.PIP_SIZE
     assert config.ZONE_WINDOW_ATR >= 0
-    assert config.ZONES_PER_SIDE >= 1
+    assert config.MAX_ZONES_ON_CHART >= 1
 
 
 def test_zone_close_to_price_is_shown(tmp_path):
@@ -82,17 +79,14 @@ def test_far_zone_is_dropped(tmp_path):
     assert any(round(z.price, 2) == round(PRICE + 10.0, 2) for z in selected)
 
 
-def test_nearest_zones_selected_up_to_n_per_side(tmp_path):
+def test_nearest_zones_selected_up_to_total_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "MAX_ZONES_ON_CHART", 6)
     ups = [_zone(+d) for d in (10, 30, 50, 70)]
     downs = [_zone(-d) for d in (10, 30, 50, 70)]
     selected = _select(ups + downs, tmp_path)
-    above = sorted(abs(z.price - PRICE) for z in selected if z.price > PRICE)
-    below = sorted(abs(z.price - PRICE) for z in selected if z.price < PRICE)
-    assert len(above) == config.ZONES_PER_SIDE
-    assert len(below) == config.ZONES_PER_SIDE
-    # выбраны именно БЛИЖАЙШИЕ
-    assert above == [10, 30, 50][:config.ZONES_PER_SIDE]
-    assert below == [10, 30, 50][:config.ZONES_PER_SIDE]
+    distances = sorted(abs(z.price - PRICE) for z in selected)
+    assert len(selected) == 6
+    assert distances == [10, 10, 30, 30, 50, 50]
 
 
 def test_no_invented_levels_by_default():

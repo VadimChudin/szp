@@ -51,7 +51,7 @@ Name: "autostart"; Description: "Start Smart Zones Pro automatically with Window
 [Run]
 Filename: "{app}\SmartZonesPro.exe"; Description: "Launch Smart Zones Pro"; Flags: nowait postinstall skipifsilent
 
-; Сплэш с подписью "NoName Trader" показывает само приложение при
+; Motion-сплэш Smart Zones Pro показывает само приложение при
 ; запуске (см. show_splash в app_entry.py). В установщике своя форма-сплэш
 ; убрана: её API ломался на новых версиях Inno Setup ("Invalid number of
 ; parameters"), а персонализация всё равно дублировалась.

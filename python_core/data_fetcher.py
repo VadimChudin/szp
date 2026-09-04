@@ -10,7 +10,7 @@ data_fetcher.py — Получение свечных данных.
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import config
 
 # ── Попытка импорта MetaTrader5 (не фатально если нет) ───────────────
@@ -97,10 +97,12 @@ def data_age_hours(df: pd.DataFrame, reference: datetime | None = None) -> float
     """Возраст последней свечи в часах (по UTC). inf, если времени нет."""
     if df is None or df.empty or "time" not in df.columns:
         return float("inf")
-    last = pd.to_datetime(df["time"].iloc[-1])
-    if last.tzinfo is not None:
-        last = last.tz_convert(None)
-    ref = reference if reference is not None else market_reference_time(datetime.utcnow())
+    last = pd.to_datetime(df["time"].iloc[-1], utc=True)
+    ref = reference if reference is not None else market_reference_time(datetime.now(timezone.utc))
+    if ref.tzinfo is None:
+        ref = ref.replace(tzinfo=timezone.utc)
+    else:
+        ref = ref.astimezone(timezone.utc)
     return (ref - last.to_pydatetime()).total_seconds() / 3600.0
 
 
@@ -337,7 +339,7 @@ def fetch_all_timeframes(symbol: str = None) -> dict[str, pd.DataFrame]:
             print(f"[data_fetcher] Source '{name}' incomplete (missing {missing})")
             continue
 
-        reference = market_reference_time(datetime.utcnow())
+        reference = market_reference_time(datetime.now(timezone.utc))
         ages = {tf: data_age_hours(df, reference) for tf, df in data.items()}
         stale = {tf: age for tf, age in ages.items() if age > max_age_hours(tf)}
         if stale:

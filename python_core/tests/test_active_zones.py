@@ -22,12 +22,11 @@ PRICE = 4000.0
 
 @pytest.fixture(autouse=True)
 def _wide_corridor(monkeypatch):
-    """Лестница 3+3 теперь опциональна (USE_ZONE_LADDER), а рабочий коридор
-    сжат до 300 пипсов. Эти тесты проверяют именно логику слотов, поэтому
-    коридор расширяем локально — иначе синтетические зоны отсекаются по
-    расстоянию и тест проверяет не то, что задумано."""
+    """Коридор расширяем локально, иначе синтетические уровни отсекаются по скопу."""
     monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 200.0)
     monkeypatch.setattr(config, "ZONE_WINDOW_ATR", 0.0)
+    monkeypatch.setattr(config, "ZONE_SCOPE_PIPS", 0.0)
+    monkeypatch.setattr(config, "MAX_ZONES_ON_CHART", 6)
 # Смещения в пределах диапазона показа (0..MAX_ZONE_DISTANCE), кратные и различимые.
 OFFS = [20.0, 40.0, 60.0, 80.0]
 
@@ -53,7 +52,7 @@ def test_nearest_zones_are_selected(tmp_path):
     candidates = ladder(below=False, scores=[11, 12, 13, 14]) + ladder(below=True, scores=[11, 12, 13, 14])
     result = update_snapshot(candidates, data, snap, events)
     above = sorted(abs(x.price - PRICE) for x in result if x.price > PRICE)
-    assert above == OFFS[:config.ZONES_PER_SIDE]   # ближайшие, не самые сильные
+    assert above == OFFS[:3]   # ближайшие, не самые сильные; квоты по сторонам нет
 
 
 def test_far_zone_not_selected(tmp_path):
@@ -108,3 +107,14 @@ def test_snapshot_persists_between_calls(tmp_path):
     raw = json.loads(snap.read_text())
     assert raw["version"] == "3.0"
     assert raw["zones"][0]["state"] == "ACTIVE"
+
+
+def test_all_real_zones_can_be_on_one_side(tmp_path):
+    """MAX_ZONES_ON_CHART is a total limit, not a 3+3 quota."""
+    snap, events = tmp_path / "snapshot.json", tmp_path / "events.jsonl"
+    data = {"H4": bars(("2024-01-01T04:00:00", PRICE, PRICE + 1, PRICE - 1, PRICE))}
+    candidates = [z(PRICE + distance, 20 - i)
+                  for i, distance in enumerate((10, 20, 30, 40, 50, 60))]
+    result = update_snapshot(candidates, data, snap, events)
+    assert len(result) == 6
+    assert all(zone.price > PRICE for zone in result)

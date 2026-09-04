@@ -343,42 +343,43 @@ def detect_zones(
             })
 
     # ── Шаг 1.5: Добавляем эталонные уровни из Footprint (POC) ───────
-    try:
-        from footprint_data import get_collector
-        # Используем кэшированный синглтон (данные уже загружены bridge_server'ом)
-        collector = get_collector()
+    if getattr(config, "FOOTPRINT_LEVELS_IN_ZONES", False):
+        try:
+            from footprint_data import get_collector
+            # Используем кэшированный синглтон (данные уже загружены bridge_server'ом)
+            collector = get_collector()
         
-        for tf_key, tf_label in [("1h", "H1"), ("4h", "H4"), ("1d", "D1")]:
-            buf = collector.buffers.get(tf_key)
-            if buf and buf.buffer:
-                candles = buf.get_candles()
-                for c in candles:
-                    # Добавляем POC свечи (уровень максимального объема)
-                    poc = getattr(c, 'poc_price', None)
-                    if poc:
-                        all_levels.append({
-                            'price': poc,
-                            'tf': tf_label,
-                            'has_volume': True,
-                            'time': pd.Timestamp(c.timestamp, unit='ms'),
-                            'wick_type': 'POC',
-                        })
+            for tf_key, tf_label in [("1h", "H1"), ("4h", "H4"), ("1d", "D1")]:
+                buf = collector.buffers.get(tf_key)
+                if buf and buf.buffer:
+                    candles = buf.get_candles()
+                    for c in candles:
+                        # Добавляем POC свечи (уровень максимального объема)
+                        poc = getattr(c, 'poc_price', None)
+                        if poc:
+                            all_levels.append({
+                                'price': poc,
+                                'tf': tf_label,
+                                'has_volume': True,
+                                'time': pd.Timestamp(c.timestamp, unit='ms'),
+                                'wick_type': 'POC',
+                            })
                     
-                    # High Volume Nodes (экстремальные объемы)
-                    max_vol = getattr(c, 'poc_volume', 1)
-                    if max_vol > 0 and c.levels:
-                        for price_lvl, vData in c.levels.items():
-                            tot = vData.get("buy", 0) + vData.get("sell", 0)
-                            if tot >= max_vol * 0.85 and float(price_lvl) != poc:
-                                all_levels.append({
-                                    'price': float(price_lvl),
-                                    'tf': tf_label,
-                                    'has_volume': True,
-                                    'time': pd.Timestamp(c.timestamp, unit='ms'),
-                                    'wick_type': 'HVN',
-                                })
-    except Exception as e:
-        print(f"[zone_detector] Could not extract Footprint POCs: {e}")
+                        # High Volume Nodes (экстремальные объемы)
+                        max_vol = getattr(c, 'poc_volume', 1)
+                        if max_vol > 0 and c.levels:
+                            for price_lvl, vData in c.levels.items():
+                                tot = vData.get("buy", 0) + vData.get("sell", 0)
+                                if tot >= max_vol * 0.85 and float(price_lvl) != poc:
+                                    all_levels.append({
+                                        'price': float(price_lvl),
+                                        'tf': tf_label,
+                                        'has_volume': True,
+                                        'time': pd.Timestamp(c.timestamp, unit='ms'),
+                                        'wick_type': 'HVN',
+                                    })
+        except Exception as e:
+            print(f"[zone_detector] Could not extract Footprint POCs: {e}")
 
     if not all_levels:
         print("[zone_detector] No wick or footprint levels found.")
@@ -548,51 +549,29 @@ def current_price(data: dict) -> float | None:
 
 def balance_around_price(strong: list[Zone], weak: list[Zone],
                          price: float | None) -> list[Zone]:
-    """Отбирает зоны так, чтобы уровни были и выше, и ниже текущей цены.
+    """Берёт реальные зоны в пределах лимита графика, без квоты 3+3.
 
-    Отбор только по score оставлял все зоны позади цены: после сильного
-    движения вверх сверху не было ни одного уровня, и клиент видел «все зоны
-    внизу». Сначала резервируем места под каждую сторону (при нехватке сильных
-    зон добираем лучших слабых кандидатов), затем добиваем список по score.
+    Сначала сильные уровни, затем слабые — чтобы добрать лимит, если сильных
+    меньше MAX_ZONES_ON_CHART. Пустую сторону не заполняем выдуманными линиями.
     """
-    limit = config.MAX_ZONES_ON_CHART
+    limit = max(0, int(getattr(config, "MAX_ZONES_ON_CHART", 6) or 0))
     if price is None or price <= 0:
         return strong[:limit]
-
-    def side(zones: list[Zone], above: bool) -> list[Zone]:
-        picked = [z for z in zones if (z.price > price) == above]
-        picked.sort(key=lambda z: (z.score, -abs(z.price - price)), reverse=True)
-        return picked
 
     merge_dist = config.CLUSTER_TOLERANCE * 3.0
 
     def add(zone: Zone, into: list[Zone]) -> bool:
-        # Слабые кандидаты не проходили слияние близких уровней, поэтому
-        # проверяем расстояние вручную — иначе рядом появятся два одинаковых.
         if any(abs(zone.price - z.price) <= merge_dist for z in into):
             return False
         into.append(zone)
         return True
 
     selected: list[Zone] = []
-    quota = min(config.MIN_ZONES_PER_SIDE, limit // 2)
-    for above in (True, False):
-        strong_side = side(strong, above)
-        # First strong levels, then real weak fallback levels. This preserves
-        # side coverage without sacrificing the score-first ordering.
-        candidates = strong_side + side(weak, above)
-        taken = 0
-        for zone in candidates:
-            if taken >= quota:
-                break
-            if add(zone, selected):
-                taken += 1
-        # A projected round level is a last-resort legacy fallback only. The
-        # active H4 snapshot deliberately filters PROJ levels out.
-        # Не дорисовываем круглые PROJ-уровни: если в скопе зон меньше лимита,
-        # показываем сколько есть. Выдуманные линии запрещены ТЗ.
-
     for zone in strong:
+        if len(selected) >= limit:
+            break
+        add(zone, selected)
+    for zone in weak:
         if len(selected) >= limit:
             break
         add(zone, selected)
