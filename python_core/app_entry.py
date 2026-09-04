@@ -162,7 +162,7 @@ def run_tray(bridge_thread):
     """Иконка в трее: Smart Zones Pro работает в фоне."""
     try:
         import pystray
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw, ImageFont  # noqa: F401  (проба доступности шрифтов)
         
         # Маленький логотип без рамки — синий круг и SZ.
         img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))

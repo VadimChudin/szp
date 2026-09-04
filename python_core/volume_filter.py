@@ -145,7 +145,6 @@ def calculate_delta(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
 
     vol = df['tick_volume'].values.astype(float)
-    opens = df['open'].values.astype(float)
     highs = df['high'].values.astype(float)
     lows = df['low'].values.astype(float)
     closes = df['close'].values.astype(float)

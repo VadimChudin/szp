@@ -17,7 +17,6 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, asdict
-from pathlib import Path
 
 from ai import model_catalog, runtime
 

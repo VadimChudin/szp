@@ -3,9 +3,6 @@
 """
 
 import json
-import os
-import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
@@ -172,7 +169,7 @@ class TestProcessPersistentZones:
         data = {"H4": h4_df}
 
         with patch("persistent_zones.DB_FILE", fake_db):
-            result = process_persistent_zones([], data)
+            process_persistent_zones([], data)
 
         # Зона должна быть удалена (burned)
         with patch("persistent_zones.DB_FILE", fake_db):

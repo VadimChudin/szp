@@ -36,5 +36,15 @@ python_core/llama/
 *.gguf
 *.gguf.part
 llama-server.log
+
+# ── Артефакты сборки установщика ────────────────────────────────────────────
+# CI собирает всё с нуля (PyInstaller -> dist/, затем ISCC по setup.iss),
+# поэтому эти каталоги никому не нужны в репозитории. Раньше они занимали
+# ~460 МБ и 2034 файла из 2164, включая скомпилированные .exe.
+installer/build/
 installer/build2/
+installer/files/
+installer/output/
 installer/innosetup*.exe
+dist/
+Output/

@@ -25,8 +25,7 @@ zone_detector отвечает ГДЕ уровень, zone_confirmation — ЖИ
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -121,7 +120,6 @@ def classify_reaction(
 
     lookback = int(_cfg("REACTION_LOOKBACK_BARS", 60))
     atr_period = int(_cfg("REACTION_ATR_PERIOD", 14))
-    win_after = int(_cfg("REACTION_WINDOW_AFTER", 8))
     brk_atr = float(_cfg("REACTION_BREAKOUT_ATR", 0.5))
     bounce_atr = float(_cfg("REACTION_BOUNCE_ATR", 0.75))
     consol_atr = float(_cfg("REACTION_CONSOLIDATION_ATR", 1.2))
@@ -139,7 +137,6 @@ def classify_reaction(
     if side not in ("ABOVE", "BELOW"):
         side = "ABOVE" if center >= price else "BELOW"
 
-    o = df["open"].astype(float).to_numpy()
     h = df["high"].astype(float).to_numpy()
     l = df["low"].astype(float).to_numpy()
     c = df["close"].astype(float).to_numpy()

@@ -13,7 +13,6 @@ main.py — Точка входа Smart Zones Pro (Python Core).
 """
 
 import sys
-import json
 from datetime import datetime
 
 import config
@@ -89,7 +88,7 @@ def run_pipeline(plot: bool = True) -> list[dict]:
         print("[4/4] Generating chart...")
         for tf_label in ["H4", "H1"]:
             if tf_label in data:
-                chart_path = plot_zones_mplfinance(
+                plot_zones_mplfinance(
                     data[tf_label],
                     zones,
                     title=f"Smart Zones Pro — {config.SYMBOL}",

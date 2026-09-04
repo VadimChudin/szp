@@ -170,7 +170,6 @@ def test_equal_extremes_form_a_pool():
 
 def test_single_extreme_is_not_a_pool():
     """Одиночный экстремум — не скопление стопов."""
-    rng = np.random.default_rng(5)
     rows = []
     t = pd.Timestamp("2026-01-01")
     for i in range(100):

@@ -10,8 +10,6 @@ MQL4 может читать файлы только из:
 """
 
 import shutil
-import os
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -83,7 +81,7 @@ def sync_file(source: Path) -> bool:
 def sync_zones():
     """Копирует zones_output.json во все папки Files терминалов MT4/MT5."""
     if not SOURCE.exists():
-        print(f"[sync] Run bridge_server.py first!")
+        print("[sync] Run bridge_server.py first!")
     return sync_file(SOURCE)
 
 
@@ -290,6 +288,5 @@ def install_all():
 
 
 if __name__ == "__main__":
-    import sys
     install_all()
 

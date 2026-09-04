@@ -10,7 +10,6 @@ settings_window.py — Окно настроек Smart Zones Pro (Tkinter).
 Запускается как отдельный процесс (`app_entry.py --settings`), чтобы Tkinter
 работал в своём главном потоке и не конфликтовал с иконкой pystray.
 """
-import os
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -62,8 +61,13 @@ def _read_env() -> dict[str, str]:
     return values
 
 
-def update_env(updates: dict[str, str]) -> bool:
-    """Обновляет/добавляет ключи в .env, сохраняя остальные строки и комментарии."""
+def update_env(updates: dict[str, str], removals: tuple[str, ...] = ()) -> bool:
+    """Обновляет/добавляет ключи в .env, сохраняя остальные строки и комментарии.
+
+    `removals` — ключи, которые надо убрать из файла. Нужно для устаревших
+    дублей: MAX_ZONE_DISTANCE_PIPS задавал ту же величину, что и половина скопа,
+    и оставшееся в .env старое значение противоречило новому скопу.
+    """
     lines: list[str] = []
     if paths.ENV_FILE.exists():
         try:
@@ -71,11 +75,14 @@ def update_env(updates: dict[str, str]) -> bool:
         except OSError as e:
             print(f"[settings] WARN: could not read .env: {e}")
     remaining = dict(updates)
+    drop = set(removals)
     out: list[str] = []
     for line in lines:
         stripped = line.strip()
         if stripped and not stripped.startswith("#") and "=" in stripped:
             key = stripped.split("=", 1)[0].strip()
+            if key in drop:
+                continue
             if key in remaining:
                 out.append(f"{key}={remaining.pop(key)}")
                 continue
@@ -97,7 +104,9 @@ class SettingsWindow(tk.Tk):
         super().__init__()
         self.title("Smart Zones Pro — Settings")
         self.geometry("560x780")
-        self.minsize(520, 640)
+        # Минимум занижен: содержимое прокручивается, поэтому окно не обязано
+        # вмещать все секции сразу — на ноутбуке с масштабом 125% это спасает.
+        self.minsize(480, 420)
         self.configure(bg=ui.CARD_BOT, padx=22, pady=20)
         self._style_ttk()
 
@@ -125,24 +134,57 @@ class SettingsWindow(tk.Tk):
                         font=(ui.FONT, 9), anchor="w", **kw)
 
     def _build_ui(self):
-        tk.Label(self, text="Smart Zones Pro", fg=ui.TXT, bg=ui.CARD_BOT,
+        # ── Кнопки: вне прокрутки, всегда видны ────────────────────────────
+        btns = tk.Frame(self, bg=ui.CARD_BOT)
+        btns.pack(side="bottom", fill="x", pady=(12, 0))
+        ui.GlassButton(btns, "Сохранить", command=self._save, width=150,
+                       height=40, kind="primary", bg=ui.CARD_BOT).pack(side="left")
+        ui.GlassButton(btns, "Закрыть", command=self.destroy, width=110,
+                       height=40, kind="ghost", bg=ui.CARD_BOT).pack(side="right")
+
+        # ── Прокручиваемая область ────────────────────────────────────────
+        # Без прокрутки при масштабе 125% и трёх слотах брокеров нижние поля
+        # уезжали за край окна, и до них было невозможно добраться.
+        canvas = tk.Canvas(self, bg=ui.CARD_BOT, highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        content = tk.Frame(canvas, bg=ui.CARD_BOT)
+        window_id = canvas.create_window((0, 0), window=content, anchor="nw")
+        self._canvas = canvas
+        self._content = content
+
+        def _sync_scrollregion(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _sync_width(event):
+            canvas.itemconfigure(window_id, width=event.width)
+
+        content.bind("<Configure>", _sync_scrollregion)
+        canvas.bind("<Configure>", _sync_width)
+        self._bind_mouse_wheel(canvas)
+
+        # ── Заголовок ─────────────────────────────────────────────────────
+        tk.Label(content, text="Smart Zones Pro", fg=ui.TXT, bg=ui.CARD_BOT,
                  font=(ui.FONT, 19, "bold")).pack(anchor="w")
-        tk.Label(self, text="MARKET DATA  /  SETTINGS",
+        tk.Label(content, text="MARKET DATA  /  SETTINGS",
                  fg=ui.AQUA, bg=ui.CARD_BOT,
                  font=(ui.FONT, 8, "bold")).pack(anchor="w", pady=(3, 18))
 
-        # ── Data source ──
-        ds_frame = tk.Frame(self, bg=ui.CARD_BOT)
+        # ── Источник данных ───────────────────────────────────────────────
+        ds_frame = tk.Frame(content, bg=ui.CARD_BOT)
         ds_frame.pack(fill="x", pady=(0, 8))
         self._label(ds_frame, "Источник данных (DATA_SOURCE):").pack(side="left")
-        self._data_source = tk.StringVar(value=self._env.get("DATA_SOURCE", "mt5"))
+        # Дефолт совпадает с config.py (dukascopy): раньше окно показывало mt5
+        # даже когда ключа в .env нет, то есть врало про текущее поведение.
+        self._data_source = tk.StringVar(value=self._env.get("DATA_SOURCE", "dukascopy"))
         ttk.Combobox(ds_frame, textvariable=self._data_source, values=DATA_SOURCES,
                      state="readonly", width=14).pack(side="left", padx=8)
 
-        # ── Валидация зон по внешнему эталону (Dukascopy) ──
-        # Клиент просил возможность ВЫКЛЮЧАТЬ валидацию: раньше режим задавался
-        # только переменной VALIDATION_MODE в .env, руками.
-        val_box = tk.LabelFrame(self, text="  ВАЛИДАЦИЯ ЗОН (DUKASCOPY)  ", fg=ui.AQUA,
+        # ── Валидация зон по внешнему эталону (Dukascopy) ─────────────────
+        val_box = tk.LabelFrame(content, text="  ВАЛИДАЦИЯ ЗОН (DUKASCOPY)  ", fg=ui.AQUA,
                                 bg=ui.CARD_BOT, font=(ui.FONT, 8, "bold"),
                                 bd=1, relief="solid", padx=10, pady=10)
         val_box.pack(fill="x", pady=8)
@@ -173,8 +215,8 @@ class SettingsWindow(tk.Tk):
             value=str(self._env.get("VALIDATION_TOLERANCE", "5.0")))
         self._row(val_box, "Допуск совпадения, $", self._validation_tolerance)
 
-        # ── Скоп и число красных линий ──
-        zone_box = tk.LabelFrame(self, text="  ЗОНЫ НА ГРАФИКЕ  ", fg=ui.AQUA,
+        # ── Скоп и число красных линий ────────────────────────────────────
+        zone_box = tk.LabelFrame(content, text="  ЗОНЫ НА ГРАФИКЕ  ", fg=ui.AQUA,
                                  bg=ui.CARD_BOT, font=(ui.FONT, 8, "bold"),
                                  bd=1, relief="solid", padx=10, pady=10)
         zone_box.pack(fill="x", pady=8)
@@ -182,30 +224,41 @@ class SettingsWindow(tk.Tk):
             value=str(self._env.get("ZONE_SCOPE_PIPS", "800")))
         self._max_zones = tk.StringVar(
             value=str(self._env.get("MAX_ZONES_ON_CHART", "6")))
+        self._min_score = tk.StringVar(
+            value=str(self._env.get("MIN_ZONE_SCORE", "11")))
+        self._test_invalidates = tk.BooleanVar(
+            value=str(self._env.get("TEST_INVALIDATES_ZONE", "false")).lower() in {"1", "true", "yes", "on"})
+
         self._row(zone_box, "Скоп, пункты", self._zone_scope)
         tk.Label(zone_box,
                  text="Любое положительное число. Половина вверх и половина вниз от цены.",
                  fg=ui.TXT_DIM, bg=ui.CARD_BOT, font=(ui.FONT, 8),
                  justify="left", wraplength=520, anchor="w").pack(fill="x", pady=(0, 4))
+
         self._row(zone_box, "Макс. зон на графике", self._max_zones)
         tk.Label(zone_box,
-                 text="Общий лимит, без схемы 3+3. Если реальных зон меньше — рисуем сколько есть.",
+                 text=("Общий лимит, без схемы 3+3. Если реальных зон меньше — рисуем сколько есть.\n"
+                       "В терминале то же число задаётся входом индикатора MaxZonesToDraw."),
                  fg=ui.TXT_DIM, bg=ui.CARD_BOT, font=(ui.FONT, 8),
-                 justify="left", wraplength=520, anchor="w").pack(fill="x")
+                 justify="left", wraplength=520, anchor="w").pack(fill="x", pady=(0, 4))
 
-        # ── Buttons (pinned to bottom so they're always visible) ──
-        btns = tk.Frame(self, bg=ui.CARD_BOT)
-        btns.pack(side="bottom", fill="x", pady=(12, 0))
-        ui.GlassButton(btns, "Сохранить", command=self._save, width=150,
-                       height=40, kind="primary", bg=ui.CARD_BOT).pack(side="left")
-        ui.GlassButton(btns, "Закрыть", command=self.destroy, width=110,
-                       height=40, kind="ghost", bg=ui.CARD_BOT).pack(side="right")
+        self._row(zone_box, "Мин. сила зоны (score)", self._min_score)
+        tk.Label(zone_box,
+                 text="Уровни ниже порога показываются как слабые (красные) только чтобы добрать лимит.",
+                 fg=ui.TXT_DIM, bg=ui.CARD_BOT, font=(ui.FONT, 8),
+                 justify="left", wraplength=520, anchor="w").pack(fill="x", pady=(0, 4))
 
-        # ── Telegram (also pinned above the buttons) ──
-        tg_box = tk.LabelFrame(self, text="  TELEGRAM ALERTS  ", fg=ui.AQUA,
+        tk.Checkbutton(zone_box, text="Снимать зону после подтверждённого теста H4 (TEST_INVALIDATES_ZONE)",
+                       variable=self._test_invalidates,
+                       fg=ui.TXT, bg=ui.CARD_BOT, selectcolor=ui.FIELD_BG,
+                       activebackground=ui.CARD_BOT, activeforeground=ui.TXT,
+                       font=(ui.FONT, 9), wraplength=520, justify="left").pack(anchor="w")
+
+        # ── Telegram ──────────────────────────────────────────────────────
+        tg_box = tk.LabelFrame(content, text="  TELEGRAM ALERTS  ", fg=ui.AQUA,
                                bg=ui.CARD_BOT, font=(ui.FONT, 8, "bold"),
                                bd=1, relief="solid", padx=10, pady=10)
-        tg_box.pack(side="bottom", fill="x", pady=8)
+        tg_box.pack(fill="x", pady=8)
         self._tg_enabled = tk.BooleanVar(
             value=str(self._env.get("ENABLE_TELEGRAM", "false")).lower() in {"1", "true", "yes", "on"})
         tk.Checkbutton(tg_box, text="Enable Telegram", variable=self._tg_enabled,
@@ -217,11 +270,11 @@ class SettingsWindow(tk.Tk):
         self._row(tg_box, "Bot token", self._tg_token)
         self._row(tg_box, "Chat id", self._tg_chat)
 
-        # ── Brokers (takes the remaining space) ──
-        brokers_box = tk.LabelFrame(self, text="  MT5 BROKERS  ", fg=ui.AQUA,
+        # ── Брокеры ───────────────────────────────────────────────────────
+        brokers_box = tk.LabelFrame(content, text="  MT5 BROKERS  ", fg=ui.AQUA,
                                     bg=ui.CARD_BOT, font=(ui.FONT, 8, "bold"),
                                     bd=1, relief="solid", padx=10, pady=10)
-        brokers_box.pack(fill="both", expand=True, pady=8)
+        brokers_box.pack(fill="x", pady=8)
 
         active_now = self._active_var.get()
         for i, b in enumerate(self._brokers["brokers"][:BROKER_SLOTS]):
@@ -256,6 +309,23 @@ class SettingsWindow(tk.Tk):
             self._row(slot, "Password", vars_["password"], show="*")
             self._row(slot, "MT5 Path (optional)", vars_["path"])
 
+    def _bind_mouse_wheel(self, canvas) -> None:
+        """Колесо мыши прокручивает область настроек."""
+        def _on_wheel(event):
+            delta = event.delta
+            if delta == 0:
+                return
+            # Windows даёт кратно 120, macOS — небольшие значения.
+            step = -1 * (delta // 120) if abs(delta) >= 120 else -1 * delta
+            canvas.yview_scroll(int(step), "units")
+
+        def _on_wheel_linux(event):
+            canvas.yview_scroll(-1 if event.num == 4 else 1, "units")
+
+        canvas.bind_all("<MouseWheel>", _on_wheel)
+        canvas.bind_all("<Button-4>", _on_wheel_linux)
+        canvas.bind_all("<Button-5>", _on_wheel_linux)
+
     def _row(self, parent, label, var, show=None):
         row = tk.Frame(parent, bg=parent["bg"])
         row.pack(fill="x", pady=3)
@@ -288,10 +358,13 @@ class SettingsWindow(tk.Tk):
             max_raw = self._max_zones.get().replace(" ", "")
             scope = float(scope_raw)
             max_zones = int(max_raw)
+            min_score = int(self._min_score.get().replace(" ", ""))
             if scope <= 0:
                 raise ValueError("Скоп должен быть больше 0")
             if not 1 <= max_zones <= 500:
                 raise ValueError("Количество зон должно быть от 1 до 500")
+            if not 0 <= min_score <= 100:
+                raise ValueError("Мин. сила зоны должна быть от 0 до 100")
         except ValueError as exc:
             messagebox.showerror("Ошибка", str(exc))
             return
@@ -303,12 +376,13 @@ class SettingsWindow(tk.Tk):
             "BROKER_OFFSET_ENABLED": "true" if self._broker_offset.get() else "false",
             "VALIDATION_TOLERANCE": self._validation_tolerance.get().strip() or "5.0",
             "ZONE_SCOPE_PIPS": f"{scope:g}",
-            "MAX_ZONE_DISTANCE_PIPS": f"{scope / 2.0:g}",
             "MAX_ZONES_ON_CHART": str(max_zones),
+            "MIN_ZONE_SCORE": str(min_score),
+            "TEST_INVALIDATES_ZONE": "true" if self._test_invalidates.get() else "false",
             "ENABLE_TELEGRAM": "true" if self._tg_enabled.get() else "false",
             "TELEGRAM_BOT_TOKEN": self._tg_token.get().strip(),
             "TELEGRAM_CHAT_ID": self._tg_chat.get().strip(),
-        })
+        }, removals=("MAX_ZONE_DISTANCE_PIPS",))
         if ok_brokers and ok_env:
             messagebox.showinfo(
                 "Saved",

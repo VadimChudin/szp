@@ -17,8 +17,13 @@ import time
 import os
 import sys
 import threading
+import traceback
 from pathlib import Path
 from datetime import datetime, timedelta
+
+# pandas нужен слою ИИ (pd.Timestamp для якоря времени). Раньше импорта не было:
+# вызов падал NameError, широкий except его глотал, и слой ИИ молча не работал.
+import pandas as pd
 
 # Добавляем путь к модулям
 sys.path.insert(0, str(Path(__file__).parent))
@@ -28,13 +33,13 @@ import applog
 import config
 import data_fetcher
 import paths
-from data_fetcher import DataUnavailableError, fetch_from_csv, fetch_all_timeframes
+from data_fetcher import DataUnavailableError, fetch_all_timeframes
 from volume_filter import get_volume_flags_all_tf, calculate_delta, get_delta_at_zone
 from zone_detector import detect_zones
 from active_zones import update_snapshot
 from zone_reaction import classify_zone
 from sl_model import possible_stop
-from telegram_bot import send_telegram_message, send_alert_line, send_zones_update
+from telegram_bot import send_alert_line, send_zones_update
 from footprint_data import get_collector as get_fp_collector
 # footprint_window импортируется лениво (содержит webview, блокирует headless)
 
@@ -206,15 +211,19 @@ def calculate_and_export_zones(refresh_data: bool = True):
     # ── Active H4 snapshot ───────────────────────────────────────────
     # Архивная БД обновляется для истории, но displayed zones живут в
     # incremental snapshot: для того же H4 bar список не пересоздаётся.
+    # Оба режима режут набор только по MAX_ZONES_ON_CHART: квоты «3 сверху +
+    # 3 снизу» нет ни в снапшоте, ни в legacy-пути.
     if config.USE_ZONE_LADDER:
+        # H4-снапшот: состав меняется только после закрытия H4-свечи.
         try:
             from persistent_zones import process_persistent_zones
             process_persistent_zones(zones, data)
         except Exception as e:
             print(f"[bridge] WARN: Could not update persistent archive: {e}")
+            traceback.print_exc()
         zones = update_snapshot(zones, data)
     else:
-        # Поведение старой версии: без лестницы и слотов 3+3 — топ по score,
+        # Поведение старой версии (по умолчанию): топ по score,
         # сжигание пробитых зон, историчные показываются тусклее (HIST).
         from persistent_zones import process_legacy_zones
         zones = process_legacy_zones(zones, data)
@@ -256,7 +265,9 @@ def calculate_and_export_zones(refresh_data: bool = True):
                     pd.Timestamp(frame["time"].iloc[-1]).timestamp())
             zones = annotator.annotate(zones, data)
         except Exception as exc:
-            print(f"[bridge] WARN: AI layer skipped: {exc}")
+            # Печатаем трейсбек: без него NameError в этом блоке жил незаметно.
+            print(f"[bridge] WARN: AI layer skipped: {type(exc).__name__}: {exc}")
+            traceback.print_exc()
 
     # ── Дельта-анализ (Футпринт Dukascopy/MT4) ──────
     flow_delta = None
@@ -374,7 +385,7 @@ def run_monitor_loop(interval_seconds: int = 5):
     print(f"[bridge] Started monitoring loop (interval: {interval_seconds}s)")
     print(f"[bridge] Watching: {BRIDGE_DIR}")
     print(f"[bridge] Output:   {ZONES_OUTPUT}")
-    print(f"[bridge] Press Ctrl+C to stop\n")
+    print("[bridge] Press Ctrl+C to stop\n")
 
     # Первый расчёт при старте
     data_ok = calculate_and_export_zones() is not None
@@ -422,7 +433,7 @@ def run_monitor_loop(interval_seconds: int = 5):
             common_fp_flag = common_base / "footprint_request.flag"
             
             if common_fp_flag.exists():
-                print(f"\n[bridge] MT4 requested Footprint window.")
+                print("\n[bridge] MT4 requested Footprint window.")
                 tf = read_footprint_timeframe(common_fp_flag)
                 common_fp_flag.unlink()
                 
@@ -446,7 +457,7 @@ def run_monitor_loop(interval_seconds: int = 5):
 
                     threading.Thread(target=bg_fp_launcher, args=(tf,), daemon=True).start()
                 else:
-                    print(f"[bridge] Footprint already downloading, ignored duplicate click.")
+                    print("[bridge] Footprint already downloading, ignored duplicate click.")
 
             # Автоматический пересчёт ТОЛЬКО на закрытии H4 свечи
             # Зоны определяются на 4h, в течение тех же 4 часов новые зоны не строятся.
@@ -489,7 +500,10 @@ if __name__ == "__main__":
     if "--once" in sys.argv:
         calculate_and_export_zones(refresh_data=False)
     elif "--footprint" in sys.argv:
-        # Тестовый запуск окна футпринта
+        # Тестовый запуск окна футпринта. Импорт ленивый: footprint_window тянет
+        # webview и блокирует headless-режим, поэтому его нет наверху файла.
+        from footprint_window import open_footprint_window
+
         fp = get_fp_collector()
         fp.load_all()
         fp.start_background_updates(60)

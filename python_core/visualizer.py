@@ -10,11 +10,9 @@ visualizer.py — Визуализация зон на свечном графи
 """
 
 import pandas as pd
-import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # Headless mode (для серверов без GUI)
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 from pathlib import Path
 from datetime import datetime
 

@@ -4,7 +4,6 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from volume_filter import (
     detect_big_player_candles,

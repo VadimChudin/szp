@@ -17,10 +17,8 @@ footprint_data.py — Сборщик кластерных данных (футп
 import requests
 import threading
 import time
-import os
 from collections import deque
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Optional
 
 import config
@@ -128,7 +126,6 @@ class FootprintCandle:
             }
             return levels
 
-        import math
         # Генерируем все возможные уровни, строго синхронно с логикой JS
         start_level = math.floor(self.low / self.price_step) * self.price_step
         end_level = math.ceil(self.high / self.price_step) * self.price_step
@@ -334,7 +331,6 @@ class FootprintBuffer:
                     t_end = t_end.replace(tzinfo=None)
                 
                 o, h, l, c = float(row["open"]), float(row["high"]), float(row["low"]), float(row["close"])
-                vol = float(row.get("tick_volume", row.get("volume", 0)))
                 time_str = t_start.strftime("%Y-%m-%d %H:%M")
                 
                 levels = {}
@@ -436,7 +432,6 @@ class FootprintBuffer:
             print("[mt5] copy_rates failed")
             return 0
             
-        from collections import defaultdict
         
         with self._lock:
             self.buffer.clear()
@@ -771,7 +766,6 @@ class FootprintBuffer:
             import time
             from datetime import datetime
             import math
-            import pandas as pd
             
             if not mt5.initialize():
                 return 0

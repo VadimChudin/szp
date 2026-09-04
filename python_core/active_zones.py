@@ -120,18 +120,9 @@ def _distance(zone: Zone, price: float) -> float:
     return abs(zone.price - price)
 
 
-def _slot_window(index: int) -> tuple[float, float]:
-    """Допустимое расстояние от цены для слота с номером index (0 = ближайший).
-
-    Набор строится лестницей: ближайшая зона стоит в окне
-    ZONE_NEAREST_MIN..ZONE_NEAREST_MAX, каждая следующая — на ZONE_GAP_MIN..
-    ZONE_GAP_MAX дальше предыдущей. ZONE_BAND_TOLERANCE даёт запрошенное
-    «примерно там», иначе слот часто оставался бы пустым.
-    """
-    low = config.ZONE_NEAREST_MIN + config.ZONE_GAP_MIN * index
-    high = config.ZONE_NEAREST_MAX + config.ZONE_GAP_MAX * index
-    slack = (high - low) * config.ZONE_BAND_TOLERANCE
-    return max(low - slack, 0.0), high + slack
+# _slot_window() удалён вместе со схемой 3+3: окна слотов задавали минимальное
+# расстояние до цены (200-300 пунктов), из-за чего уровень вплотную к цене не
+# показывался. Видимую область теперь задаёт скоп — см. _in_display_band().
 
 
 def _in_display_band(zone: Zone, price: float, window: float | None = None) -> bool:

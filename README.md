@@ -113,20 +113,40 @@ The MQL indicators independently apply the same structural/ATR principle at rend
 Since v3.0.0 the chart is zones-only by default. Possible SL levels are drawn only when the indicator input `ShowSL` is enabled (`false` by default); previously the SL block ran unconditionally for every zone and added six dashed lines plus six labels on top of the six zones. Accumulation boxes are likewise off by default (`ShowAccumulation = false`, `ACCUMULATION_ENABLED=0`), and projected round levels are disabled (`PROJECT_ROUND_LEVELS=0`) so that every line on the chart corresponds to a real wick cluster.
 
 
-## Six active lines: three above and three below
+## Активные линии: общий лимит, без квоты по сторонам
 
-The active H4 snapshot has a fixed visual contract: **six real price lines**, consisting of **three above** and **three below** the current price. On each side, candidates are ranked by **score first** and then by **proximity to the current price**. The snapshot changes only after a newly closed H4 candle. A new candidate can replace only the weakest line on the same side, so a strong upper zone cannot remove a lower protective level, and vice versa.
+Начиная с v6.0.0 у снапшота **нет схемы «3 сверху + 3 снизу»**. Действует один
+общий лимит `MAX_ZONES_ON_CHART` (по умолчанию `6`, диапазон `1..500`): зоны
+отбираются по близости к цене в пределах скопа, и вся квота может уйти на одну
+сторону, если реальные уровни есть только сверху или только снизу. Снапшот
+меняется только после закрытия новой H4-свечи.
 
-If a side has fewer than three zones meeting `MIN_ZONE_SCORE`, the application fills the remaining slots with the best real weaker candidates. These fallback zones are rendered as **red lines** and carry `is_fallback: true` in JSON. Confirmed zones retain the gold/market colour hierarchy. A possible SL is not a zone: it is rendered independently as a **thin violet dashed line** with an explicit `SL` label.
+Если реальных зон в скопе меньше лимита — рисуется столько, сколько есть.
+Уровни «из воздуха» не достраиваются: `PROJECT_ROUND_LEVELS=0`, а
+`projected_levels()` в рабочем пути отбора не вызывается. Слабые кандидаты
+(ниже `MIN_ZONE_SCORE`) — это реальные уровни, они добирают лимит и помечаются
+`is_fallback: true`, рисуясь **красными линиями**. Возможный SL зоной не
+является: он рисуется отдельной **тонкой фиолетовой пунктирной линией** с
+подписью `SL`.
 
-MT4 and MT5 enforce the same hard display guard of six JSON zones. This prevents a stale producer, terminal cache, or older JSON file from drawing ten or twenty active lines. Accumulation boxes remain independent analytical objects and are not active SZP zones.
+Лимит линий в терминале задаётся входом индикатора `MaxZonesToDraw` (по
+умолчанию `6`, зажимается в `1..500`) и должен совпадать с
+`MAX_ZONES_ON_CHART`. До v6.0.2 в MT4/MT5 стояла жёсткая шестёрка, поэтому
+значения выше 6 не доходили до графика: Python отдавал больше зон, а терминал
+молча отбрасывал лишние. Боксы накопления — независимые аналитические объекты,
+активными зонами SZP они не считаются.
 
-## Полоса отображения зон (200-300 пипсов)
+## Полоса отображения зон (скоп)
 
-До v3.0.0 видимый набор отбирался только по `score`: расстояние от цены не
-ограничивалось ни снизу, ни сверху, поэтому уровень мог встать вплотную к цене
-или в полутора тысячах пипсов от неё, а более сильная далёкая зона вытесняла
-зону, стоящую в нужном ренже. Теперь набор строится лестницей от цены:
+Видимая область задаётся **скопом** — это вся ширина окна в пунктах, половина
+вверх и половина вниз от цены. Значение произвольное: `ZONE_SCOPE_PIPS=800`
+даёт ±400 пунктов (±$40 при `PIP_SIZE=0.1`), `2000` — ±$100, и так далее.
+Настраивается в окне настроек («Скоп, пункты») или через `.env`.
+
+Зоны внутри скопа отбираются по близости к цене; ограничения «не ближе N
+пипсов» нет — уровень вплотную к цене показывается. Параметры лестницы ниже
+остались в конфиге для совместимости и используются только опциональным
+режимом слотов, который по умолчанию выключен:
 
 | Параметр | По умолчанию | Смысл |
 |---|---|---|
@@ -140,9 +160,9 @@ MT4 and MT5 enforce the same hard display guard of six JSON zones. This prevents
 своего диапазона, и ближняя полоса оставалась пустой. `score` теперь решает
 только внутри слота и не может вытянуть набор из ренжа.
 
-`CLUSTER_TOLERANCE` и ширина зоны автоматически поджимаются под шаг: склейка
-близких уровней шире шага схлопывала три зоны на стороне в одну линию (при
-`PIP_SIZE=0.1` шаг равен $20, а склейка и ширина зоны поджимаются существенно ниже этого шага).
+`CLUSTER_TOLERANCE` (склейка близких уровней) и максимальная ширина зоны
+заданы в конфиге явными значениями в долларах, чтобы склейка шире шага не
+схлопывала соседние зоны в одну линию.
 
 Зона, вышедшая из полосы, снимается с графика на ближайшем закрытии H4 и
 пишет в журнал событие `zone_out_of_band`. Состав по-прежнему меняется только

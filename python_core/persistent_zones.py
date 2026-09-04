@@ -1,6 +1,4 @@
-import json
 import copy
-from pathlib import Path
 import pandas as pd
 
 from zone_detector import Zone

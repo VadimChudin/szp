@@ -22,9 +22,15 @@ input int      RefreshSeconds   = 10;        // Интервал обновле�
 // но чем слабее уровень — тем тусклее линия. Инпуты переименованы намеренно:
 // терминал хранит значения в профиле графика, и старый ZoneColorStrong=clrGold
 // оживал после обновления сборки, делая сильные зоны золотыми.
-input color    ZoneColorHigh    = clrRed;            // Сильная зона (score >= 9)
-input color    ZoneColorMid     = C'255,77,77';       // Средняя зона (score 7-8)
-input color    ZoneColorLow     = C'255,153,153';     // Слабая / историчная (HIST)
+input color    ZoneColorHigh    = clrRed;            // Сильная зона (score >= ScoreHighFrom)
+input color    ZoneColorMid     = C'255,77,77';       // Средняя зона (score >= ScoreMidFrom)
+input color    ZoneColorLow     = C'255,153,153';     // Слабая / историчная (HIST) и fallback
+// Пороги раскраски были зашиты числами 9 и 7, а Python отдаёт сильные зоны от
+// MIN_ZONE_SCORE (по умолчанию 11) и слабые от FALLBACK_MIN_ZONE_SCORE (7).
+// Значения по умолчанию оставлены прежними, чтобы вид графика не изменился;
+// если MIN_ZONE_SCORE меняется в .env, ScoreHighFrom правится под него.
+input int      ScoreHighFrom    = 9;                  // Порог «сильной» зоны
+input int      ScoreMidFrom     = 7;                  // Порог «средней» зоны
 input int      ZoneLineWidth    = 2;         // Толщина линии зоны
 // Параметр переименован из ShowLabels: терминал хранит значения инпутов в
 // профиле графика, и у клиентов оставался ShowLabels=false из старой сборки —
@@ -45,8 +51,12 @@ input bool     ShowZakrep       = true;       // Пометка/алерт «З�
 input bool     ShowReactionTag  = false;      // Текстовая метка реакции у цены (цвет линии НЕ меняет)
 input bool     LabelAboveLine   = true;       // Подпись цены НАД линией зоны (не поверх неё)
 input double   LabelOffsetUSD   = 0.80;       // Отступ подписи от линии ($) — цифры не лежат в уровне
-input bool     AutoFitChart     = true;       // Автоподгон шкалы под все 6 зон
+input bool     AutoFitChart     = true;       // Автоподгон шкалы под все активные зоны
 input double   FitMarginPct     = 3.0;        // Запас шкалы сверху/снизу (%)
+// Сколько активных линий разрешено нарисовать. Раньше здесь стояла жёсткая
+// шестёрка, из-за чего настройка MAX_ZONES_ON_CHART выше 6 не работала на
+// графике: Python отдавал больше зон, а терминал молча отбрасывал лишние.
+input int      MaxZonesToDraw   = 6;          // Лимит активных линий (1..500)
 // Имя файла с зонами — лежит в MQL4/Files или Common/Files (положит sync_zones_to_mt4.py).
 input string   ZonesFilePath    = "zones_output.json";
 input bool     ShowAccumulation = false;     // Набор позиции крупным участником
@@ -73,6 +83,18 @@ string         zoneLabels[];
 bool           zoneFallback[];
 string         zoneReaction[];
 string         zoneReactionDir[];
+
+//+------------------------------------------------------------------+
+//| Сколько активных линий разрешено рисовать.                        |
+//| Значение приходит из входа MaxZonesToDraw и зажимается в 1..500,  |
+//| чтобы опечатка в настройках не убила график.                      |
+//+------------------------------------------------------------------+
+int ZoneDrawCap()
+{
+   if(MaxZonesToDraw < 1)   return 1;
+   if(MaxZonesToDraw > 500) return 500;
+   return MaxZonesToDraw;
+}
 
 // ── Состояние для защиты от мерцания ──────────────────────────────────────────
 // FileHasChanged() был заглушкой (`return true`), поэтому OnTimer каждые
@@ -606,8 +628,8 @@ void ParseZonesJSON(string json)
          reactionDir = ExtractString(json, "\"direction\":", reactionPos);
       }
 
-      // Hard UI guard: never draw more than six active levels.
-      if(price > 0 && currentZoneCount < 6)
+      // UI guard: лимит активных линий задаётся входом MaxZonesToDraw.
+      if(price > 0 && currentZoneCount < ZoneDrawCap())
       {
          ArrayResize(zonePrices, currentZoneCount + 1);
          ArrayResize(zoneTops, currentZoneCount + 1);
@@ -719,9 +741,9 @@ void DrawSingleZone(int index)
    // Цвет по силе уровня (как в старой версии): ярко-красный у сильных,
    // тусклее у слабых и историчных (HIST приходит с пониженным score).
    // Раскраска по РЕАКЦИИ удалена — именно она давала мигание красным/зелёным.
-   color zoneColor = score >= 9 ? ZoneColorHigh
-                   : score >= 7 ? ZoneColorMid
-                                : ZoneColorLow;
+   color zoneColor = score >= ScoreHighFrom ? ZoneColorHigh
+                   : score >= ScoreMidFrom  ? ZoneColorMid
+                                            : ZoneColorLow;
    if(fallback) zoneColor = ZoneColorLow;
    int   lineWidth = ZoneLineWidth;
    if(score >= 11)

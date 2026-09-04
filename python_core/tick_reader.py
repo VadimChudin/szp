@@ -7,10 +7,8 @@ tick_reader.py — Чтение и агрегация тиков из MT4 EA.
 Используется для построения РЕАЛЬНЫХ футпринтов (не эмуляции).
 """
 
-import os
-import csv
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 from typing import Optional
 

@@ -3,7 +3,6 @@
 """
 
 import pandas as pd
-import pytest
 
 import config
 from accumulation import build_output, detect_accumulations

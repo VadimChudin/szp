@@ -1,15 +1,20 @@
 import urllib.request
 import struct
 import lzma
-import os
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 import concurrent.futures
 
-# ── Дисковый кэш: скачанные .bi5 сохраняются как .parquet ──────────
+# ── Дисковый кэш: скачанные .bi5 сохраняются как .csv.gz ───────────
+# Раньше кэш писался в .parquet, а это тянет pyarrow (137 МБ на диске против
+# 46 МБ всего установщика). В сборке pyarrow не было, поэтому кэш не работал
+# у клиента вообще. gzip-CSV даёт то же самое штатным pandas, без зависимостей.
+# Старые .parquet-файлы просто игнорируются: это кэш, он восстановится сам.
 CACHE_DIR = Path(__file__).parent / "duka_cache"
 CACHE_DIR.mkdir(exist_ok=True)
+
+TICK_COLUMNS = ["time_ms", "time", "ask", "bid", "ask_vol", "bid_vol"]
 
 
 class DukascopyLoader:
@@ -19,7 +24,19 @@ class DukascopyLoader:
 
     def _cache_key(self, symbol, dt: datetime) -> Path:
         """Путь к кэш-файлу для (symbol, hour)."""
-        return CACHE_DIR / f"{symbol}_{dt.strftime('%Y%m%d_%H')}.parquet"
+        return CACHE_DIR / f"{symbol}_{dt.strftime('%Y%m%d_%H')}.csv.gz"
+
+    @staticmethod
+    def _read_cache(cache_path: Path):
+        """Читает часовой кэш тиков. Пустой файл — валидный результат."""
+        return pd.read_csv(cache_path, compression="gzip", parse_dates=["time"])
+
+    @staticmethod
+    def _write_cache(cache_path: Path, df) -> None:
+        """Пишет часовой кэш тиков (в т.ч. пустой — чтобы не качать битый час)."""
+        if df is None:
+            df = pd.DataFrame(columns=TICK_COLUMNS)
+        df.to_csv(cache_path, index=False, compression="gzip")
 
     def fetch_hour(self, symbol, dt: datetime):
         """Скачивает тики за один час. Использует кэш если есть."""
@@ -28,7 +45,7 @@ class DukascopyLoader:
         # ── Кэш-hit: читаем с диска ─────────────────────────────────
         if cache_path.exists():
             try:
-                return pd.read_parquet(cache_path)
+                return self._read_cache(cache_path)
             except Exception:
                 cache_path.unlink(missing_ok=True)  # битый кэш — удаляем
         
@@ -70,16 +87,16 @@ class DukascopyLoader:
                 df = pd.DataFrame(ticks)
                 
                 # ── Пишем в кэш ─────────────────────────────────────
-                if not df.empty:
-                    df.to_parquet(cache_path, index=False)
-                else:
-                    # Кэшируем пустой файл, чтобы не скачивать битые часы заново
-                    pd.DataFrame(columns=["time_ms", "time", "ask", "bid", "ask_vol", "bid_vol"]).to_parquet(cache_path, index=False)
+                # Пустой df тоже кэшируем, чтобы не скачивать битые часы заново.
+                self._write_cache(cache_path, df if not df.empty else None)
                 return df
-        except Exception as e:
+        except Exception:
+            # Раньше здесь был локальный `import pandas as pd`. Он делал pd
+            # локальной переменной на всю функцию, и обращение к кэшу в начале
+            # fetch_hour падало UnboundLocalError: кэш удалялся, часы качались
+            # заново при каждом запуске. Используем модульный pandas.
             try:
-                import pandas as pd
-                pd.DataFrame(columns=["time_ms", "time", "ask", "bid", "ask_vol", "bid_vol"]).to_parquet(cache_path, index=False)
+                self._write_cache(cache_path, None)
             except OSError:
                 pass
             return None

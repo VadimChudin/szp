@@ -10,8 +10,7 @@ API: Публичный, без ключей, бесплатный.
 """
 
 import requests
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import config
 

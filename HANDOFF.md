@@ -1,6 +1,6 @@
 # HANDOFF: Smart Zones Pro (szp) — Project State & Architecture
 
-**Дата:** 2 сентября 2026 | **Версия:** v5.1.0 (Latest) | **Статус:** ✅ Production-Ready  
+**Дата:** 4 сентября 2026 | **Версия:** v6.0.2 (Latest) | **Статус:** ✅ Production-Ready  
 **Мейнтейнер:** Vadim Chudin | **Язык:** Python 3.10+ (core), MQL4/MQL5 (indicators)
 
 ---
@@ -94,19 +94,88 @@ szp/
 
 ## 🚀 Версионирование & Релизы
 
-**Текущая версия:** `v5.1.0` (Latest) — выпущена **2 сентября 2026**  
+**Текущая версия:** `v6.0.2` (Latest) — выпущена **4 сентября 2026**  
 **Предыдущие:** v5.0.0, v4.2.7 и др.
 
 **CI/CD:** GitHub Actions + Inno Setup
 - Тег `v*.*.* ` → **Stable** сборка (MT компиляция + PyInstaller + установщик)
 - Ветка `experiment/v*-rc` → **validation** (проверка, но без публикации)
 
-**Установщик:** `SmartZonesPro_Setup_Stable_v5.1.0.exe` (48.2 МБ)  
-**Скачать:** [github.com/VadimChudin/szp/releases/tag/v5.1.0](https://github.com/VadimChudin/szp/releases/tag/v5.1.0)
+**Установщик:** `SmartZonesPro_Setup_Stable_v6.0.2.exe`  
+**Скачать:** [github.com/VadimChudin/szp/releases/tag/v6.0.2](https://github.com/VadimChudin/szp/releases/tag/v6.0.2)
 
 ---
 
 ## 📋 Что было сделано в последних сеансах
+
+### v6.0.2 — Инспекция кода: критичные баги и контракт отображения
+
+#### 1. Снят жёсткий кап 6 зон в терминале (главное несоответствие ТЗ)
+- **Файлы:** `mql/MT4/Indicators/StrongZones.mq4`, `mql/MT5/Indicators/StrongZones.mq5`
+- Было: `if(price > 0 && currentZoneCount < 6)` с комментарием «Hard UI guard».
+  Python отдавал до `MAX_ZONES_ON_CHART` зон, терминал молча рисовал первые 6 —
+  настройка лимита выше 6 не работала.
+- Стало: вход `MaxZonesToDraw` (по умолчанию 6) и `ZoneDrawCap()` с зажимом 1..500.
+- Тест `test_mql_display_contract.py` переписан: раньше он **закреплял** кап 6.
+
+#### 2. Слой ИИ не работал в проде (NameError под широким except)
+- **Файл:** `bridge_server.py`
+- `pd.Timestamp` вызывался без `import pandas as pd` → `NameError` → `except`
+  печатал «AI layer skipped». Побочно не ставился `licensing.set_time_anchor` —
+  единственный вызов в проде, то есть защита офлайн-лицензий от отката
+  системных часов не активировалась.
+- Добавлен импорт pandas, добавлен `traceback.print_exc()` в обработчик.
+
+#### 3. `--footprint` падал NameError
+- `open_footprint_window` не импортировался. Добавлен ленивый импорт внутри ветки
+  (наверху файла нельзя: `webview` блокирует headless-режим).
+
+#### 4. Кэш тиков Dukascopy не работал никогда
+- **Файл:** `dukascopy_loader.py`
+- Локальный `import pandas as pd` внутри `fetch_hour` делал `pd` локальной на всю
+  функцию → чтение кэша падало `UnboundLocalError` → `except` **удалял** кэш-файл.
+- Плюс кэш писался в `.parquet`, что требует pyarrow (137 МБ против 46 МБ всего
+  установщика) — в сборке его не было, то есть у клиента кэш не работал вообще.
+- Формат переведён на `gzip`-CSV штатным pandas, без новых зависимостей.
+
+#### 5. Зависимости и CI
+- `requirements.txt`: добавлены `pystray`, `Pillow`, `psutil` (импортируются, но
+  отсутствовали); убран неиспользуемый `pyzmq`; `MetaTrader5` под маркером Windows.
+- CI больше не ставит пакеты руками — единственный источник `requirements.txt`.
+- Добавлен блокирующий шаг `ruff check python_core --select F,E9` (0 замечаний).
+
+#### 6. Конфигурация и документация
+- `CLUSTER_TOLERANCE` и `ZONE_WIDTH_MAX` развязаны от `ZONE_GAP_MIN` (шага
+  выключенной «лестницы»); эффективные значения не изменились ($5.0 и $7.0).
+- Удалены `ZONES_PER_SIDE`, `MIN_ZONES_PER_SIDE`, `ZONE_BAND_OUTER_MAX`,
+  `_slot_window()` — мёртвые остатки схемы 3+3.
+- `.env.example` приведён к дефолтам `config.py` (был `DATA_SOURCE=mt5` против
+  `dukascopy` и `TEST_INVALIDATES_ZONE=true` против `false`); убран дубль
+  `MAX_ZONE_DISTANCE_PIPS`.
+- README: секция «Six active lines: three above and three below» заменена на
+  фактический контракт v6, «Полоса 200-300 пипсов» — на скоп.
+
+#### 7. Окно настроек
+- Добавлена прокрутка: при трёх слотах брокеров и масштабе 125% нижние поля
+  уезжали за край и были недоступны. Кнопки закреплены вне области прокрутки.
+- Добавлены `MIN_ZONE_SCORE` и `TEST_INVALIDATES_ZONE`; дефолт `DATA_SOURCE`
+  в окне синхронизирован с config; при сохранении устаревший
+  `MAX_ZONE_DISTANCE_PIPS` удаляется из `.env`.
+
+#### 8. Репозиторий
+- Из git убраны артефакты сборки (`installer/build`, `build2`, `files`, `output`,
+  `innosetup*.exe`): 2034 файла из 2164, ~460 МБ. Файлы остались на диске, CI их
+  не использует (собирает с нуля в `dist/`).
+- Примечание: размер `.git` (~293 МБ) это не уменьшает — история хранит блобы.
+  Перезапись истории (`git filter-repo`) — отдельное решение, требует согласования.
+
+#### 9. Новые тесты (+34)
+- `test_dukascopy_cache.py` — кэш-хит, пустой час, битый кэш, запрет локального
+  импорта pandas.
+- `test_zone_quota_invariant.py` — отсутствие квоты по сторонам в обоих режимах.
+- `test_env_example_matches_config.py` — дрейф примера от дефолтов.
+- `test_settings_window.py` — `update_env`, удаление устаревших ключей, структура окна.
+- `test_bridge_server.py` — наличие `pd`, ленивый импорт окна футпринта, трейсбек.
 
 ### v5.1.0 — Broker Normalization via Dukascopy
 
@@ -169,18 +238,18 @@ szp/
   - `test_current_price` — извлечение текущей цены
   - `test_config_defaults` — дефолты конфига
   
-- **Статус:** ✅ 191 тест (17 файлов), все зелёные
+- **Статус:** ✅ 328 тестов (26 файлов), все зелёные; ruff (F,E9) без замечаний
 
 #### 7. CI/CD & Релиз
 - **Валидационная сборка** (`experiment/v5.1-rc`): ✅ success (шаги 1–16)
-  - Python тесты (191/191 passed)
+  - Python тесты (328/328 passed)
   - MQL5 компиляция ✅
   - MQL4 компиляция ✅
   - PyInstaller → SmartZonesPro.exe ✅
   - Inno Setup → установщик ✅
   
-- **Стабильная сборка** (тег `v5.1.0`): ✅ success (шаги 1–16)
-  - Установщик собран: `SmartZonesPro_Setup_Stable_v5.1.0.exe` (48.2 МБ)
+- **Стабильная сборка** (тег `v6.0.2`): ✅ success
+  - Установщик собран: `SmartZonesPro_Setup_Stable_v6.0.2.exe`
   - Релиз опубликован как Latest (не draft)
   
 - **Коммиты в main:**
@@ -278,7 +347,7 @@ DUKA_DAYS=5
 |---------|----------|
 | **Python строк кода** | ~5,500 (core + tests) |
 | **Модулей** | 36 (активные + legacy) |
-| **Тестов** | 191 (17 файлов, 2002 строк) |
+| **Тестов** | 328 (26 файлов) |
 | **Тестовое покрытие** | ~80% (основная логика) |
 | **Производительность** | Зоны вычисляются за <1 сек на 2+ года истории |
 | **Эффективность зон** | 75% реакции (vs 29% случайных уровней) |
@@ -289,7 +358,7 @@ DUKA_DAYS=5
 
 ### Если ты берёшься за улучшение:
 
-1. **Перед любым коммитом:** запусти `pytest tests/ -q` — все 191 тест должны быть зелёными
+1. **Перед любым коммитом:** запусти `pytest tests/ -q` (все 328 тестов зелёные) и `ruff check python_core --select F,E9`
 2. **Новая фича для брокера?** → обнови `config.py` и добавь тест в `test_broker_normalize.py`
 3. **Изменение в зонах?** → проверь影响на `zone_detector.py` тесты и бэктесты
 4. **MQL изменение?** → коммит в `main`, тег `v*.*.* `, CI сам скомпилирует
@@ -308,9 +377,9 @@ DUKA_DAYS=5
 
 - **GitHub:** https://github.com/VadimChudin/szp
 - **Релизы:** https://github.com/VadimChudin/szp/releases
-- **Текущий релиз:** v5.1.0 (Latest)
-- **Текущий коммит:** `628660d` (main)
+- **Текущий релиз:** v6.0.2 (Latest)
+- **Текущий коммит:** `a060f9b` (main)
 
 ---
 
-**Статус на 2 сентября 2026:** ✅ Production-ready, последний релиз v5.1.0 с валидацией по Dukascopy и нормализацией оффсета брокера.
+**Статус на 4 сентября 2026:** ✅ Production-ready, релиз v6.0.2: свободный скоп, общий лимит зон без схемы 3+3, снят жёсткий кап 6 зон в MT4/MT5, починены слой ИИ и кэш тиков Dukascopy.

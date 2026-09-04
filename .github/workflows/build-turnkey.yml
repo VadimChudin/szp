@@ -28,13 +28,32 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Run Python tests
+      # requirements.txt — единственный источник зависимостей. Раньше pystray и
+      # Pillow ставились здесь руками, поэтому их отсутствие в requirements.txt
+      # никто не замечал, а локальная установка по файлу давала ImportError.
+      - name: Install Python dependencies
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           python -m pip install --upgrade pip
           python -m pip install -r python_core/requirements.txt
-          python -m pip install pytest pystray Pillow termcolor
+          python -m pip install pytest ruff
+
+      # Блокирующая проверка: ruff --select F ловит неопределённые имена (F821)
+      # и затенение импортов (F823). Именно такие баги жили в bridge_server и
+      # dukascopy_loader и молча ломали слой ИИ и кэш тиков.
+      # Набор F,E9 на момент включения проходит без замечаний — держим его
+      # чистым, чтобы новые F821/F823 нельзя было внести незаметно.
+      - name: Lint (ruff, критичные правила)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ruff check python_core --select F,E9
+
+      - name: Run Python tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
           python -m pytest -q python_core/tests
 
       # ── 0. Канал и номер сборки → приложение, индикаторы, установщик ──
@@ -238,7 +257,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r python_core/requirements.txt
-          python -m pip install pystray Pillow termcolor pyinstaller
+          python -m pip install pyinstaller
 
       - name: Build SmartZonesPro.exe (PyInstaller)
         shell: pwsh

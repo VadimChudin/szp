@@ -25,7 +25,6 @@ import argparse
 import contextlib
 import io
 import json
-import math
 import random
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone

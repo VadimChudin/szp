@@ -1,9 +1,8 @@
 import os
 import shutil
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
 from pathlib import Path
-import sys
 
 def get_mt4_terminals() -> list[dict]:
     terminals = []

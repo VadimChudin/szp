@@ -14,7 +14,6 @@ import re
 import subprocess
 from pathlib import Path
 
-import pytest
 
 import proc_util
 

@@ -7,8 +7,6 @@ Gold Futures (GC=F) используется как прокси для XAU/USD.
 
 import yfinance as yf
 import pandas as pd
-from pathlib import Path
-from datetime import datetime, timedelta
 
 import paths
 

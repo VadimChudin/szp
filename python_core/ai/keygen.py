@@ -104,7 +104,7 @@ def cmd_init(args) -> None:
         return
 
     if _write_public_key(pub.hex()):
-        print(f"Публичный ключ прописан в ai/licensing.py:\n")
+        print("Публичный ключ прописан в ai/licensing.py:\n")
         print(f'PUBLIC_KEY_HEX = "{pub.hex()}"\n')
         print("Осталось закоммитить эту строку:")
         print('  git commit -am "ai: публичный ключ лицензий" && git push')

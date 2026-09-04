@@ -7,11 +7,22 @@ def _source(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
 
 
-def test_mt4_mt5_cap_active_json_at_six():
+def test_mt4_mt5_zone_cap_is_configurable_not_hardcoded_six():
+    """Лимит линий задаётся входом, а не жёсткой шестёркой в коде.
+
+    Раньше здесь стоял `currentZoneCount < 6`, поэтому настройка
+    MAX_ZONES_ON_CHART выше 6 не доходила до графика: Python отдавал больше
+    зон, терминал молча отбрасывал лишние.
+    """
     for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
         source = _source(relative)
-        assert "currentZoneCount < 6" in source
-        assert "currentZoneCount < 20" not in source
+        assert "input int      MaxZonesToDraw" in source
+        assert "currentZoneCount < ZoneDrawCap()" in source
+        assert "currentZoneCount < 6" not in source
+        assert "int ZoneDrawCap()" in source
+        # Значение зажимается, чтобы опечатка не убила график.
+        assert "if(MaxZonesToDraw < 1)" in source
+        assert "if(MaxZonesToDraw > 500)" in source
         assert "zoneFallback" in source
         # Цвет зоны теперь градацией по силе (как в старой версии): сильные
         # ярко-красные, слабые и историчные — тусклее. Инпуты переименованы,

@@ -3,7 +3,6 @@
 """
 
 import pandas as pd
-import pytest
 
 from fvg_detector import detect_fvgs
 
