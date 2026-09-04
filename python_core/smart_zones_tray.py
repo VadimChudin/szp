@@ -13,17 +13,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 import bridge_server
 
 def create_image():
-    # Создаем простую иконку, если нет готовой .ico
-    # Рисуем букву "Z" на красном фоне
-    image = Image.new('RGB', (64, 64), color=(30, 30, 30))
+    # Маленький логотип без рамки.
+    image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     dc = ImageDraw.Draw(image)
-    dc.rectangle(
-        [10, 10, 54, 54],
-        outline=(255, 60, 60),
-        width=4
-    )
-    # Z-линия
-    dc.line([20, 20, 44, 20, 20, 44, 44, 44], fill=(255, 255, 255), width=4)
+    dc.ellipse([8, 8, 56, 56], fill=(41, 98, 255))
+    dc.text((16, 18), "SZ", fill="white")
     return image
 
 icon_global = None

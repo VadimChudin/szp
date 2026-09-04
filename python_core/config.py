@@ -148,9 +148,9 @@ LEGACY_BREAKOUT_MIN = _env_int("LEGACY_BREAKOUT_MIN", 2)             # проб�
 LEGACY_ARCHIVE_MIN_SCORE = _env_int("LEGACY_ARCHIVE_MIN_SCORE", 12)  # «титаник»-зоны в архив
 LEGACY_HIST_SCORE_PENALTY = _env_int("LEGACY_HIST_SCORE_PENALTY", 2) # насколько слабеет HIST
 LEGACY_HIST_SCORE_FLOOR = _env_int("LEGACY_HIST_SCORE_FLOOR", 8)     # ниже не опускаем
-# В окне 0..900 пунктов с каждой стороны показываем ВСЕ подходящие зоны,
-# а не 3+3 слота. Верхняя граница — защита от сотен линий, не контракт.
-MAX_ZONES_ON_CHART = _env_int("MAX_ZONES_ON_CHART", 80)
+# Сколько красных линий на графике. Если в скопе зон меньше — рисуем сколько есть,
+# новые уровни не выдумываем.
+MAX_ZONES_ON_CHART = _env_int("MAX_ZONES_ON_CHART", 6)
 
 # ── Полоса отображения зон (главное требование клиента) ─────────────────────
 # Раньше отбор шёл ТОЛЬКО по score: расстояние от цены не ограничивалось ни
@@ -222,10 +222,15 @@ DUKA_OHLC_DAYS = _env_int("DUKA_OHLC_DAYS", 100)
 # отступом — близкие к цене зоны (напр. 4786 в $1 от цены) обязаны показываться.
 # Как в старой версии: ограничения по расстоянию НЕТ вообще. Зона живёт там,
 # где её нашёл детектор, отбор идёт только по силе (score) и лимиту на графике.
-# Окно показа: k × ATR(H1). 0 пунктов = только ATR (дефолт).
-# Положительный MAX_ZONE_DISTANCE_PIPS — жёсткий потолок в пунктах поверх ATR.
-ZONE_WINDOW_ATR = _env_float("ZONE_WINDOW_ATR", 10.0)
-MAX_ZONE_DISTANCE_PIPS = _env_float("MAX_ZONE_DISTANCE_PIPS", 0.0)
+# Скоп показа в пунктах — ВСЯ ширина окна. 800 = 400 вверх и 400 вниз от цены.
+# ATR-окно выключено по умолчанию: клиент задаёт скоп руками, не «как получится».
+ZONE_WINDOW_ATR = _env_float("ZONE_WINDOW_ATR", 0.0)
+ZONE_SCOPE_PIPS = _env_float("ZONE_SCOPE_PIPS", 800.0)
+# Старое имя: половина скопа в пунктах (совместимость с тестами и bridge).
+MAX_ZONE_DISTANCE_PIPS = _env_float(
+    "MAX_ZONE_DISTANCE_PIPS",
+    ZONE_SCOPE_PIPS / 2.0 if ZONE_SCOPE_PIPS > 0 else 0.0,
+)
 MAX_ZONE_DISTANCE = MAX_ZONE_DISTANCE_PIPS * PIP_SIZE
 
 # На графике только зоны, у которых уже есть/идёт реакция:

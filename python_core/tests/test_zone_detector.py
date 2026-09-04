@@ -279,9 +279,7 @@ class TestBalanceAroundPrice:
 
 class TestProjectedLevels:
     def test_empty_side_gets_round_levels(self, monkeypatch):
-        """Цена на историческом максимуме — сверху теней нет вообще."""
-        # Проекция круглых уровней выключена по умолчанию, поэтому механику
-        # проверяем при явно включённом флаге.
+        """Пустую сторону не заполняем круглыми PROJ — только реальные зоны."""
         monkeypatch.setattr(config, "PROJECT_ROUND_LEVELS", True)
         strong = [Zone(price=4100.0, width=1.0, score=20, sources=["H4"]),
                   Zone(price=4200.0, width=1.0, score=18, sources=["H4"])]
@@ -289,9 +287,8 @@ class TestProjectedLevels:
         selected = balance_around_price(strong, [], price=4475.0)
         above = [z for z in selected if z.price > 4475.0]
 
-        assert len(above) == config.MIN_ZONES_PER_SIDE
-        assert all(z.price % config.ROUND_LEVEL_STEP == 0 for z in above)
-        assert all("PROJ" in z.label for z in above)
+        assert above == []
+        assert all(z.price < 4475.0 for z in selected)
 
     def test_projection_skips_level_glued_to_price(self, monkeypatch):
         monkeypatch.setattr(config, "PROJECT_ROUND_LEVELS", True)

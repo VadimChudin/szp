@@ -96,46 +96,50 @@ paths.ensure_dirs()
 
 # ── Сплэш-экран (4 секунды при запуске) ───────────────────────────
 def show_splash():
-    """Показывает «стеклянную» заставку на 4 секунды."""
+    """Короткая motion-заставка без рамки: логотип пульсирует, сервисы стартуют."""
     try:
         import tkinter as tk
         import ui_theme as ui
 
         root = tk.Tk()
-        W, H = 520, 320
-        cv = ui.make_glass_window(root, W, H, radius=28, draggable=False)
+        W, H = 480, 280
+        cv = ui.make_glass_window(root, W, H, radius=28, draggable=False, framed=False)
 
-        # Логотип-«ромб» в акцентном свечении
-        cv.create_oval(W / 2 - 46, 66, W / 2 + 46, 158,
-                       fill="", outline=ui.ACCENT, width=2)
-        cv.create_text(W / 2, 112, text="◆", fill=ui.GOLD,
-                       font=(ui.FONT, 34, "bold"))
-
-        cv.create_text(W / 2, 196, text="Smart Zones Pro", fill=ui.TXT,
-                       font=(ui.FONT, 26, "bold"))
-        cv.create_text(W / 2, 228, text="Professional Footprint & Zones",
-                       fill=ui.TXT_DIM, font=(ui.FONT, 11))
-        status_id = cv.create_text(W / 2, 262, text="Starting services…",
+        glow = cv.create_oval(W / 2 - 38, 48, W / 2 + 38, 124,
+                              fill=ui.ACCENT_GLOW, outline="")
+        logo = cv.create_text(W / 2, 86, text="SZ", fill=ui.GOLD,
+                              font=(ui.FONT, 28, "bold"))
+        cv.create_text(W / 2, 168, text="Smart Zones Pro", fill=ui.TXT,
+                       font=(ui.FONT, 22, "bold"))
+        cv.create_text(W / 2, 196, text="Zones  •  Footprint  •  MT4/MT5",
+                       fill=ui.TXT_DIM, font=(ui.FONT, 10))
+        status_id = cv.create_text(W / 2, 232, text="Starting",
                                    fill=ui.ACCENT, font=(ui.FONT, 10))
+        cv.create_text(W / 2, H - 22,
+                       text=f"v{version.app_version()}",
+                       fill=ui.TXT_MUTE, font=(ui.FONT, 9))
 
-        cv.create_text(W / 2, H - 30,
-                       text=f"NoName Trader  •  v{version.app_version()}",
-                       fill=ui.GOLD, font=(ui.FONT, 13, "bold"))
-
-        dots = {"n": 0}
+        state = {"n": 0, "grow": True}
 
         def tick():
-            dots["n"] = (dots["n"] + 1) % 4
-            cv.itemconfigure(status_id,
-                             text="Starting services" + "." * dots["n"])
-            root.after(350, tick)
+            state["n"] = (state["n"] + 1) % 4
+            cv.itemconfigure(status_id, text="Starting" + "." * state["n"])
+            # Пульс логотипа: чуть больше / чуть меньше, без обводки-рамки.
+            if state["grow"]:
+                cv.coords(glow, W / 2 - 42, 44, W / 2 + 42, 128)
+                cv.itemconfigure(logo, font=(ui.FONT, 30, "bold"))
+            else:
+                cv.coords(glow, W / 2 - 34, 52, W / 2 + 34, 120)
+                cv.itemconfigure(logo, font=(ui.FONT, 26, "bold"))
+            state["grow"] = not state["grow"]
+            root.after(280, tick)
 
         tick()
-        root.after(4000, root.destroy)
+        root.after(3200, root.destroy)
         root.lift()
         try:
-            root.attributes('-topmost', True)
-            root.after_idle(root.attributes, '-topmost', False)
+            root.attributes("-topmost", True)
+            root.after_idle(root.attributes, "-topmost", False)
         except tk.TclError:
             pass
         root.mainloop()
@@ -160,11 +164,11 @@ def run_tray(bridge_thread):
         import pystray
         from PIL import Image, ImageDraw, ImageFont
         
-        # Иконка: синий круг на тёмном фоне
-        img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+        # Маленький логотип без рамки — синий круг и SZ.
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
         dc = ImageDraw.Draw(img)
-        dc.ellipse([4, 4, 60, 60], fill=(41, 98, 255))
-        dc.text((18, 15), "SZ", fill='white')
+        dc.ellipse([8, 8, 56, 56], fill=(41, 98, 255))
+        dc.text((16, 18), "SZ", fill="white")
         
         def on_footprint(icon, item):
             """Открыть окно футпринта."""

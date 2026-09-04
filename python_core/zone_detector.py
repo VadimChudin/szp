@@ -589,12 +589,8 @@ def balance_around_price(strong: list[Zone], weak: list[Zone],
                 taken += 1
         # A projected round level is a last-resort legacy fallback only. The
         # active H4 snapshot deliberately filters PROJ levels out.
-        if taken < quota and (strong or weak):
-            for zone in projected_levels(price, above, quota - taken):
-                if taken >= quota:
-                    break
-                if add(zone, selected):
-                    taken += 1
+        # Не дорисовываем круглые PROJ-уровни: если в скопе зон меньше лимита,
+        # показываем сколько есть. Выдуманные линии запрещены ТЗ.
 
     for zone in strong:
         if len(selected) >= limit:

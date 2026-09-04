@@ -1133,9 +1133,10 @@ def open_footprint_window(interval="4h"):
             import pystray
             from PIL import Image, ImageDraw
             
-            image = Image.new('RGB', (64, 64), color=(19, 23, 34))
+            image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
             dc = ImageDraw.Draw(image)
             dc.ellipse([8, 8, 56, 56], fill=(41, 98, 255))
+            dc.text((16, 18), "SZ", fill="white")
             
             def on_show(icon, item):
                 window.show()

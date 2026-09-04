@@ -52,7 +52,7 @@ def round_rect(cv: tk.Canvas, x1, y1, x2, y2, r, **kw):
 
 
 def make_glass_window(root: tk.Misc, w: int, h: int, *, radius: int = 22,
-                      draggable: bool = True) -> tk.Canvas:
+                      draggable: bool = True, framed: bool = False) -> tk.Canvas:
     """
     Превращает окно (Tk/Toplevel) в безрамочную «стеклянную» карточку со
     скруглёнными углами и центрирует его. Возвращает Canvas, на котором уже
@@ -89,10 +89,12 @@ def make_glass_window(root: tk.Misc, w: int, h: int, *, radius: int = 22,
             round_rect(cv, off, off + 4, w - off, h - off + 4, radius,
                        fill=col, outline="")
 
-    # Тело карточки + вертикальный «градиент» двумя слоями
+    # Тело карточки + вертикальный «градиент» двумя слоями.
+    # Рамку по контуру не рисуем — клиент просил убрать обводку окна.
     round_rect(cv, 4, 4, w - 4, h - 4, radius, fill=CARD_BOT, outline="")
     round_rect(cv, 4, 4, w - 4, int(h * 0.6), radius, fill=CARD_TOP, outline="")
-    round_rect(cv, 4, 4, w - 4, h - 4, radius, fill="", outline=STROKE, width=1)
+    if framed:
+        round_rect(cv, 4, 4, w - 4, h - 4, radius, fill="", outline=STROKE, width=1)
 
     if draggable:
         _enable_drag(root, cv)

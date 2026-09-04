@@ -26,6 +26,7 @@ def _wide_corridor(monkeypatch, request):
         return          # этот тест проверяет сами значения конфига, не слоты
     monkeypatch.setattr(config, "MAX_ZONE_DISTANCE", 200.0)
     monkeypatch.setattr(config, "ZONE_WINDOW_ATR", 0.0)
+    monkeypatch.setattr(config, "ZONE_SCOPE_PIPS", 0.0)
 
 
 

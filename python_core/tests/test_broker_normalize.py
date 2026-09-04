@@ -66,7 +66,7 @@ def test_current_price():
 def test_config_defaults():
     assert config.VALIDATION_MODE in ("validate", "canonical", "off")
     assert config.DATA_SOURCE in ("dukascopy", "mt5", "csv")
-    assert config.ZONE_WINDOW_ATR > 0
+    assert config.ZONE_WINDOW_ATR >= 0
     assert config.VALIDATION_TOLERANCE > 0
     assert isinstance(config.BROKER_OFFSET_ENABLED, bool)
 

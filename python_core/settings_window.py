@@ -173,6 +173,26 @@ class SettingsWindow(tk.Tk):
             value=str(self._env.get("VALIDATION_TOLERANCE", "5.0")))
         self._row(val_box, "Допуск совпадения, $", self._validation_tolerance)
 
+        # ── Скоп и число красных линий ──
+        zone_box = tk.LabelFrame(self, text="  ЗОНЫ НА ГРАФИКЕ  ", fg=ui.AQUA,
+                                 bg=ui.CARD_BOT, font=(ui.FONT, 8, "bold"),
+                                 bd=1, relief="solid", padx=10, pady=10)
+        zone_box.pack(fill="x", pady=8)
+        self._zone_scope = tk.StringVar(
+            value=str(self._env.get("ZONE_SCOPE_PIPS", "800")))
+        self._max_zones = tk.StringVar(
+            value=str(self._env.get("MAX_ZONES_ON_CHART", "6")))
+        self._row(zone_box, "Скоп, пункты", self._zone_scope)
+        tk.Label(zone_box,
+                 text="800 = 400 вверх и 400 вниз от цены. Дальше линии не рисуем.",
+                 fg=ui.TXT_DIM, bg=ui.CARD_BOT, font=(ui.FONT, 8),
+                 justify="left", anchor="w").pack(fill="x", pady=(0, 4))
+        self._row(zone_box, "Макс. зон на графике", self._max_zones)
+        tk.Label(zone_box,
+                 text="Если в скопе зон меньше — показываем сколько есть, новые не придумываем.",
+                 fg=ui.TXT_DIM, bg=ui.CARD_BOT, font=(ui.FONT, 8),
+                 justify="left", anchor="w").pack(fill="x")
+
         # ── Buttons (pinned to bottom so they're always visible) ──
         btns = tk.Frame(self, bg=ui.CARD_BOT)
         btns.pack(side="bottom", fill="x", pady=(12, 0))
@@ -269,6 +289,8 @@ class SettingsWindow(tk.Tk):
             "VALIDATION_MODE": self._validation_mode.get().strip().lower(),
             "BROKER_OFFSET_ENABLED": "true" if self._broker_offset.get() else "false",
             "VALIDATION_TOLERANCE": self._validation_tolerance.get().strip() or "5.0",
+            "ZONE_SCOPE_PIPS": self._zone_scope.get().strip() or "800",
+            "MAX_ZONES_ON_CHART": self._max_zones.get().strip() or "6",
             "ENABLE_TELEGRAM": "true" if self._tg_enabled.get() else "false",
             "TELEGRAM_BOT_TOKEN": self._tg_token.get().strip(),
             "TELEGRAM_CHAT_ID": self._tg_chat.get().strip(),

@@ -66,9 +66,17 @@ def _atr_h1(all_data: dict[str, pd.DataFrame], period: int = 14) -> float:
 
 
 def display_window(all_data: dict[str, pd.DataFrame]) -> float | None:
-    """Доллары вверх/вниз от цены. None = без ограничения."""
+    """Доллары вверх/вниз от цены. None = без ограничения.
+
+    Скоп (ZONE_SCOPE_PIPS) — вся ширина: 800 пунктов = 400 вверх и 400 вниз.
+    ATR-окно опционально; если задано, берётся min(ATR, половина скопа).
+    """
     k = float(getattr(config, "ZONE_WINDOW_ATR", 0) or 0)
+    scope = float(getattr(config, "ZONE_SCOPE_PIPS", 0) or 0)
+    pip = float(getattr(config, "PIP_SIZE", 0.1) or 0.1)
     cap = float(getattr(config, "MAX_ZONE_DISTANCE", 0) or 0)
+    if scope > 0:
+        cap = (scope / 2.0) * pip
     atr = _atr_h1(all_data, int(getattr(config, "ATR_PERIOD", 14)))
     dist = k * atr if k > 0 and atr > 0 else 0.0
     if cap > 0:
@@ -188,7 +196,9 @@ def process_persistent_zones(current_zones: list[Zone], all_data: dict[str, pd.D
 
     historic.sort(key=lambda z: z.score, reverse=True)
 
-    return (fresh + historic)[:config.MAX_ZONES_ON_CHART]
+    limit = max(0, int(getattr(config, "MAX_ZONES_ON_CHART", 6) or 0))
+    merged = fresh + historic
+    return merged[:limit] if limit else merged
 
 
 def _legacy_h4_bodies(all_data: dict[str, pd.DataFrame]) -> list[tuple[float, float]]:
@@ -292,5 +302,8 @@ def process_legacy_zones(current_zones: list[Zone],
               f"{len(reacting)} with {sorted(allowed)}")
         final_output = reacting
 
+    # Лимит линий: берём сильнейшие из уже найденных. Если в скопе меньше —
+    # рисуем сколько есть, круглые/PROJ уровни не достраиваем.
     final_output.sort(key=lambda z: z.score, reverse=True)
-    return final_output[:config.MAX_ZONES_ON_CHART]
+    limit = max(0, int(getattr(config, "MAX_ZONES_ON_CHART", 6) or 0))
+    return final_output[:limit] if limit else final_output
