@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import secrets
 import stat
 import sys
@@ -57,6 +58,30 @@ def _load_seed() -> bytes:
     return seed
 
 
+def _write_public_key(pub_hex: str) -> bool:
+    """Прописывает публичный ключ прямо в licensing.py.
+
+    Ручная вставка строки — самый частый источник ошибок: не туда, с лишними
+    кавычками, в закомментированную строку. Делаем это кодом.
+    """
+    path = Path(licensing.__file__)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"Не удалось открыть {path}: {exc}")
+        return False
+
+    pattern = re.compile(r'^PUBLIC_KEY_HEX\s*=\s*".*"$', re.M)
+    if not pattern.search(text):
+        print(f"В {path.name} не найдена строка PUBLIC_KEY_HEX — "
+              f"вставьте ключ вручную")
+        return False
+
+    path.write_text(pattern.sub(f'PUBLIC_KEY_HEX = "{pub_hex}"', text, count=1),
+                    encoding="utf-8")
+    return True
+
+
 def cmd_init(args) -> None:
     if KEY_FILE.exists() and not args.force:
         sys.exit(f"Ключ уже существует: {KEY_FILE}\n"
@@ -69,10 +94,22 @@ def cmd_init(args) -> None:
     except OSError:
         pass
     pub = ed25519.public_key(seed)
+
     print(f"Приватный ключ сохранён: {KEY_FILE}")
     print("Не передавайте этот файл никому и сделайте резервную копию.\n")
-    print("Вставьте строку в python_core/ai/licensing.py:\n")
-    print(f'PUBLIC_KEY_HEX = "{pub.hex()}"')
+
+    if args.no_write:
+        print("Вставьте строку в python_core/ai/licensing.py:\n")
+        print(f'PUBLIC_KEY_HEX = "{pub.hex()}"')
+        return
+
+    if _write_public_key(pub.hex()):
+        print(f"Публичный ключ прописан в ai/licensing.py:\n")
+        print(f'PUBLIC_KEY_HEX = "{pub.hex()}"\n')
+        print("Осталось закоммитить эту строку:")
+        print('  git commit -am "ai: публичный ключ лицензий" && git push')
+    else:
+        print(f'\nPUBLIC_KEY_HEX = "{pub.hex()}"')
 
 
 def cmd_issue(args) -> None:
@@ -136,6 +173,8 @@ def main(argv=None) -> None:
     init = subparsers.add_parser("init", help="создать пару ключей")
     init.add_argument("--force", action="store_true",
                       help="перезаписать существующий приватный ключ")
+    init.add_argument("--no-write", action="store_true",
+                      help="не трогать licensing.py, только напечатать ключ")
     init.set_defaults(func=cmd_init)
 
     issue = subparsers.add_parser("issue", help="выпустить ключ клиенту")
