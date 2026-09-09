@@ -102,40 +102,47 @@ def show_splash():
         import ui_theme as ui
 
         root = tk.Tk()
-        W, H = 480, 280
-        cv = ui.make_glass_window(root, W, H, radius=28, draggable=False, framed=False)
+        W, H = 560, 340
+        cv = ui.make_glass_window(root, W, H, radius=32, draggable=False, framed=False)
 
-        glow = cv.create_oval(W / 2 - 38, 48, W / 2 + 38, 124,
+        halo = cv.create_oval(W / 2 - 70, 28, W / 2 + 70, 168,
                               fill=ui.ACCENT_GLOW, outline="")
-        logo = cv.create_text(W / 2, 86, text="SZ", fill=ui.GOLD,
-                              font=(ui.FONT, 28, "bold"))
-        cv.create_text(W / 2, 168, text="Smart Zones Pro", fill=ui.TXT,
-                       font=(ui.FONT, 22, "bold"))
-        cv.create_text(W / 2, 196, text="Zones  •  Footprint  •  MT4/MT5",
-                       fill=ui.TXT_DIM, font=(ui.FONT, 10))
-        status_id = cv.create_text(W / 2, 232, text="Starting",
+        glow = cv.create_oval(W / 2 - 42, 56, W / 2 + 42, 140,
+                              fill="#0a84ff", outline="")
+        logo = cv.create_text(W / 2, 98, text="SZ", fill="#ffffff",
+                              font=(ui.FONT, 32, "bold"))
+        title = cv.create_text(W / 2, 188, text="Smart Zones Pro", fill=ui.TXT,
+                               font=(ui.FONT, 24, "bold"))
+        cv.create_text(W / 2, 218, text="Zones  •  Footprint  •  MT4/MT5",
+                       fill=ui.TXT_DIM, font=(ui.FONT, 11))
+        bar_bg = cv.create_rectangle(W / 2 - 90, 246, W / 2 + 90, 252,
+                                     fill="#2c2c2e", outline="")
+        bar = cv.create_rectangle(W / 2 - 90, 246, W / 2 - 90, 252,
+                                  fill=ui.ACCENT, outline="")
+        status_id = cv.create_text(W / 2, 272, text="Starting",
                                    fill=ui.ACCENT, font=(ui.FONT, 10))
         cv.create_text(W / 2, H - 22,
                        text=f"v{version.app_version()}",
                        fill=ui.TXT_MUTE, font=(ui.FONT, 9))
 
-        state = {"n": 0, "grow": True}
+        state = {"n": 0, "phase": 0.0}
 
         def tick():
             state["n"] = (state["n"] + 1) % 4
+            state["phase"] = (state["phase"] + 0.08) % 6.2832
+            import math
+            pulse = 1.0 + 0.08 * math.sin(state["phase"])
             cv.itemconfigure(status_id, text="Starting" + "." * state["n"])
-            # Пульс логотипа: чуть больше / чуть меньше, без обводки-рамки.
-            if state["grow"]:
-                cv.coords(glow, W / 2 - 42, 44, W / 2 + 42, 128)
-                cv.itemconfigure(logo, font=(ui.FONT, 30, "bold"))
-            else:
-                cv.coords(glow, W / 2 - 34, 52, W / 2 + 34, 120)
-                cv.itemconfigure(logo, font=(ui.FONT, 26, "bold"))
-            state["grow"] = not state["grow"]
-            root.after(280, tick)
+            r = 42 * pulse
+            cv.coords(glow, W / 2 - r, 98 - r, W / 2 + r, 98 + r)
+            hr = 70 * (0.92 + 0.08 * math.sin(state["phase"] * 0.7))
+            cv.coords(halo, W / 2 - hr, 98 - hr, W / 2 + hr, 98 + hr)
+            progress = min(1.0, (state["phase"] % 6.2832) / 6.2832)
+            cv.coords(bar, W / 2 - 90, 246, W / 2 - 90 + 180 * progress, 252)
+            root.after(40, tick)
 
         tick()
-        root.after(3200, root.destroy)
+        root.after(3600, root.destroy)
         root.lift()
         try:
             root.attributes("-topmost", True)

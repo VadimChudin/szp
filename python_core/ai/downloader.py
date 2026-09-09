@@ -14,8 +14,7 @@ from __future__ import annotations
 
 import threading
 import time
-import urllib.error
-import urllib.request
+import requests
 from dataclasses import dataclass, asdict
 
 from ai import model_catalog, runtime
@@ -76,11 +75,11 @@ def _download(spec: model_catalog.ModelSpec) -> None:
     if have:
         headers["Range"] = f"bytes={have}-"
 
-    request = urllib.request.Request(spec.url, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with requests.get(spec.url, headers=headers, timeout=60, stream=True) as response:
+            response.raise_for_status()
             # Сервер проигнорировал Range — начинаем файл заново.
-            if have and response.status != 206:
+            if have and response.status_code != 206:
                 have = 0
                 part.unlink(missing_ok=True)
 
@@ -93,10 +92,11 @@ def _download(spec: model_catalog.ModelSpec) -> None:
             started = time.time()
             since = have
             with open(part, mode) as handle:
-                while not _cancel.is_set():
-                    chunk = response.read(CHUNK)
-                    if not chunk:
+                for chunk in response.iter_content(CHUNK):
+                    if _cancel.is_set():
                         break
+                    if not chunk:
+                        continue
                     handle.write(chunk)
                     have += len(chunk)
                     _progress.downloaded = have
@@ -104,7 +104,7 @@ def _download(spec: model_catalog.ModelSpec) -> None:
                     if elapsed > 0:
                         _progress.speed_mb_s = round(
                             (have - since) / elapsed / (1024 * 1024), 1)
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError) as exc:
+    except (requests.RequestException, OSError, ValueError, TimeoutError) as exc:
         _progress.state = "error"
         _progress.message = (f"Не удалось скачать модель: {exc}. "
                              f"Нажмите ещё раз — загрузка продолжится "

@@ -20,7 +20,6 @@ llama-server.exe — консольное приложение. Запуск е�
 """
 from __future__ import annotations
 
-import json
 import os
 import socket
 import sys
@@ -118,26 +117,23 @@ _server = Server()
 
 
 def _http_post(url: str, payload: dict, timeout: float) -> dict | None:
-    import urllib.error
-    import urllib.request
-    body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        url, data=body, headers={"Content-Type": "application/json"})
+    import requests
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        response = requests.post(
+            url, json=payload, timeout=timeout,
+            headers={"Content-Type": "application/json"})
+        response.raise_for_status()
+        return response.json()
+    except (requests.RequestException, OSError, ValueError, TimeoutError):
         return None
 
 
 def _healthy(port: int, timeout: float = 3.0) -> bool:
-    import urllib.error
-    import urllib.request
+    import requests
     try:
-        with urllib.request.urlopen(
-                f"http://{HOST}:{port}/health", timeout=timeout) as response:
-            return response.status == 200
-    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        response = requests.get(f"http://{HOST}:{port}/health", timeout=timeout)
+        return response.status_code == 200
+    except (requests.RequestException, OSError, TimeoutError, ValueError):
         return False
 
 

@@ -57,11 +57,11 @@ input double   FitMarginPct     = 3.0;        // Запас шкалы свер�
 // шестёрка, из-за чего настройка MAX_ZONES_ON_CHART выше 6 не работала на
 // графике: Python отдавал больше зон, а терминал молча отбрасывал лишние.
 // Zone bounds and scale-independent label spacing.
-input bool     ShowZoneBounds = true;
+input bool     ShowZoneBounds = false;      // доп. линии top/bottom (сплошные, без прямоугольника)
 input int      ZoneHistoryBars = 120;
 input int      LabelGapPixels = 12;
 input bool     AutoLabelContrast = true;
-input int      MaxZonesToDraw   = 6;          // Лимит активных линий (1..500)
+input int      MaxZonesToDraw   = 12;         // Лимит активных линий (1..500)
 // Имя файла с зонами — лежит в MQL4/Files или Common/Files (положит sync_zones_to_mt4.py).
 input string   ZonesFilePath    = "zones_output.json";
 input bool     ShowAccumulation = false;     // Набор позиции крупным участником
@@ -759,28 +759,36 @@ double ZoneLabelGap()
 
 void DrawZoneBounds(string baseName, double top, double bottom, color zoneColor)
 {
-   string name = baseName + "_band";
-   if(!ShowZoneBounds || top <= bottom || bottom <= 0)
+   // Только сплошные линии. Старый пунктирный прямоугольник (_band) удаляем.
+   string bandName = baseName + "_band";
+   if(ObjectFind(0, bandName) >= 0) ObjectDelete(0, bandName);
+
+   string topName = baseName + "_top";
+   string botName = baseName + "_bottom";
+   if(!ShowZoneBounds || top <= 0 || bottom <= 0 || top <= bottom)
    {
-      if(ObjectFind(0, name) >= 0) ObjectDelete(0, name);
+      if(ObjectFind(0, topName) >= 0) ObjectDelete(0, topName);
+      if(ObjectFind(0, botName) >= 0) ObjectDelete(0, botName);
       return;
    }
-   int bars = Bars(_Symbol, _Period);
-   int lookback = MathMin(MathMax(1, ZoneHistoryBars), bars - 1);
-   if(lookback < 1) return;
-   datetime left = iTime(_Symbol, _Period, lookback);
-   datetime right = AnchorBar() + PeriodSeconds() * 8;
-   if(ObjectFind(0, name) < 0)
-      ObjectCreate(0, name, OBJ_RECTANGLE, 0, left, top, right, bottom);
-   MovePointIfChanged(name, 0, left, top);
-   MovePointIfChanged(name, 1, right, bottom);
-   SetIntIfChanged(name, OBJPROP_COLOR, zoneColor);
-   SetIntIfChanged(name, OBJPROP_FILL, false);
-   SetIntIfChanged(name, OBJPROP_BACK, true);
-   SetIntIfChanged(name, OBJPROP_WIDTH, 1);
-   SetIntIfChanged(name, OBJPROP_STYLE, STYLE_DOT);
-   SetIntIfChanged(name, OBJPROP_SELECTABLE, false);
-   SetIntIfChanged(name, OBJPROP_HIDDEN, true);
+
+   EnsureObject(topName, OBJ_HLINE, 0, top);
+   MovePointIfChanged(topName, 0, 0, top);
+   SetIntIfChanged(topName, OBJPROP_COLOR, zoneColor);
+   SetIntIfChanged(topName, OBJPROP_WIDTH, 1);
+   SetIntIfChanged(topName, OBJPROP_STYLE, STYLE_SOLID);
+   SetIntIfChanged(topName, OBJPROP_SELECTABLE, false);
+   SetIntIfChanged(topName, OBJPROP_HIDDEN, true);
+   SetIntIfChanged(topName, OBJPROP_BACK, true);
+
+   EnsureObject(botName, OBJ_HLINE, 0, bottom);
+   MovePointIfChanged(botName, 0, 0, bottom);
+   SetIntIfChanged(botName, OBJPROP_COLOR, zoneColor);
+   SetIntIfChanged(botName, OBJPROP_WIDTH, 1);
+   SetIntIfChanged(botName, OBJPROP_STYLE, STYLE_SOLID);
+   SetIntIfChanged(botName, OBJPROP_SELECTABLE, false);
+   SetIntIfChanged(botName, OBJPROP_HIDDEN, true);
+   SetIntIfChanged(botName, OBJPROP_BACK, true);
 }
 
 void DrawAllZones()
@@ -962,7 +970,7 @@ void DrawSingleZone(int index)
    MovePointIfChanged(slLineName, 0, 0, slLevel);
    SetIntIfChanged(slLineName, OBJPROP_COLOR, slColor);
    SetIntIfChanged(slLineName, OBJPROP_WIDTH, 1);
-   SetIntIfChanged(slLineName, OBJPROP_STYLE, STYLE_DASH);
+   SetIntIfChanged(slLineName, OBJPROP_STYLE, STYLE_SOLID);
    SetIntIfChanged(slLineName, OBJPROP_SELECTABLE, false);
    SetIntIfChanged(slLineName, OBJPROP_HIDDEN, true);
    SetIntIfChanged(slLineName, OBJPROP_BACK, true);

@@ -21,6 +21,11 @@ hiddenimports = [
     'PIL', 'PIL.Image', 'PIL.ImageDraw',
     'tkinter', 'json', 'threading', 'multiprocessing',
     'clr',  # для webview на Windows
+    # PyInstaller windowed build dropped urllib; AI download then crashes
+    # with "No module named urllib" inside pyi_rth_inspect.
+    'urllib', 'urllib.request', 'urllib.error', 'urllib.parse',
+    'urllib.response', 'http', 'http.client', 'http.cookiejar',
+    'email', 'email.message', 'email.parser', 'email.feedparser',
 ]
 
 # webview нуждается в pythonnet/clr

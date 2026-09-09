@@ -10,8 +10,11 @@ def source(request):
 
 def test_draws_actual_zone_bounds(source):
     assert 'DrawZoneBounds(baseName, top, bottom, zoneColor);' in source
-    assert 'OBJ_RECTANGLE, 0, left, top, right, bottom' in source
+    assert 'baseName + "_top"' in source
+    assert 'baseName + "_bottom"' in source
     assert 'baseName + "_band"' in source
+    assert 'OBJPROP_STYLE, STYLE_SOLID' in source
+    assert 'STYLE_DOT' not in source.split('void DrawZoneBounds')[1].split('void DrawAllZones')[0]
 
 def test_label_follows_theme_and_chart_scale(source):
     assert 'CHART_COLOR_FOREGROUND' in source

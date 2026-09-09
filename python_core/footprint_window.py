@@ -209,6 +209,28 @@ body {
   background:linear-gradient(145deg,rgba(184,243,90,0.16),rgba(119,228,208,0.06));
   box-shadow:inset 0 -2px 0 var(--accent), 0 0 22px var(--accent-glow);
 }
+
+.ios-toggle {
+  position:relative; display:inline-flex; align-items:center; gap:8px;
+  height:28px; padding:0 10px 0 4px; border:0; cursor:pointer;
+  background:transparent; color:var(--txt-dim); font-size:11px; font-weight:700;
+}
+.ios-toggle .ios-knob {
+  width:44px; height:26px; border-radius:13px; position:relative;
+  background:#ff453a; box-shadow:inset 0 1px 2px rgba(0,0,0,0.35);
+  transition:background .18s ease;
+}
+.ios-toggle .ios-knob::after {
+  content:''; position:absolute; top:2px; left:2px;
+  width:22px; height:22px; border-radius:50%;
+  background:#ececec; box-shadow:0 1px 2px rgba(0,0,0,0.35);
+  transition:transform .18s ease;
+}
+.ios-toggle.on { color:var(--txt); }
+.ios-toggle.on .ios-knob { background:#30d158; }
+.ios-toggle.on .ios-knob::after { transform:translateX(18px); }
+.ios-lab { letter-spacing:.04em; }
+
 .nav-btn {
   padding:7px 12px; border:1px solid var(--stroke-soft); border-radius:11px; cursor:pointer;
   font-size:14px; background:linear-gradient(145deg,rgba(255,255,255,0.075),rgba(255,255,255,0.025)); color:var(--txt-dim); transition:all 0.18s ease;
@@ -268,8 +290,8 @@ canvas { display:block; cursor:crosshair; }
   <button class="tf-btn active" data-tf="4h" onclick="switchTF('4h')">4H</button>
   <button class="tf-btn" data-tf="1d" onclick="switchTF('1d')">1D</button>
   <span class="sep"></span>
-  <button id="zk-btn" class="tf-btn active" onclick="toggleZakrep()" title="Показать/скрыть метку ЗАКРЕП">ZAKREP</button>
-  <button id="sl-btn" class="tf-btn" onclick="toggleSL()" title="Показать/скрыть линию SL">SL</button>
+  <button id="zk-btn" class="ios-toggle on" onclick="toggleZakrep()" title="Показать/скрыть метку ЗАКРЕП"><span class="ios-knob"></span><span class="ios-lab">ZAKREP</span></button>
+  <button id="sl-btn" class="ios-toggle" onclick="toggleSL()" title="Показать/скрыть линию SL"><span class="ios-knob"></span><span class="ios-lab">SL</span></button>
   <button id="ai-btn" class="tf-btn ai-btn" onclick="openAI()" title="Подключить ИИ (Qwen)">
     <svg class="ai-mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.2 14.2 8 8 14.8 1.8 8Z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.6 11.4 8 8 11.4 4.6 8Z" fill="currentColor" opacity=".75"/></svg>
     <span>Qwen</span>
@@ -372,13 +394,13 @@ let showSL = false;
 function toggleZakrep() {
   showZakrep = !showZakrep;
   const b = document.getElementById('zk-btn');
-  if (b) b.classList.toggle('active', showZakrep);
+  if (b) b.classList.toggle('on', showZakrep);
   if (DATA) draw();
 }
 function toggleSL() {
   showSL = !showSL;
   const b = document.getElementById('sl-btn');
-  if (b) b.classList.toggle('active', showSL);
+  if (b) b.classList.toggle('on', showSL);
   if (DATA) draw();
 }
 
@@ -521,7 +543,7 @@ async function refreshData() {
 
 function switchTF(tf) {
   currentTF = tf;
-  document.querySelectorAll('.tf-btn').forEach(b =>
+  document.querySelectorAll('.tf-btn[data-tf]').forEach(b =>
     b.classList.toggle('active', b.dataset.tf === tf));
   loadData(tf);
 }
@@ -653,7 +675,7 @@ function draw() {
     // Одна тонкая линия вместо прямоугольного диапазона.
     ctx.strokeStyle = edgeCol;
     ctx.lineWidth = z.is_fallback ? 1.1 : (score >= 13 ? 2.4 : score >= 11 ? 1.8 : 1.15);
-    ctx.setLineDash(z.is_fallback || score < 11 ? [5, 4] : []);
+    ctx.setLineDash([]);
     ctx.beginPath(); ctx.moveTo(ml, zy); ctx.lineTo(chartW, zy); ctx.stroke();
     ctx.setLineDash([]);
     // Subtle glow keeps strong levels readable without filling the chart.
@@ -687,14 +709,18 @@ function draw() {
     ctx.fillText(label, badgeX + badgeW - padX, badgeY + badgeH / 2);
 
     // Метка «ЗАКРЕП» — цена закрылась и удержалась за зоной (reaction на H1).
-    if (showZakrep && z.reaction && z.reaction.type === 'BREAKOUT') {
-      const zkArrow = z.reaction.direction === 'UP' ? '\u2191'
-                    : z.reaction.direction === 'DOWN' ? '\u2193' : '';
+    if (showZakrep) {
+      const rType = (z.reaction && z.reaction.type) ? z.reaction.type : '';
+      const dir = (z.reaction && z.reaction.direction) ? z.reaction.direction : '';
+      const zkArrow = dir === 'UP' ? '↑' : dir === 'DOWN' ? '↓' : '';
+      const zkText = rType === 'BREAKOUT' ? ('ZAKREP ' + zkArrow)
+                   : rType === 'BOUNCE' ? ('BOUNCE ' + zkArrow)
+                   : 'PIN';
       ctx.font = 'bold 11px "JetBrains Mono","Courier New",monospace';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#ffd60a';
-      ctx.fillText('ZAKREP ' + zkArrow, ml + 10, zy - 9);
+      ctx.fillText(zkText, ml + 10, zy - 9);
     }
 
     // Possible SL is shown as a separate structural liquidity line.
@@ -705,7 +731,7 @@ function draw() {
       ctx.save();
       ctx.strokeStyle = slCol;
       ctx.lineWidth = 1;
-      ctx.setLineDash([3, 5]);
+      ctx.setLineDash([]);
       ctx.globalAlpha = 0.78;
       ctx.beginPath(); ctx.moveTo(ml, slY); ctx.lineTo(chartW, slY); ctx.stroke();
       ctx.restore();
@@ -848,7 +874,7 @@ function draw() {
       const pocY = py(candle.poc);
             ctx.strokeStyle = '#f3c969'; ctx.lineWidth = 2;
 
-      ctx.setLineDash([4, 3]);
+      ctx.setLineDash([]);
       ctx.beginPath();
       ctx.moveTo(xBuyL, pocY);
       ctx.lineTo(xSellR, pocY);
