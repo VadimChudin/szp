@@ -109,14 +109,14 @@ def show_splash():
                               fill=ui.ACCENT_GLOW, outline="")
         glow = cv.create_oval(W / 2 - 42, 56, W / 2 + 42, 140,
                               fill="#0a84ff", outline="")
-        logo = cv.create_text(W / 2, 98, text="SZ", fill="#ffffff",
-                              font=(ui.FONT, 32, "bold"))
-        title = cv.create_text(W / 2, 188, text="Smart Zones Pro", fill=ui.TXT,
-                               font=(ui.FONT, 24, "bold"))
+        cv.create_text(W / 2, 98, text="SZ", fill="#ffffff",
+                       font=(ui.FONT, 32, "bold"))
+        cv.create_text(W / 2, 188, text="Smart Zones Pro", fill=ui.TXT,
+                       font=(ui.FONT, 24, "bold"))
         cv.create_text(W / 2, 218, text="Zones  •  Footprint  •  MT4/MT5",
                        fill=ui.TXT_DIM, font=(ui.FONT, 11))
-        bar_bg = cv.create_rectangle(W / 2 - 90, 246, W / 2 + 90, 252,
-                                     fill="#2c2c2e", outline="")
+        cv.create_rectangle(W / 2 - 90, 246, W / 2 + 90, 252,
+                            fill="#2c2c2e", outline="")
         bar = cv.create_rectangle(W / 2 - 90, 246, W / 2 - 90, 252,
                                   fill=ui.ACCENT, outline="")
         status_id = cv.create_text(W / 2, 272, text="Starting",
