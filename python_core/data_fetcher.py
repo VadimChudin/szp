@@ -176,6 +176,11 @@ def csv_encoding(csv_path: Path) -> str:
     """MT5-советник пишет CSV в UTF-16 — без этого файл не парсится."""
     with open(csv_path, "rb") as f:
         head = f.read(4)
+    if not head or not head.strip(b"\x00"):
+        raise DataUnavailableError(
+            f"Invalid market CSV (empty or NUL-filled header): {csv_path}. "
+            "Export fresh OHLC data from the terminal; this file cannot be used for zone calculation."
+        )
     if head.startswith((b"\xff\xfe", b"\xfe\xff")):
         return "utf-16"
     return "utf-8"

@@ -56,6 +56,11 @@ input double   FitMarginPct     = 3.0;        // Запас шкалы свер�
 // Сколько активных линий разрешено нарисовать. Раньше здесь стояла жёсткая
 // шестёрка, из-за чего настройка MAX_ZONES_ON_CHART выше 6 не работала на
 // графике: Python отдавал больше зон, а терминал молча отбрасывал лишние.
+// Zone bounds and scale-independent label spacing.
+input bool     ShowZoneBounds = true;
+input int      ZoneHistoryBars = 120;
+input int      LabelGapPixels = 12;
+input bool     AutoLabelContrast = true;
 input int      MaxZonesToDraw   = 6;          // Лимит активных линий (1..500)
 input bool     ShowAccumulation = false;     // Набор позиции крупным участником
 input string   AccumFilePath    = "accumulation_output.json"; // Файл участков набора
@@ -406,6 +411,23 @@ void LoadZonesFromFile()
    }
    FileClose(fileHandle);
 
+   string compact = content;
+   StringReplace(compact, " ", "");
+   StringReplace(compact, "\r", "");
+   StringReplace(compact, "\n", "");
+   StringReplace(compact, "\t", "");
+   if(compact == "[]")
+   {
+      currentZoneCount = 0;
+      zonesCalcTime = 0;
+      lastZonesRaw = content;
+      zoneSetChanged = true;
+      DeleteStaleZoneObjects(0);
+      DrawBuildStamp();
+      ChartRedraw();
+      return;
+   }
+
    if(StringLen(content) < 10) return;
 
    datetime anchor       = AnchorBar();
@@ -566,6 +588,50 @@ string ExtractString(string json, string key, int startFrom)
 }
 
 //+------------------------------------------------------------------+
+// Display geometry is separate from zone calculation.
+color ZoneLabelColor()
+{
+   if(AutoLabelContrast)
+      return (color)ChartGetInteger(0, CHART_COLOR_FOREGROUND);
+   return clrWhite;
+}
+
+double ZoneLabelGap()
+{
+   long height = ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS, 0);
+   double range = ChartGetDouble(0, CHART_PRICE_MAX, 0)
+                - ChartGetDouble(0, CHART_PRICE_MIN, 0);
+   if(height > 0 && range > 0)
+      return range * MathMax(1, LabelGapPixels) / (double)height;
+   return MathAbs(LabelOffsetUSD);
+}
+
+void DrawZoneBounds(string baseName, double top, double bottom, color zoneColor)
+{
+   string name = baseName + "_band";
+   if(!ShowZoneBounds || top <= bottom || bottom <= 0)
+   {
+      if(ObjectFind(0, name) >= 0) ObjectDelete(0, name);
+      return;
+   }
+   int bars = Bars(_Symbol, _Period);
+   int lookback = MathMin(MathMax(1, ZoneHistoryBars), bars - 1);
+   if(lookback < 1) return;
+   datetime left = iTime(_Symbol, _Period, lookback);
+   datetime right = AnchorBar() + PeriodSeconds() * 8;
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_RECTANGLE, 0, left, top, right, bottom);
+   MovePointIfChanged(name, 0, left, top);
+   MovePointIfChanged(name, 1, right, bottom);
+   SetIntIfChanged(name, OBJPROP_COLOR, zoneColor);
+   SetIntIfChanged(name, OBJPROP_FILL, false);
+   SetIntIfChanged(name, OBJPROP_BACK, true);
+   SetIntIfChanged(name, OBJPROP_WIDTH, 1);
+   SetIntIfChanged(name, OBJPROP_STYLE, STYLE_DOT);
+   SetIntIfChanged(name, OBJPROP_SELECTABLE, false);
+   SetIntIfChanged(name, OBJPROP_HIDDEN, true);
+}
+
 void DrawAllZones()
 {
    for(int i = 0; i < currentZoneCount; i++)
@@ -600,6 +666,7 @@ void DrawSingleZone(int index)
    if(fallback) lineWidth = MathMax(1, ZoneLineWidth - 1);
 
    // ── 1. Горизонтальная линия ───────────────────────────────────────
+   DrawZoneBounds(baseName, top, bottom, zoneColor);
    string lineName = baseName + "_line";
    EnsureObject(lineName, OBJ_HLINE, 0, price);
    MovePointIfChanged(lineName, 0, 0, price);
@@ -617,7 +684,8 @@ void DrawSingleZone(int index)
       // Подпись ставим НАД линией: ANCHOR_LEFT_LOWER прижимает низ текста к цене
       // зоны, поэтому цифры больше не лежат поверх самой линии.
       datetime textTime  = AnchorBar() - PeriodSeconds() * 10;
-      double   textPrice = price + (LabelAboveLine ? LabelOffsetUSD : -LabelOffsetUSD);
+      double   textPrice = (LabelAboveLine ? MathMax(price, top) : MathMin(price, bottom))
+                          + (LabelAboveLine ? ZoneLabelGap() : -ZoneLabelGap());
 
       EnsureObject(textName, OBJ_TEXT, textTime, textPrice);
       MovePointIfChanged(textName, 0, textTime, textPrice);
@@ -629,7 +697,7 @@ void DrawSingleZone(int index)
          rtag = "  [" + reaction + arrow + "]";
       }
       SetStrIfChanged(textName, OBJPROP_TEXT, DoubleToString(price, 2) + rtag);
-      SetIntIfChanged(textName, OBJPROP_COLOR, clrWhite);
+      SetIntIfChanged(textName, OBJPROP_COLOR, ZoneLabelColor());
       SetStrIfChanged(textName, OBJPROP_FONT, "Arial Bold");
       SetIntIfChanged(textName, OBJPROP_FONTSIZE, 9);
       SetIntIfChanged(textName, OBJPROP_ANCHOR,
@@ -809,3 +877,14 @@ void CheckAlerts()
    }
 }
 //+------------------------------------------------------------------+
+
+// Zoom, scale and theme changes must update label geometry immediately.
+void OnChartEvent(const int id, const long &lparam,
+                  const double &dparam, const string &sparam)
+{
+   if(id == CHARTEVENT_CHART_CHANGE)
+   {
+      DrawAllZones();
+      ChartRedraw();
+   }
+}
