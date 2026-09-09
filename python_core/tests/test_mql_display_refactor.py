@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture(params=['MT4', 'MT5'])
 def source(request):
     ext = 'mq4' if request.param == 'MT4' else 'mq5'
-    return (ROOT / 'mql' / request.param / 'Indicators' / f'StrongZones.{ext}').read_text()
+    return (ROOT / 'mql' / request.param / 'Indicators' / f'StrongZones.{ext}').read_text(encoding='utf-8')
 
 def test_draws_actual_zone_bounds(source):
     assert 'DrawZoneBounds(baseName, top, bottom, zoneColor);' in source
