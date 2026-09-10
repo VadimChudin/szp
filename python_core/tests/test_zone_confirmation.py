@@ -263,19 +263,14 @@ def test_filter_mode_drops_dead_zones(monkeypatch):
     assert LVN_MID not in [z.price for z in out]
 
 
-def test_filter_never_returns_an_empty_chart(monkeypatch):
-    """
-    Если порог отсекает всё, отдаём исходный список.
-
-    Пустой график хуже неподтверждённых зон: трейдер остаётся вообще без
-    ориентиров и не понимает, сломался индикатор или рынок такой.
-    """
+def test_filter_returns_no_zones_when_every_candidate_is_dead(monkeypatch):
+    """An enabled quality gate must not reintroduce its rejected candidates."""
     monkeypatch.setattr(config, "CONFIRMATION_MODE", "filter")
     monkeypatch.setattr(config, "CONFIRM_DEAD_THRESHOLD", 0.99)
     monkeypatch.setattr(config, "CONFIRM_LIVE_THRESHOLD", 0.999)
     df = _structured_candles()
     out = confirm_zones(_three_zones(), {"H4": df}, profile=profile_from_bars(df))
-    assert len(out) == 3
+    assert out == []
 
 
 def test_rerank_mode_preserves_all_zones(monkeypatch):

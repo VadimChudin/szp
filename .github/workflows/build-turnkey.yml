@@ -70,6 +70,9 @@ jobs:
           } elseif ($isExperimentalTag) {
             $channel = 'Experimental'
             $ver = $env:GITHUB_REF_NAME -replace '^exp-v', ''
+          } elseif ($env:GITHUB_REF -eq 'refs/heads/experiment/szp-6.1.0-rc1') {
+            $channel = 'Experimental'
+            $ver = '6.1.0-rc1'
           } else {
             $channel = 'Experimental'
             $ver = '0.0.0.' + $env:GITHUB_RUN_NUMBER
@@ -327,3 +330,17 @@ jobs:
           fail_on_unmatched_files: true
           prerelease: ${{ env.APP_CHANNEL == 'Experimental' }}
           name: Smart Zones Pro ${{ env.APP_CHANNEL }} ${{ env.APP_VER }}
+
+
+      - name: Publish audited 6.1 prerelease
+        if: github.ref == 'refs/heads/experiment/szp-6.1.0-rc1'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: exp-v6.1.0-rc1
+          target_commitish: ${{ github.sha }}
+          name: Smart Zones Pro Experimental 6.1.0-rc1
+          body_path: docs/RELEASE_6.1.0.md
+          files: Output/SmartZonesPro_Setup_Experimental_*.exe
+          fail_on_unmatched_files: true
+          prerelease: true
+          make_latest: false

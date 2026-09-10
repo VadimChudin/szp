@@ -28,6 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pandas as pd
+import numpy as np
 
 import config
 
@@ -115,7 +116,9 @@ def classify_reaction(
           Если не задан — определяется по положению последней цены.
     """
     df = _norm_ohlc(df)
-    if df.empty or zone_top <= 0 or zone_bottom <= 0:
+    if (df.empty or not np.isfinite([zone_top, zone_bottom]).all()
+            or zone_bottom <= 0 or zone_top <= zone_bottom
+            or not np.isfinite(df[["open", "high", "low", "close"]].to_numpy(dtype=float)).all()):
         return ReactionResult(detail="no data")
 
     lookback = int(_cfg("REACTION_LOOKBACK_BARS", 60))
@@ -134,8 +137,6 @@ def classify_reaction(
 
     center = (zone_top + zone_bottom) / 2.0
     price = float(df["close"].iloc[-1])
-    if side not in ("ABOVE", "BELOW"):
-        side = "ABOVE" if center >= price else "BELOW"
 
     h = df["high"].astype(float).to_numpy()
     l = df["low"].astype(float).to_numpy()
@@ -144,7 +145,7 @@ def classify_reaction(
     def touched(i: int) -> bool:
         return l[i] <= zone_top and h[i] >= zone_bottom
 
-    touches = sum(1 for i in range(n) if touched(i))
+    touches = sum(touched(i) and (i == 0 or not touched(i - 1)) for i in range(n))
 
     # Последнее касание зоны в окне
     last_touch = -1
@@ -166,12 +167,31 @@ def classify_reaction(
         return ReactionResult(Reaction.NONE, touches=touches, detail="no interaction")
 
     bars_since = n - 1 - last_touch
+    window_after = max(1, int(_cfg("REACTION_WINDOW_AFTER", 8)))
+    if bars_since > window_after:
+        return ReactionResult(Reaction.NONE, bars_since=bars_since, touches=touches,
+                              detail="latest interaction expired")
+    contact_start = last_touch
+    while contact_start > 0 and touched(contact_start - 1):
+        contact_start -= 1
+    # Freeze scale and approach before the contact, not after the outcome.
+    if contact_start > 0:
+        atr = _atr(df.iloc[:contact_start], atr_period) or atr
+    if side not in ("ABOVE", "BELOW"):
+        prior = list(c[:contact_start][::-1]) + [float(df["open"].iloc[contact_start])]
+        for reference in prior:
+            if reference > zone_top:
+                side = "BELOW"
+                break
+            if reference < zone_bottom:
+                side = "ABOVE"
+                break
 
     # ── 1. BREAKOUT: тело закрылось за зоной ЧЕРЕЗ неё (> brk_atr·ATR) ────────
     # Направление пробоя задаётся стороной подхода (правило close-cross из
     # neurotrader888): сопротивление пробивают ВВЕРХ, поддержку — ВНИЗ.
     # Уход в «свою» сторону — это отскок, а не пробой.
-    for i in range(last_touch, n):
+    for i in range(contact_start, n):
         if side == "ABOVE" and c[i] > zone_top + brk_atr * atr:      # сопротивление пробито вверх
             over = c[i] - zone_top
             return ReactionResult(
@@ -198,7 +218,7 @@ def classify_reaction(
                 Reaction.BOUNCE, "UP", strength=min(1.0, move_away / (2.0 * atr)),
                 bars_since=bars_since, touches=touches,
                 detail=f"bounced up {move_away:.2f}$ ({move_away/atr:.2f} ATR) from support")
-    else:  # ABOVE
+    elif side == "ABOVE":
         move_away = zone_bottom - price
         rejection = (post_high >= zone_bottom) and (price < zone_bottom)
         if rejection and move_away >= bounce_atr * atr:
@@ -251,5 +271,5 @@ def classify_zone(zone, data: dict) -> ReactionResult:
             if data.get(alt) is not None and not data[alt].empty:
                 df = data[alt]
                 break
-    side = getattr(zone, "display_side", "") or ""
+    side = (getattr(zone, "lifecycle", {}) or {}).get("origin_side", "")
     return classify_reaction(zone.top, zone.bottom, df, side)

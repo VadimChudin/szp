@@ -76,6 +76,10 @@ class Zone:
     ai_verdict: str = ""                # LIVE | WATCH | SKIP
     ai_note: str = ""                   # одна фраза для подписи на графике
     ai_rank: int = 0                    # 1 — самая интересная зона, 0 — нет
+    # Structural evidence is distinct from display/confirmation/lifecycle state.
+    score_components: dict = field(default_factory=dict)
+    evidence_at: str = ""               # latest contributing candle CLOSE
+    lifecycle: dict = field(default_factory=dict)
 
     @property
     def top(self) -> float:
@@ -124,6 +128,9 @@ class Zone:
             "ai_verdict": self.ai_verdict,
             "ai_note": self.ai_note,
             "ai_rank": self.ai_rank,
+            "score_components": self.score_components,
+            "evidence_at": self.evidence_at,
+            "lifecycle": self.lifecycle,
         }
 
     @classmethod
@@ -155,6 +162,9 @@ class Zone:
             ai_verdict=d.get("ai_verdict", ""),
             ai_note=d.get("ai_note", ""),
             ai_rank=d.get("ai_rank", 0),
+            score_components=d.get("score_components", {}),
+            evidence_at=d.get("evidence_at", ""),
+            lifecycle=d.get("lifecycle", {}),
         )
 
     def __repr__(self):
@@ -213,55 +223,35 @@ def extract_wick_levels(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def cluster_levels(levels: np.ndarray, tolerance: float = None) -> list[dict]:
+    """Partition evidence exactly once, returning original positional indices.
+
+    Every member is within tolerance of the final median. In particular, a
+    moving median may not chain a cluster indefinitely across unrelated prices.
+    A later price-window query must NEVER reconstruct membership: adjacent
+    windows overlap and used to count the same wick in multiple zones.
     """
-    Кластеризует близкие ценовые уровни в группы.
-
-    Алгоритм: жадная кластеризация.
-      1. Сортируем уровни по цене.
-      2. Идём по отсортированному массиву.
-      3. Если следующий уровень отличается от текущего ядра кластера
-         менее чем на tolerance — добавляем в кластер.
-      4. Иначе закрываем кластер и начинаем новый.
-
-    Args:
-        levels: np.array цен фитилей
-        tolerance: максимальное расхождение для объединения в кластер
-
-    Returns:
-        list of dict: [{"center": float, "count": int, "members": list}, ...]
-    """
-    if tolerance is None:
-        tolerance = config.CLUSTER_TOLERANCE
-
-    if len(levels) == 0:
+    tolerance = float(config.CLUSTER_TOLERANCE if tolerance is None else tolerance)
+    values = np.asarray(levels, dtype=float)
+    if values.ndim != 1 or not np.isfinite(values).all():
+        raise ValueError("Cluster levels must be a finite one-dimensional array")
+    if not math.isfinite(tolerance) or tolerance < 0:
+        raise ValueError("Cluster tolerance must be finite and nonnegative")
+    if not len(values):
         return []
-
-    sorted_levels = np.sort(levels)
-    clusters = []
-    current_cluster = [sorted_levels[0]]
-
-    for i in range(1, len(sorted_levels)):
-        # Сравниваем с медианой текущего кластера
-        cluster_center = np.median(current_cluster)
-        if sorted_levels[i] - cluster_center <= tolerance:
-            current_cluster.append(sorted_levels[i])
+    ordered = np.argsort(values, kind="stable")
+    groups, group = [], [int(ordered[0])]
+    for idx in ordered[1:]:
+        proposed = group + [int(idx)]
+        center = float(np.median(values[proposed]))
+        if max(center - values[group[0]], values[idx] - center) <= tolerance:
+            group = proposed
         else:
-            clusters.append({
-                "center": float(np.median(current_cluster)),
-                "count": len(current_cluster),
-                "members": list(current_cluster),
-            })
-            current_cluster = [sorted_levels[i]]
-
-    # Последний кластер
-    if current_cluster:
-        clusters.append({
-            "center": float(np.median(current_cluster)),
-            "count": len(current_cluster),
-            "members": list(current_cluster),
-        })
-
-    return clusters
+            groups.append(group)
+            group = [int(idx)]
+    groups.append(group)
+    return [{"center": float(np.median(values[indices])),
+             "count": len(indices), "members": values[indices].tolist(),
+             "indices": indices} for indices in groups]
 
 
 def adaptive_zone_width(data: dict[str, pd.DataFrame]) -> float:
@@ -287,254 +277,143 @@ def adaptive_zone_width(data: dict[str, pd.DataFrame]) -> float:
     return max(float(config.ZONE_WIDTH_MIN), min(float(config.ZONE_WIDTH_MAX), width))
 
 
+def _evidence_zone(members: pd.DataFrame, width: float, fvgs: list[dict]) -> Zone:
+    """Score independent source candles, not repeated rows or nearby scores."""
+    from market_data import candle_duration
+
+    center = float(members["price"].median())
+    zone = Zone(price=round(center, 2), width=width)
+    candles = members.drop_duplicates(["tf", "time"])
+    zone.touch_count = len(candles)
+    zone.sources = sorted(members["tf"].unique())
+    for row in members.sort_values(["time", "tf", "wick_type", "price"]).itertuples(index=False):
+        zone.wick_points.append({"time": row.time, "price": row.price,
+                                 "wick_type": row.wick_type, "tf": row.tf})
+    if not candles.empty:
+        zone.evidence_at = max(pd.Timestamp(row.time) + candle_duration(row.tf)
+                               for row in candles.itertuples(index=False)).isoformat()
+    for tf in zone.sources:
+        if len(candles[candles["tf"] == tf]) >= 2:
+            zone.score_components[tf] = config.TIMEFRAMES[tf]["weight"]
+    kinds = set(members["wick_type"])
+    if "POC" in kinds:
+        zone.score_components["POC"] = 3
+        zone.label_suffix = " (Vol POC)"
+    elif "HVN" in kinds:
+        zone.score_components["HVN"] = 2
+        zone.label_suffix = " (Vol HVN)"
+    if members["has_volume"].any():
+        zone.has_big_player = True
+        zone.score_components["volume"] = config.WEIGHT_BIG_PLAYER
+    step = float(config.ROUND_LEVEL_STEP)
+    if step > 0 and min(center % step, step - center % step) < 2.0:
+        zone.is_round_level = True
+        zone.score_components["round"] = config.WEIGHT_ROUND_LEVEL
+    if any(max(zone.bottom, fvg["bottom"]) <= min(zone.top, fvg["top"]) for fvg in fvgs):
+        zone.score_components["FVG"] = config.WEIGHT_FVG
+        zone.sources.append("FVG")
+    zone.score = sum(zone.score_components.values())
+    return zone
+
+
+def _distinct_zones(zones: list[Zone]) -> list[Zone]:
+    """Keep the best real band in an overlap; never invent a midpoint/score."""
+    selected = []
+    for zone in sorted(zones, key=lambda z: (-z.score, -z.touch_count, z.price)):
+        if any(max(zone.bottom, other.bottom) <= min(zone.top, other.top)
+               for other in selected):
+            continue
+        selected.append(zone)
+    return selected
+
+
 def detect_zones(
     data: dict[str, pd.DataFrame],
     volume_flags: dict[str, np.ndarray] | None = None,
     limit_output: bool = True,
+    *,
+    allow_external_levels: bool = True,
 ) -> list[Zone]:
+    """Detect structural zones from CLOSED OHLC (see market_data contract).
+
+    The live loader enforces closure before ALL indicators/volume flags. Offline
+    callers must provide their own causal cutoff. Scores are explainable feature
+    weights, NOT probabilities, independent samples, or expected profitability.
     """
-    Главная функция поиска зон.
+    from market_data import candle_duration
 
-    Алгоритм:
-      1. Для каждого таймфрейма (H1, H4, D1) извлекаем уровни фитилей.
-      2. Объединяем все уровни в единый массив.
-      3. Кластеризуем близкие уровни.
-      4. Для каждого кластера считаем Score на основе:
-         - из каких таймфреймов пришли касания (H1=+2, H4=+3, D1=+4)
-         - есть ли свечи с аномальным объёмом (BigPlayer=+2)
-         - круглый ли уровень (+1)
-      5. Фильтруем по MIN_ZONE_SCORE.
-
-    Args:
-        data: {"H1": DataFrame, "H4": DataFrame, "D1": DataFrame}
-        volume_flags: {"H1": bool_array, ...} — True для свечей с аномальным объёмом.
-                      Если None, объёмный фильтр не применяется.
-
-    Returns:
-        list[Zone]: Отсортированный по score (desc) список сильных зон.
-    """
-    # ── Шаг 1: Собираем все уровни со всех таймфреймов ───────────────
-    all_levels = []  # list of (price, timeframe_label, has_volume_flag)
-
-    for tf_label, df in data.items():
-        wicks = extract_wick_levels(df)
-        if wicks.empty:
+    all_levels = []
+    normalized = {}
+    for tf_label in sorted(data):
+        df = data[tf_label].copy()
+        if df.empty:
             continue
+        if tf_label not in config.TIMEFRAMES:
+            raise ValueError(f"Unsupported zone timeframe: {tf_label}")
+        df["time"] = pd.to_datetime(df["time"], utc=True).dt.tz_convert(None)
+        normalized[tf_label] = df.sort_values("time", kind="stable").reset_index(drop=True)
+        flag_by_time = {}
+        if volume_flags is not None and tf_label in volume_flags:
+            flags = np.asarray(volume_flags[tf_label], dtype=bool)
+            if flags.ndim != 1 or len(flags) != len(df):
+                raise ValueError(f"{tf_label}: volume flags must align by candle POSITION")
+            for stamp, flag in zip(df["time"], flags):
+                flag_by_time[stamp] = flag_by_time.get(stamp, False) or bool(flag)
+        for row in extract_wick_levels(df).itertuples(index=False):
+            all_levels.append({"price": float(row.level), "tf": tf_label,
+                               "has_volume": flag_by_time.get(row.time, False),
+                               "time": row.time, "wick_type": row.wick_type})
 
-        # Проверяем объёмные флаги
-        vol_flags = None
-        if volume_flags and tf_label in volume_flags:
-            vol_flags = volume_flags[tf_label]
-
-        for idx, row in wicks.iterrows():
-            has_vol = False
-            if vol_flags is not None:
-                # Ищем индекс свечи по времени
-                candle_idx = df.index[df['time'] == row['time']]
-                if len(candle_idx) > 0 and candle_idx[0] < len(vol_flags):
-                    has_vol = bool(vol_flags[candle_idx[0]])
-
-            all_levels.append({
-                'price': row['level'],
-                'tf': tf_label,
-                'has_volume': has_vol,
-                'time': row['time'],
-                'wick_type': row['wick_type'],
-            })
-
-    # ── Шаг 1.5: Добавляем эталонные уровни из Footprint (POC) ───────
-    if getattr(config, "FOOTPRINT_LEVELS_IN_ZONES", False):
+    if allow_external_levels and getattr(config, "FOOTPRINT_LEVELS_IN_ZONES", False) and normalized:
+        # This explicitly opt-in live source is never read by the historical evaluator.
+        cutoff = max(df["time"].iloc[-1] + candle_duration(tf) for tf, df in normalized.items())
         try:
             from footprint_data import get_collector
-            # Используем кэшированный синглтон (данные уже загружены bridge_server'ом)
             collector = get_collector()
-        
-            for tf_key, tf_label in [("1h", "H1"), ("4h", "H4"), ("1d", "D1")]:
-                buf = collector.buffers.get(tf_key)
-                if buf and buf.buffer:
-                    candles = buf.get_candles()
-                    for c in candles:
-                        # Добавляем POC свечи (уровень максимального объема)
-                        poc = getattr(c, 'poc_price', None)
-                        if poc:
-                            all_levels.append({
-                                'price': poc,
-                                'tf': tf_label,
-                                'has_volume': True,
-                                'time': pd.Timestamp(c.timestamp, unit='ms'),
-                                'wick_type': 'POC',
-                            })
-                    
-                        # High Volume Nodes (экстремальные объемы)
-                        max_vol = getattr(c, 'poc_volume', 1)
-                        if max_vol > 0 and c.levels:
-                            for price_lvl, vData in c.levels.items():
-                                tot = vData.get("buy", 0) + vData.get("sell", 0)
-                                if tot >= max_vol * 0.85 and float(price_lvl) != poc:
-                                    all_levels.append({
-                                        'price': float(price_lvl),
-                                        'tf': tf_label,
-                                        'has_volume': True,
-                                        'time': pd.Timestamp(c.timestamp, unit='ms'),
-                                        'wick_type': 'HVN',
-                                    })
-        except Exception as e:
-            print(f"[zone_detector] Could not extract Footprint POCs: {e}")
-
+            for key, tf in (("1h", "H1"), ("4h", "H4"), ("1d", "D1")):
+                buf = collector.buffers.get(key)
+                if not buf or not buf.buffer:
+                    continue
+                for candle in buf.get_candles():
+                    stamp = pd.Timestamp(candle.timestamp, unit="ms")
+                    if stamp + candle_duration(tf) > cutoff:
+                        continue
+                    poc = getattr(candle, "poc_price", None)
+                    if poc and math.isfinite(float(poc)):
+                        all_levels.append({"price": float(poc), "tf": tf, "has_volume": True,
+                                           "time": stamp, "wick_type": "POC"})
+                    max_vol = getattr(candle, "poc_volume", 0)
+                    if max_vol > 0 and candle.levels:
+                        for level, volumes in candle.levels.items():
+                            if (volumes.get("buy", 0) + volumes.get("sell", 0) >= max_vol * 0.85
+                                    and float(level) != poc and math.isfinite(float(level))):
+                                all_levels.append({"price": float(level), "tf": tf, "has_volume": True,
+                                                   "time": stamp, "wick_type": "HVN"})
+        except Exception as exc:
+            print(f"[zone_detector] Footprint evidence unavailable: {exc}")
     if not all_levels:
-        print("[zone_detector] No wick or footprint levels found.")
         return []
 
-    levels_df = pd.DataFrame(all_levels)
-
-    # ── Шаг 2: Кластеризация ────────────────────────────────────────
-    price_array = levels_df['price'].values
-    clusters = cluster_levels(price_array)
-
-    # ── Шаг 2.5: Поиск FVG (Имбалансов) ─────────────────────────────
-    all_fvgs = []
-    # Основные имбалансы ищем на H4 (наиболее значимые)
-    if "H4" in data:
-        all_fvgs.extend(detect_fvgs(data["H4"]))
-
-    # ── Шаг 3: Скоринг каждого кластера ──────────────────────────────
-    zones = []
-    detected_width = adaptive_zone_width(data)
-    for cluster in clusters:
-        center = cluster['center']
-        tolerance = config.CLUSTER_TOLERANCE
-
-        # Какие уровни попали в этот кластер?
-        mask = (levels_df['price'] >= center - tolerance) & \
-               (levels_df['price'] <= center + tolerance)
-        members = levels_df[mask]
-
-        if members.empty:
-            continue
-
-        zone = Zone(price=round(center, 2), width=detected_width)
-        zone.touch_count = len(members)
-
-        # Сохраняем точки фитилей для визуализации
-        for _, m in members.iterrows():
-            zone.wick_points.append({
-                'time': m['time'],
-                'price': m['price'],
-                'wick_type': m['wick_type'],
-                'tf': m['tf'],
-            })
-
-        # Считаем вес по таймфреймам
-        tf_set = set(members['tf'].values)
-        for tf in tf_set:
-            zone.sources.append(tf)
-            weight = config.TIMEFRAMES[tf]["weight"]
-            # Добавляем вес за каждое уникальное касание из этого TF
-            tf_touches = members[members['tf'] == tf]
-            # Минимум 2 касания с одного TF для засчитывания
-            if len(tf_touches) >= 2:
-                zone.score += weight
-
-        # ── БОНУС: Институциональный объем (Footprint POC/HVN) ────────
-        w_types = members['wick_type'].values
-        if 'POC' in w_types:
-            zone.score += 3
-            zone.label_suffix = " (Vol POC)"
-        elif 'HVN' in w_types:
-            zone.score += 2
-            zone.label_suffix = " (Vol HVN)"
-
-        # Бонус за крупного игрока
-        if members['has_volume'].any():
-            zone.has_big_player = True
-            zone.score += config.WEIGHT_BIG_PLAYER
-
-        # Бонус за круглый уровень
-        remainder = center % config.ROUND_LEVEL_STEP
-        if remainder < 2.0 or (config.ROUND_LEVEL_STEP - remainder) < 2.0:
-            zone.is_round_level = True
-            zone.score += config.WEIGHT_ROUND_LEVEL
-
-        # Бонус за FVG (Имбаланс)
-        for fvg in all_fvgs:
-            # Зона (z_bot ... z_top) пересекается с FVG (bottom ... top)
-            z_top = center + tolerance
-            z_bot = center - tolerance
-            if max(z_bot, fvg['bottom']) <= min(z_top, fvg['top']):
-                zone.score += config.WEIGHT_FVG
-                zone.sources.append("FVG")
-                break
-
-        zones.append(zone)
-
-    # ── Шаг 4: Фильтрация и сортировка ───────────────────────────────
-    strong_zones = [z for z in zones if z.score >= config.MIN_ZONE_SCORE]
-    
-    # ── Шаг 4.5: Агрегация (слияние) близких зон для уменьшения шума ────
-    merged_zones = []
-    strong_zones.sort(key=lambda z: z.price)
-    
-    # Расстояние для "склеивания" зон — агрессивное слияние чтобы оставить только точные уровни
-    MERGE_DIST = config.CLUSTER_TOLERANCE * 3.0  
-    
-    for z in strong_zones:
-        if not merged_zones:
-            merged_zones.append(z)
-        else:
-            prev = merged_zones[-1]
-            if abs(z.price - prev.price) <= MERGE_DIST:
-                # Объединяем зоны: берем средневзвешенную цену
-                total_touch = prev.touch_count + z.touch_count
-                if total_touch > 0:
-                    prev.price = round((prev.price * prev.touch_count + z.price * z.touch_count) / total_touch, 2)
-                else:
-                    prev.price = round((prev.price + z.price) / 2.0, 2)
-                
-                # Запрещаем зоне "разбухать"! Оставляем фиксированную толщину.
-                prev.width = detected_width
-                prev.score = prev.score + z.score // 2  # Складываем баллы
-                prev.touch_count += z.touch_count
-                prev.sources = list(set(prev.sources + z.sources))
-                prev.has_big_player = prev.has_big_player or z.has_big_player
-                prev.is_round_level = prev.is_round_level or z.is_round_level
-                prev.wick_points.extend(z.wick_points)
-            else:
-                merged_zones.append(z)
-                
-    strong_zones = merged_zones
-
-    # ── Шаг 4.6: Привязка к H4 (главный таймфрейм, меньше шума) ─────────
-    # Клиент просил, чтобы главным был H4 и не было «шума» от мелких уровней.
-    # Оставляем только зоны, подтверждённые H4; H1/D1/FVG остаются как
-    # усиление, но сами по себе зону не создают.
+    levels = (pd.DataFrame(all_levels)
+              .sort_values(["price", "tf", "time", "wick_type"], kind="stable")
+              .drop_duplicates(["tf", "time", "wick_type", "price"])
+              .reset_index(drop=True))
+    width = adaptive_zone_width(normalized)
+    if not math.isfinite(width) or width <= 0:
+        raise ValueError("Zone width must be finite and positive")
+    # Evidence must support the actual drawn band, not an unrelated wider mask.
+    clusters = cluster_levels(levels["price"].to_numpy(), min(config.CLUSTER_TOLERANCE, width))
+    fvgs = detect_fvgs(normalized["H4"]) if "H4" in normalized else []
+    zones = [_evidence_zone(levels.iloc[c["indices"]], width, fvgs) for c in clusters]
     if config.REQUIRE_H4_ANCHOR:
-        h4_zones = [z for z in strong_zones if config.PRIMARY_TIMEFRAME in z.sources]
-        if h4_zones:
-            strong_zones = h4_zones
-
-    strong_zones.sort(key=lambda z: z.score, reverse=True)
-
-    # ── Шаг 4.7: Зоны нужны и над ценой, и под ней ─────────────────────
-    weak_pool = [z for z in zones
-                 if config.FALLBACK_MIN_ZONE_SCORE <= z.score < config.MIN_ZONE_SCORE]
-    if config.REQUIRE_H4_ANCHOR:
-        weak_pool = [z for z in weak_pool if config.PRIMARY_TIMEFRAME in z.sources]
-    # Клиент просит только сильные зоны: слабые НЕ достраиваем «для заполнения».
-    # Если сильных зон нет — список пуст, и на графике ничего не рисуется.
-    if config.STRONG_ZONES_ONLY:
-        weak_pool = []
-    if not limit_output:
-        # Для incremental snapshot bridge нужен полный pool кандидатов.
-        # Иначе ранний лимит в пять зон мог скрыть новый сильный уровень.
-        candidates = strong_zones + weak_pool
-        candidates.sort(key=lambda z: z.score, reverse=True)
-        selected = candidates
-    else:
-        selected = balance_around_price(strong_zones, weak_pool, current_price(data))
-
-    print(f"[zone_detector] Found {len(zones)} raw clusters -> "
-          f"{len(selected)} strong zones (score >= {config.MIN_ZONE_SCORE})")
-
+        zones = [z for z in zones if z.score_components.get(config.PRIMARY_TIMEFRAME, 0) > 0]
+    strong = _distinct_zones([z for z in zones if z.score >= config.MIN_ZONE_SCORE])
+    weak = [] if config.STRONG_ZONES_ONLY else _distinct_zones(
+        [z for z in zones if config.FALLBACK_MIN_ZONE_SCORE <= z.score < config.MIN_ZONE_SCORE])
+    candidates = _distinct_zones(strong + weak)
+    selected = (balance_around_price(strong, weak, current_price(normalized))
+                if limit_output else candidates)
+    print(f"[zone_detector] {len(clusters)} disjoint evidence clusters -> {len(selected)} zones")
     return selected
 
 
@@ -558,10 +437,11 @@ def balance_around_price(strong: list[Zone], weak: list[Zone],
     if price is None or price <= 0:
         return strong[:limit]
 
-    merge_dist = config.CLUSTER_TOLERANCE * 3.0
+    merge_dist = config.CLUSTER_TOLERANCE
 
     def add(zone: Zone, into: list[Zone]) -> bool:
-        if any(abs(zone.price - z.price) <= merge_dist for z in into):
+        if any(abs(zone.price - z.price) <= merge_dist
+               or max(zone.bottom, z.bottom) <= min(zone.top, z.top) for z in into):
             return False
         into.append(zone)
         return True

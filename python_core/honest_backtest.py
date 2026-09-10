@@ -1,31 +1,32 @@
-"""honest_backtest.py — честный walk-forward тест качества зон Smart Zones Pro.
+"""Detector-only walk-forward research, NOT production pipeline parity.
 
-Что здесь «честного» и почему это важно проверять именно так:
+Time contract: every OHLC ``time`` is the BAR OPEN (MT iTime/rates and
+Dukascopy convention), normalized to UTC; naive input is assumed UTC. A bar's
+OHLC is available only at ``time + duration`` (H1=1h, H4=4h, D1=24h).
+Resampling uses left-closed, left-labelled UTC calendar bins. Decisions occur
+immediately after an H4 close; formation includes only fully elapsed bars and
+future H1 bars open at or after that cutoff. Broker-local timestamps must be
+converted before loading; fixed UTC days are not broker session calendars.
 
-1. НЕТ ЗАГЛЯДЫВАНИЯ В БУДУЩЕЕ. Зоны на момент T строятся ТОЛЬКО из свечей до T
-   включительно (детектор получает срез данных, а не весь файл). Исход считается
-   ТОЛЬКО по свечам после T.
-2. ГОНЯЕТСЯ РАБОЧАЯ ЛОГИКА. Используется тот же zone_detector.detect_zones с
-   limit_output=True — то есть ровно те 3+3 зоны, которые клиент видит на графике,
-   а не «идеальный» отбор ради красивой цифры.
-3. УСЛОВНАЯ МЕТРИКА. Считаем реакцию только по зонам, до которых цена реально
-   дошла (touch). Иначе процент можно раздуть далёкими уровнями, которых цена
-   никогда не касалась.
-4. ЕСТЬ КОНТРОЛЬНАЯ ГРУППА. Те же правила применяются к случайным уровням и к
-   круглым числам в том же диапазоне. Без контроля «75% реакций» ничего не
-   означает: цена в принципе часто разворачивается.
-5. НЕЗАВИСИМЫЕ ВЫБОРКИ. Точки оценки разнесены на горизонт, окна не
-   перекрываются, поэтому доверительный интервал не занижен.
-6. IN-SAMPLE / OUT-OF-SAMPLE. Пороги реакции берутся из config (их никто не
-   подгонял под OOS-часть), результат отдельно показан на первых 60% и
-   последних 40% истории.
-7. ЧЕСТНАЯ ОГОВОРКА ПРО ДАННЫЕ. Инструмент источника указывается в отчёте.
-   Спот XAU/USD у брокера и фьючерс золота — не одно и то же.
+This calls detect_zones(limit_output=True) on historical slices, without
+persistent zone state, external liquidity/footprint levels or AI. The detector
+receives ``allow_external_levels=False`` even when live footprint ingestion is
+enabled in config; research never mutates the shared production configuration.
 
-Запуск:
-    python honest_backtest.py                       # источник по умолчанию (yfinance GC=F)
-    python honest_backtest.py --csv path/to.csv     # свои свечи (time,open,high,low,close,tick_volume)
-    python honest_backtest.py --horizon 12 --out ../output
+Retest direction is fixed from the decision price, never a future close.
+The touched H1 bar's actual close (plus/minus the fixed spread) is the assumed
+entry, not a clamped zone price. A confirmed break before entry invalidates
+the trade. Only later bars can hit stop/target; ambiguous OHLC is stop-first.
+Touch-bar excursion uses its close only: its high/low may precede the touch.
+
+Limitations: OHLC cannot resolve intrabar order or guarantee a close fill;
+spread is stylized, with no slippage, gap execution, commissions or portfolio
+simulation. Missing/partial source bars are not repaired. Repeated zones and
+possibly overlapping horizons are dependent samples; IS/OOS summaries and
+unadjusted significance estimates are descriptive, not proof of an edge.
+Explicit yfinance loading is optional; CSV research does not fetch live data.
+
+Usage: python honest_backtest.py --csv H1.csv --horizon 12 --out ../output
 """
 from __future__ import annotations
 
@@ -49,6 +50,36 @@ RANDOM_SEED = 20260902
 
 # ── Загрузка данных ───────────────────────────────────────────────────────────
 OHLC = ["open", "high", "low", "close"]
+BAR_DURATION = {"H1": pd.Timedelta(hours=1), "H4": pd.Timedelta(hours=4),
+                "D1": pd.Timedelta(days=1)}
+
+
+def research_metadata() -> dict:
+    """Include scope/assumptions even in empty or programmatic reports."""
+    return {
+        "research_scope": "detector_only",
+        "production_pipeline_parity": False,
+        "persistent_state": False,
+        "external_levels": False,
+        "external_levels_policy": "detect_zones(allow_external_levels=False)",
+        "ai": False,
+        "bar_time_convention": "open_time_utc",
+        "availability": "bar_open + timeframe_duration",
+        "decision_time": "H4 close",
+        "future_h1": "bar_open >= decision_time",
+        "entry_model": "touched H1 close +/- fixed spread; no price clamping",
+        "direction_model": "fixed at decision price (first H1 open if omitted)",
+        "ambiguous_later_bar": "stop_first",
+        "touch_bar_excursion": "close_only",
+        "limitations": [
+            "Detector only: no persistent state, external liquidity/footprint or AI.",
+            "UTC fixed-duration bins; broker session calendars are not modeled.",
+            "Naive timestamps are assumed UTC; missing/partial bars are not repaired.",
+            "OHLC order and close fills are assumptions, not tick-level executions.",
+            "No slippage, gap execution, commissions or portfolio accounting.",
+            "Repeated zones/overlapping horizons are dependent; p-values are descriptive.",
+        ],
+    }
 
 
 def _normalize(frame: pd.DataFrame) -> pd.DataFrame:
@@ -56,7 +87,7 @@ def _normalize(frame: pd.DataFrame) -> pd.DataFrame:
     if "tick_volume" not in frame.columns:
         vol_col = "volume" if "volume" in frame.columns else None
         frame["tick_volume"] = frame[vol_col] if vol_col else 0.0
-    frame["time"] = pd.to_datetime(frame["time"], utc=True).dt.tz_localize(None)
+    frame["time"] = pd.to_datetime(frame["time"], utc=True)
     frame = frame[["time", *OHLC, "tick_volume"]].dropna()
     return frame.sort_values("time").reset_index(drop=True)
 
@@ -77,9 +108,14 @@ def load_from_csv(path: Path) -> pd.DataFrame:
 
 
 def resample(frame: pd.DataFrame, rule: str) -> pd.DataFrame:
+    """Aggregate open-stamped H1 bars; e.g. 00,01,02,03 -> H4 open 00.
+
+    A bar at 04:00 belongs to the next bin, never the previous H4 candle.
+    Partial bins remain partial; availability is still the nominal bin close.
+    """
     grouped = (
-        frame.set_index("time")
-        .resample(rule, label="right", closed="right")
+        _normalize(frame).set_index("time")
+        .resample(rule, label="left", closed="left", origin="start_day")
         .agg({"open": "first", "high": "max", "low": "min",
               "close": "last", "tick_volume": "sum"})
         .dropna()
@@ -96,10 +132,10 @@ class LevelOutcome:
     price: float
     score: float
     touched: bool
-    outcome: str              # bounce | breakout | consolidation | no_touch
+    outcome: str              # bounce | breakout | consolidation | no_touch | invalid
     excursion: float          # уход от зоны после касания, в ATR
     segment: str = "IS"       # IS | OOS
-    trade: str = "no_touch"   # target | stop | open | no_touch (ретест со стопом за зоной)
+    trade: str = "no_touch"   # target | stop | open | invalid | no_touch (ретест со стопом за зоной)
 
 
 def atr_of(frame: pd.DataFrame, period: int) -> float:
@@ -114,112 +150,112 @@ def atr_of(frame: pd.DataFrame, period: int) -> float:
     return value if value > 0 else 1.0
 
 
-def evaluate_level(price: float, top: float, bottom: float, future: pd.DataFrame,
-                   atr: float) -> tuple[bool, str, float]:
-    """Классифицирует исход по будущим свечам. Порогов «на глаз» нет — они из config.
+def _touch_context(top: float, bottom: float, future: pd.DataFrame,
+                   decision_price: float | None) -> tuple[int | None, bool | None]:
+    """Freeze approach before observing any future close.
 
-    bounce        — цена коснулась и ушла прочь более чем на REACTION_BOUNCE_ATR·ATR,
-                    не закрывшись телом за уровень.
-    breakout      — закрытие за уровнем дальше REACTION_BREAKOUT_ATR·ATR (это и есть
-                    «закреп за зоной», по которому клиент принимает решение).
-    consolidation — коснулась, но ни ухода, ни закрепа: разброс закрытий сжат.
+    The optional fallback preserves helper callers without formation data:
+    the first future bar's OPEN is observable before that bar's range/close.
+    A decision inside/on the zone has no unambiguous approach; do not guess.
     """
-    bounce_need = config.REACTION_BOUNCE_ATR * atr
-    break_need = config.REACTION_BREAKOUT_ATR * atr
-
-    touch_idx = None
+    if future.empty:
+        return None, None
+    reference = float(future.iloc[0].open if decision_price is None else decision_price)
+    above = (True if reference > top else False if reference < bottom else None)
     for i, bar in enumerate(future.itertuples(index=False)):
         if bar.low <= top and bar.high >= bottom:
-            touch_idx = i
-            break
+            return i, above
+    return None, above
+
+
+def _confirmed_break(close: float, top: float, bottom: float, atr: float,
+                     approach_from_above: bool) -> bool:
+    distance = bottom - close if approach_from_above else close - top
+    return distance > config.REACTION_BREAKOUT_ATR * atr
+
+
+def evaluate_level(price: float, top: float, bottom: float, future: pd.DataFrame,
+                   atr: float, *, decision_price: float | None = None
+                   ) -> tuple[bool, str, float]:
+    """Classify a touched band using only a pre-observation approach price.
+
+    Breakout closes take precedence over bounce excursions. On the touched
+    bar only its close is definitely after the touch; its full range is not.
+    A gap-confirmed break before the first touch invalidates the original setup.
+    ``price`` remains the level centre for compatibility, NOT the decision price.
+    """
+    touch_idx, approach_from_above = _touch_context(top, bottom, future, decision_price)
     if touch_idx is None:
         return False, "no_touch", 0.0
-
-    after = future.iloc[touch_idx:]
-    approach_from_above = bool(future.iloc[0].close > top)
+    if approach_from_above is None:
+        return True, "invalid", 0.0
+    if any(_confirmed_break(c, top, bottom, atr, approach_from_above)
+           for c in future.iloc[:touch_idx]["close"]):
+        return True, "invalid", 0.0
 
     best_away = 0.0
-    for bar in after.itertuples(index=False):
-        # Закреп (пробой по закрытию) проверяем первым: он «сильнее» отскока.
-        if bar.close > top and (bar.close - top) > break_need and not approach_from_above:
-            return True, "breakout", (bar.close - top) / atr
-        if bar.close < bottom and (bottom - bar.close) > break_need and approach_from_above:
-            return True, "breakout", (bottom - bar.close) / atr
+    for i, bar in enumerate(future.iloc[touch_idx:].itertuples(index=False)):
+        if _confirmed_break(bar.close, top, bottom, atr, approach_from_above):
+            distance = bottom - bar.close if approach_from_above else bar.close - top
+            return True, "breakout", distance / atr
         if approach_from_above:
-            best_away = max(best_away, bar.high - top)
+            away = (bar.close if i == 0 else bar.high) - top
         else:
-            best_away = max(best_away, bottom - bar.low)
+            away = bottom - (bar.close if i == 0 else bar.low)
+        best_away = max(best_away, away)
 
-    if best_away > bounce_need:
+    if best_away > config.REACTION_BOUNCE_ATR * atr:
         return True, "bounce", best_away / atr
     return True, "consolidation", best_away / atr
 
 
-
-# ── Решающий тест: ретест зоны, стоп за зоной, цель 1R ────────────────────────
 def simulate_retest_trade(top: float, bottom: float, future: pd.DataFrame,
-                          atr: float, spread: float) -> str:
-    """Единственная метрика, которая отличает рабочий уровень от случайной линии.
+                          atr: float, spread: float, *,
+                          decision_price: float | None = None) -> str:
+    """Stylized 1R retest, NOT a production execution/P&L simulation.
 
-    Правило нарочно тупое и одинаковое для всех групп, без подгонки:
-      • вход — когда цена коснулась уровня (ретест), в сторону от уровня;
-      • стоп — за уровнем на STOP_ATR·ATR (плюс спред);
-      • цель — 1R от входа;
-      • если ни стоп, ни цель не сработали до конца горизонта — исход "open".
-
-    Направление берётся из того, с какой стороны цена подошла: подошла сверху →
-    уровень как поддержка → лонг; подошла снизу → как сопротивление → шорт.
-    Никакого выбора направления «по факту» нет, это и делает тест честным.
+    Enter at the first touched H1 bar's actual CLOSE +/- spread. Never repair
+    an impossible fill by clamping it to a zone edge. Reject a setup whose
+    close confirms a break before/at entry, or whose entry is beyond its stop.
+    Entry-bar extremes precede entry and cannot stop/target this trade.
+    Later bars with both thresholds hit are stop-first (order is unknowable).
     """
-    stop_pad = 0.35 * atr
-
-    touch_idx = None
-    for i, bar in enumerate(future.itertuples(index=False)):
-        if bar.low <= top and bar.high >= bottom:
-            touch_idx = i
-            break
+    touch_idx, approach_from_above = _touch_context(top, bottom, future, decision_price)
     if touch_idx is None:
         return "no_touch"
+    if approach_from_above is None:
+        return "invalid"
+    if any(_confirmed_break(c, top, bottom, atr, approach_from_above)
+           for c in future.iloc[:touch_idx + 1]["close"]):
+        return "invalid"
 
-    approach_from_above = bool(future.iloc[0].close > top)
-    entry_bar = future.iloc[touch_idx]
-
-    if approach_from_above:                      # поддержка → лонг
-        entry = max(float(entry_bar.close), bottom) + spread
+    close = float(future.iloc[touch_idx].close)
+    stop_pad = 0.35 * atr
+    if approach_from_above:
+        entry = close + spread
         stop = bottom - stop_pad - spread
         risk = entry - stop
-        if risk <= 0:
+        if close <= stop or risk <= 0:
             return "invalid"
         target = entry + risk
-        for bar in future.iloc[touch_idx + 1:].itertuples(index=False):
-            hit_stop = bar.low <= stop
-            hit_target = bar.high >= target
-            if hit_stop and hit_target:
-                return "stop"                    # неоднозначный бар считаем против себя
-            if hit_stop:
-                return "stop"
-            if hit_target:
-                return "target"
-        return "open"
+    else:
+        entry = close - spread
+        stop = top + stop_pad + spread
+        risk = stop - entry
+        if close >= stop or risk <= 0:
+            return "invalid"
+        target = entry - risk
 
-    entry = min(float(entry_bar.close), top) - spread          # сопротивление → шорт
-    stop = top + stop_pad + spread
-    risk = stop - entry
-    if risk <= 0:
-        return "invalid"
-    target = entry - risk
     for bar in future.iloc[touch_idx + 1:].itertuples(index=False):
-        hit_stop = bar.high >= stop
-        hit_target = bar.low <= target
-        if hit_stop and hit_target:
-            return "stop"
+        hit_stop = bar.low <= stop if approach_from_above else bar.high >= stop
+        hit_target = bar.high >= target if approach_from_above else bar.low <= target
         if hit_stop:
             return "stop"
         if hit_target:
             return "target"
     return "open"
 
-# ── Контрольные группы ────────────────────────────────────────────────────────
+
 def random_levels(price: float, count: int, max_distance: float,
                   rng: random.Random) -> list[float]:
     """Случайные уровни в том же коридоре, что и зоны: честное сравнение."""
@@ -274,10 +310,8 @@ def two_proportion_p(s1: int, n1: int, s2: int, n2: int) -> float:
 class RunConfig:
     horizon_h1_bars: int = 12       # сколько H1-свечей смотрим после формирования
     warmup_h4_bars: int = 180       # минимум истории для детектора
-    step_h4_bars: int = 3           # шаг оценки: окна не перекрываются (3*4ч = 12ч)
-    # Ограничение окна формирования. В продакшене детектор тоже работает не по
-    # всей истории, а по последним N свечам, поэтому это не «подгонка», а
-    # воспроизведение реальных условий (и прогон укладывается в разумное время).
+    step_h4_bars: int = 3           # Horizons may overlap if longer than step * 4h.
+    # Bounded detector history, not persistent production engine state.
     h1_window: int = 700
     h4_window: int = 800
     d1_window: int = 300
@@ -286,30 +320,47 @@ class RunConfig:
     source: str = ""
     rows: dict = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        for name in ("horizon_h1_bars", "step_h4_bars", "h1_window", "h4_window", "d1_window"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        if not isinstance(self.warmup_h4_bars, int) or self.warmup_h4_bars < 0:
+            raise ValueError("warmup_h4_bars must be a nonnegative integer")
+        if not math.isfinite(self.round_step) or self.round_step <= 0:
+            raise ValueError("round_step must be positive and finite")
+        if not math.isfinite(self.spread) or self.spread < 0:
+            raise ValueError("spread must be nonnegative and finite")
+
 
 def run(frames: dict[str, pd.DataFrame], cfg: RunConfig) -> list[LevelOutcome]:
+    cfg.validate()  # Also catch config mutations after construction, before any work.
+    frames = {tf: _normalize(frames[tf]) for tf in BAR_DURATION}
     h1, h4 = frames["H1"], frames["H4"]
     rng = random.Random(RANDOM_SEED)
     outcomes: list[LevelOutcome] = []
 
-    eval_points = list(range(cfg.warmup_h4_bars, len(h4) - 1, cfg.step_h4_bars))
+    eval_points = list(range(cfg.warmup_h4_bars, len(h4), cfg.step_h4_bars))
     split_at = eval_points[int(len(eval_points) * 0.6)] if eval_points else 0
 
     for position, idx in enumerate(eval_points, 1):
         if position % 50 == 0 or position == 1:
             print(f"[backtest] точка {position}/{len(eval_points)} …", flush=True)
-        cut = h4.iloc[idx]["time"]
+        cut = h4.iloc[idx]["time"] + BAR_DURATION["H4"]
         segment = "IS" if idx < split_at else "OOS"
 
         formation = {
-            "H1": h1[h1["time"] <= cut].tail(cfg.h1_window).reset_index(drop=True),
-            "H4": h4[h4["time"] <= cut].tail(cfg.h4_window).reset_index(drop=True),
-            "D1": frames["D1"][frames["D1"]["time"] <= cut].tail(cfg.d1_window).reset_index(drop=True),
+            tf: frame[frame["time"] + BAR_DURATION[tf] <= cut]
+                .tail(getattr(cfg, f"{tf.lower()}_window")).reset_index(drop=True)
+            for tf, frame in frames.items()
         }
         if len(formation["H4"]) < 50 or formation["H1"].empty:
             continue
 
-        future = h1[h1["time"] > cut].head(cfg.horizon_h1_bars).reset_index(drop=True)
+        future = h1[h1["time"] >= cut].head(cfg.horizon_h1_bars).reset_index(drop=True)
         if len(future) < cfg.horizon_h1_bars:
             continue
 
@@ -321,15 +372,16 @@ def run(frames: dict[str, pd.DataFrame], cfg: RunConfig) -> list[LevelOutcome]:
             # в прогоне из сотен точек это гигабайты лога, поэтому глушим.
             with contextlib.redirect_stdout(io.StringIO()):
                 flags = get_volume_flags_all_tf(formation)
-                zones = detect_zones(formation, flags, limit_output=True)
+                zones = detect_zones(formation, flags, limit_output=True,
+                                     allow_external_levels=False)
         except Exception as exc:                      # детектор не должен валить прогон
             print(f"[backtest] WARN detect_zones failed at {cut}: {exc}")
             continue
 
         for zone in zones:
             touched, result, excursion = evaluate_level(
-                zone.price, zone.top, zone.bottom, future, atr)
-            trade = simulate_retest_trade(zone.top, zone.bottom, future, atr, cfg.spread)
+                zone.price, zone.top, zone.bottom, future, atr, decision_price=price)
+            trade = simulate_retest_trade(zone.top, zone.bottom, future, atr, cfg.spread, decision_price=price)
             outcomes.append(LevelOutcome("zones", str(cut), zone.price, zone.score,
                                          touched, result, excursion, segment, trade))
 
@@ -342,15 +394,15 @@ def run(frames: dict[str, pd.DataFrame], cfg: RunConfig) -> list[LevelOutcome]:
 
         for level in random_levels(price, count, max_dist, rng):
             touched, result, excursion = evaluate_level(
-                level, level + width, level - width, future, atr)
-            trade = simulate_retest_trade(level + width, level - width, future, atr, cfg.spread)
+                level, level + width, level - width, future, atr, decision_price=price)
+            trade = simulate_retest_trade(level + width, level - width, future, atr, cfg.spread, decision_price=price)
             outcomes.append(LevelOutcome("random", str(cut), level, 0.0,
                                          touched, result, excursion, segment, trade))
 
         for level in round_levels(price, count, cfg.round_step, max_dist):
             touched, result, excursion = evaluate_level(
-                level, level + width, level - width, future, atr)
-            trade = simulate_retest_trade(level + width, level - width, future, atr, cfg.spread)
+                level, level + width, level - width, future, atr, decision_price=price)
+            trade = simulate_retest_trade(level + width, level - width, future, atr, cfg.spread, decision_price=price)
             outcomes.append(LevelOutcome("round", str(cut), level, 0.0,
                                          touched, result, excursion, segment, trade))
 
@@ -370,6 +422,7 @@ def _trade_block(part: pd.DataFrame) -> dict:
     return {
         "trades_closed": total,
         "trades_open": int((part["trade"] == "open").sum()),
+        "trades_invalid": int((part["trade"] == "invalid").sum()),
         "winrate_1R": round(wins / total, 4) if total else 0.0,
         "winrate_1R_ci95": [round(lo, 4), round(hi, 4)],
         "expectancy_R": round((wins - (total - wins)) / total, 4) if total else 0.0,
@@ -377,7 +430,7 @@ def _trade_block(part: pd.DataFrame) -> dict:
 
 def summarize(outcomes: list[LevelOutcome]) -> dict:
     frame = pd.DataFrame([asdict(o) for o in outcomes])
-    report: dict = {"groups": {}, "by_segment": {}}
+    report: dict = {"meta": research_metadata(), "groups": {}, "by_segment": {}}
     if frame.empty:
         return report
 
@@ -395,6 +448,7 @@ def summarize(outcomes: list[LevelOutcome]) -> dict:
             "bounce": int((touched["outcome"] == "bounce").sum()),
             "breakout": int((touched["outcome"] == "breakout").sum()),
             "consolidation": int((touched["outcome"] == "consolidation").sum()),
+            "invalid": int((touched["outcome"] == "invalid").sum()),
             "median_excursion_atr": round(float(touched["excursion"].median()), 3) if len(touched) else 0.0,
             **_trade_block(part),
         }
@@ -444,6 +498,7 @@ def main() -> None:
     parser.add_argument("--horizon", type=int, default=12, help="H1-свечей после формирования")
     parser.add_argument("--out", type=Path, default=Path(__file__).resolve().parent.parent / "output")
     args = parser.parse_args()
+    cfg = RunConfig(horizon_h1_bars=args.horizon)  # Validate before optional network I/O.
 
     if args.csv:
         h1 = load_from_csv(args.csv)
@@ -453,7 +508,7 @@ def main() -> None:
         source = f"yfinance {args.ticker} 1h {args.period} (ПРОКСИ, не спот брокера)"
 
     frames = {"H1": h1, "H4": resample(h1, "4h"), "D1": resample(h1, "1D")}
-    cfg = RunConfig(horizon_h1_bars=args.horizon, source=source)
+    cfg.source = source
     cfg.rows = {k: int(len(v)) for k, v in frames.items()}
 
     print(f"[backtest] Источник: {source}")
@@ -462,7 +517,7 @@ def main() -> None:
 
     outcomes = run(frames, cfg)
     report = summarize(outcomes)
-    report["meta"] = {
+    report["meta"].update({
         "source": source,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "rows": cfg.rows,
@@ -475,7 +530,7 @@ def main() -> None:
         "reaction_bounce_atr": config.REACTION_BOUNCE_ATR,
         "reaction_breakout_atr": config.REACTION_BREAKOUT_ATR,
         "spread_usd": cfg.spread,
-    }
+    })
 
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "honest_backtest.json").write_text(

@@ -12,6 +12,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import config
+from market_data import closed_data, TIMEFRAME_SECONDS
 
 # ── Попытка импорта MetaTrader5 (не фатально если нет) ───────────────
 try:
@@ -208,6 +209,11 @@ def fetch_from_csv(symbol: str, timeframe_label: str) -> pd.DataFrame:
     with open(csv_path, 'r', encoding=encoding) as f:
         first_line = f.readline().strip()
     if first_line.startswith('#'):
+        # Collector timestamps use broker time, not an assumed UTC offset.
+        # Pre-6.1 collectors always include bar zero but have no closure flag.
+        df.attrs["broker_clock"] = True
+        if "is_closed" not in df.columns:
+            df["is_closed"] = np.arange(len(df)) < len(df) - 1
         print(f"  {timeframe_label}: Loaded from BROKER ({first_line})")
     else:
         print(f"  {timeframe_label}: Loaded from CSV (yfinance/other)")
@@ -332,7 +338,7 @@ def fetch_all_timeframes(symbol: str = None) -> dict[str, pd.DataFrame]:
 
     for name, loader in _source_chain(symbol):
         try:
-            data = loader()
+            data = closed_data(loader())
         except Exception as e:
             problems.append(f"{name}: {e}")
             print(f"[data_fetcher] Source '{name}' failed: {e}")
@@ -345,7 +351,10 @@ def fetch_all_timeframes(symbol: str = None) -> dict[str, pd.DataFrame]:
             continue
 
         reference = market_reference_time(datetime.now(timezone.utc))
-        ages = {tf: data_age_hours(df, reference) for tf, df in data.items()}
+        # A completed D1 candle's OPEN may be almost 48 hours old.
+        # Measure freshness from its close; the next still-forming bar is not evidence.
+        ages = {tf: max(0.0, data_age_hours(df, reference) - TIMEFRAME_SECONDS[tf] / 3600.0)
+                for tf, df in data.items()}
         stale = {tf: age for tf, age in ages.items() if age > max_age_hours(tf)}
         if stale:
             detail = ", ".join(f"{tf} {age:.1f}h > {max_age_hours(tf):.0f}h"

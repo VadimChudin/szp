@@ -270,7 +270,7 @@ void ExportOHLCV(int timeframe, string tf_label, int bars)
    FileWrite(fh, "# broker=" + AccountCompany() + 
              ", symbol=" + Symbol() + 
              ", server=" + AccountServer());
-   FileWrite(fh, "time", "open", "high", "low", "close", "tick_volume");
+   FileWrite(fh, "time", "open", "high", "low", "close", "tick_volume", "is_closed");
    
    // Данные (от старых к новым)
    int available = MathMin(bars, iBars(Symbol(), timeframe) - 1);
@@ -290,7 +290,8 @@ void ExportOHLCV(int timeframe, string tf_label, int bars)
          DoubleToString(h, Digits),
          DoubleToString(l, Digits),
          DoubleToString(c, Digits),
-         IntegerToString(v)
+         IntegerToString(v),
+         (i > 0 ? "1" : "0")
       );
    }
    

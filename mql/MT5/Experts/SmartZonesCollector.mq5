@@ -300,7 +300,7 @@ void ExportOHLCV(ENUM_TIMEFRAMES timeframe, string tf_label, int bars)
       "# broker=" + AccountInfoString(ACCOUNT_COMPANY) +
       ", symbol=" + Symbol() +
       ", server=" + AccountInfoString(ACCOUNT_SERVER));
-   FileWrite(fh, "time", "open", "high", "low", "close", "tick_volume");
+   FileWrite(fh, "time", "open", "high", "low", "close", "tick_volume", "is_closed");
 
    int totalBars = Bars(Symbol(), timeframe);
    int available = MathMin(bars, totalBars - 1);
@@ -336,7 +336,8 @@ void ExportOHLCV(ENUM_TIMEFRAMES timeframe, string tf_label, int bars)
          DoubleToString(highs[i],  _Digits),
          DoubleToString(lows[i],   _Digits),
          DoubleToString(closes[i], _Digits),
-         IntegerToString(tickVols[i])
+         IntegerToString(tickVols[i]),
+         (i < needed - 1 ? "1" : "0")
       );
    }
 

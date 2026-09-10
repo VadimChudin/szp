@@ -118,10 +118,19 @@ bool           zoneSetChanged   = false;
 //+------------------------------------------------------------------+
 bool EnsureObject(string name, ENUM_OBJECT type, datetime t1, double p1)
 {
-   if(ObjectFind(0, name) >= 0)
-      return false;                       // объект уже на графике — не пересоздаём
-   ObjectCreate(0, name, type, 0, t1, p1);
-   return true;
+   bool exists = (ObjectFind(0, name) >= 0);
+   // A restored template/older build may use this name for a rectangle.
+   // Reuse only the expected type; matching objects stay in place (no flicker).
+   if(exists && (ENUM_OBJECT)ObjectGetInteger(0, name, OBJPROP_TYPE) != type)
+   {
+      if(!ObjectDelete(0, name)) return false;
+      exists = false;
+   }
+   if(!exists && !ObjectCreate(0, name, type, 0, t1, p1)) return false;
+   // SELECTABLE alone does not clear an object's existing selection handles.
+   SetIntIfChanged(name, OBJPROP_SELECTED, false);
+   SetIntIfChanged(name, OBJPROP_SELECTABLE, false);
+   return !exists;
 }
 
 void SetIntIfChanged(string name, ENUM_OBJECT_PROPERTY_INTEGER prop, long value)
@@ -328,12 +337,21 @@ void LoadAccumulationFromFile()
 {
    if(!ShowAccumulation)
    {
-      if(accumCount > 0) DeleteAccumulationObjects();
+      // Restored objects need cleanup even when this instance drew none.
+      DeleteAccumulationObjects();
+      lastAccumRaw = "";
       return;
    }
 
    string content = ReadDataFile(AccumFilePath);
-   if(StringLen(content) < 10) return;
+   // [] is a valid empty snapshot: remove previously drawn boxes, including
+   // whitespace-formatted JSON. Short/incomplete writes still keep last good data.
+   string compact = content;
+   StringReplace(compact, " ", "");
+   StringReplace(compact, "\r", "");
+   StringReplace(compact, "\n", "");
+   StringReplace(compact, "\t", "");
+   if(StringLen(content) < 10 && compact != "[]") return;
 
    // Участки набора тоже пересоздавались на каждом тике таймера и мигали.
    // Пересобираем их только при изменении файла.
@@ -354,16 +372,19 @@ void LoadAccumulationFromFile()
       double bottom = ExtractDouble(content, "\"bottom\":", pos);
       searchPos = pos + 5;
 
-      if(t1 <= 0 || top <= 0 || bottom <= 0) continue;
+      if(t1 <= 0 || top <= 0 || bottom <= 0 || top <= bottom) continue;
 
       // Гарантируем видимую ширину даже для одиночного окна
       if(t2 <= t1) t2 = t1 + PeriodSeconds();
 
       string name = accumPrefix + IntegerToString(accumCount);
-      ObjectCreate(0, name, OBJ_RECTANGLE, 0, t1, top, t2, bottom);
+      if(!ObjectCreate(0, name, OBJ_RECTANGLE, 0, t1, top, t2, bottom)) continue;
       ObjectSetInteger(0, name, OBJPROP_COLOR, AccumColor);
+      ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
       ObjectSetInteger(0, name, OBJPROP_FILL, true);
       ObjectSetInteger(0, name, OBJPROP_BACK, true);
+      ObjectSetInteger(0, name, OBJPROP_SELECTED, false);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
       accumCount++;
@@ -483,7 +504,13 @@ void DeleteStaleZoneObjects(int keepCount)
       int    idx    = (int)StringToInteger(idxStr);
       if(IntegerToString(idx) != idxStr) continue;   // не наш служебный объект
 
-      if(idx >= keepCount)
+      // Remove obsolete children even when their zone index is still active.
+      // Keep only parts this renderer owns; ACC/VER and non-indexed UI are above.
+      string suffix = StringSubstr(tail, sep);
+      bool currentPart = (suffix == "_line" || suffix == "_top" || suffix == "_bottom"
+                          || suffix == "_text" || suffix == "_zakrep" || suffix == "_badge"
+                          || suffix == "_sl_line" || suffix == "_sl_label");
+      if(idx >= keepCount || !currentPart)
          ObjectDelete(0, name);
    }
 }

@@ -45,6 +45,8 @@ zone_confirmation.py — Проверка, жива ли зона.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
+import math
+import re
 
 import numpy as np
 import pandas as pd
@@ -337,7 +339,12 @@ def confirm_zone(zone, data: dict[str, pd.DataFrame],
         check_freshness(zone, data),
     ]
 
-    total_weight = sum(c.weight for c in checks) or 1.0
+    if any(not math.isfinite(c.value) or not 0 <= c.value <= 1
+           or not math.isfinite(c.weight) or c.weight < 0 for c in checks):
+        raise ValueError("Confirmation values must be finite in [0,1]; weights nonnegative")
+    total_weight = sum(c.weight for c in checks)
+    if total_weight <= 0:
+        raise ValueError("At least one confirmation weight must be positive")
     score = sum(c.contribution for c in checks) / total_weight
 
     if score >= config.CONFIRM_LIVE_THRESHOLD:
@@ -384,18 +391,15 @@ def confirm_zones(zones: list, data: dict[str, pd.DataFrame],
         zone.confirm_score = report.score
         zone.confirm_verdict = report.verdict
         if config.CONFIRMATION_IN_LABEL:
-            zone.label_suffix = f"{zone.label_suffix}{report.badge}"
+            base = re.sub(r"(?: [✓~✗]\d+\.\d{2})+$", "", zone.label_suffix)
+            zone.label_suffix = f"{base}{report.badge}"
 
     _print_report(zones, profile, pools)
 
     if mode == "filter":
         kept = [z for z in zones if z.confirm_verdict != "DEAD"]
-        if not kept:
-            # Полная зачистка означает, что порог не откалиброван под этот
-            # рынок. Отдать пустой график хуже, чем отдать неподтверждённые
-            # зоны, поэтому возвращаем исходный список.
-            print("[confirmation] все зоны DEAD — фильтр не применён, порог требует калибровки")
-            return zones
+        # No qualifying evidence is a valid empty result. Never bypass an
+        # enabled quality filter just to fill the chart with rejected levels.
         print(f"[confirmation] отфильтровано: {len(zones)} → {len(kept)}")
         return kept
 

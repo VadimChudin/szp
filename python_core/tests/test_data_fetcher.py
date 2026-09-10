@@ -17,14 +17,15 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _frame(hours_old: float) -> pd.DataFrame:
+def _frame(hours_old: float, timeframe: str = "H1") -> pd.DataFrame:
     # Возраст свечи считается от market_reference_time, а НЕ от «сейчас»: пока
     # рынок закрыт, эта функция откатывается к закрытию пятницы. Свеча,
     # построенная от сырого utcnow(), оказывалась в выходные позже точки отсчёта,
     # и возраст выходил отрицательным — тест падал по календарю, а не по логике.
     reference = data_fetcher.market_reference_time(_utc_now())
-    last = reference - timedelta(hours=hours_old)
-    times = pd.date_range(end=last, periods=3, freq="1h")
+    duration = data_fetcher.TIMEFRAME_SECONDS[timeframe] / 3600.0
+    last = reference - timedelta(hours=max(hours_old, duration))
+    times = pd.date_range(end=last, periods=3, freq=pd.Timedelta(hours=duration))
     return pd.DataFrame({
         "time": times,
         "open": [2400.0, 2401.0, 2402.0],
@@ -36,7 +37,7 @@ def _frame(hours_old: float) -> pd.DataFrame:
 
 
 def _dataset(hours_old: float) -> dict[str, pd.DataFrame]:
-    return {tf: _frame(hours_old) for tf in config.TIMEFRAMES}
+    return {tf: _frame(hours_old, tf) for tf in config.TIMEFRAMES}
 
 
 class TestDataAgeHours:
@@ -56,7 +57,7 @@ class TestMaxAgeHours:
     def test_daily_candle_from_this_morning_is_fresh(self, monkeypatch):
         """Полдня данные считались протухшими из-за дневной свечи."""
         monkeypatch.setattr(data_fetcher, "_source_chain", lambda symbol: [
-            ("mt5", lambda: {**_dataset(1), "D1": _frame(20)}),
+            ("mt5", lambda: {**_dataset(1), "D1": _frame(20, "D1")}),
         ])
         assert set(fetch_all_timeframes("XAUUSD")) == set(config.TIMEFRAMES)
 
