@@ -22,13 +22,15 @@ def test_draws_actual_zone_bounds(source):
 def test_label_follows_theme_and_chart_scale(source):
     assert 'CHART_COLOR_FOREGROUND' in source
     assert 'CHART_HEIGHT_IN_PIXELS' in source
-    assert 'OBJPROP_COLOR, ZoneLabelColor()' in source
     assert 'void PlaceZonePriceLabels()' in source
-    assert 'OBJ_LABEL' in source
-    assert 'CORNER_RIGHT_UPPER' in source
+    assert 'OBJ_TEXT' in source
+    assert 'ANCHOR_LEFT' in source
     assert 'PeriodSeconds() * 10' not in source
     assert 'if(id == CHARTEVENT_CHART_CHANGE)' in source
     assert 'PlaceZonePriceLabels();' in source
+    fn = source[source.index('void PlaceZonePriceLabels()'):source.index('void DrawZoneBounds')]
+    assert 'OBJ_LABEL' not in fn
+    assert 'CORNER_RIGHT' not in fn
 
 def test_empty_array_clears_objects_before_short_file_guard(source):
     loader = source[source.index('void LoadZonesFromFile('):]

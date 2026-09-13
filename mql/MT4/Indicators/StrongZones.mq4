@@ -773,8 +773,8 @@ int PriceToPixelY(double price)
 
 void PlaceZonePriceLabels()
 {
-   // Pixel labels at the right edge. OBJ_TEXT on candles was unreadable:
-   // numbers sat in wicks, stacked when levels were close, and scrolled off.
+   // Цена стоит НА линии, справа от последней свечи (пустое место),
+   // не на шкале терминала и не в исторических фитилях.
    int i;
    if(!ShowPriceLabels)
    {
@@ -782,7 +782,7 @@ void PlaceZonePriceLabels()
       {
          string stale = zonePrefix + IntegerToString(i) + "_text";
          if(ObjectFind(0, stale) >= 0)
-            ObjectDelete(stale);
+            ObjectDelete(0, stale);
       }
       return;
    }
@@ -791,20 +791,17 @@ void PlaceZonePriceLabels()
    if(n <= 0)
       return;
 
+   datetime labelTime = Time[0] + PeriodSeconds() * 3;
+
    int order[];
-   int ys[];
    ArrayResize(order, n);
-   ArrayResize(ys, n);
    for(i = 0; i < n; i++)
-   {
       order[i] = i;
-      ys[i] = PriceToPixelY(zonePrices[i]);
-   }
    for(i = 0; i < n; i++)
    {
       for(int j = i + 1; j < n; j++)
       {
-         if(ys[order[j]] < ys[order[i]])
+         if(zonePrices[order[j]] > zonePrices[order[i]])
          {
             int tmp = order[i];
             order[i] = order[j];
@@ -813,43 +810,27 @@ void PlaceZonePriceLabels()
       }
    }
 
-   long height = ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS, 0);
-   if(height < 24)
-      height = 24;
-   int minGap = MathMax(14, LabelGapPixels);
-   if(n * minGap > (int)height - 16)
-      minGap = MathMax(10, ((int)height - 16) / n);
-
-   int placed[];
+   double gap = ZoneLabelGap();
+   double placed[];
    ArrayResize(placed, n);
    for(i = 0; i < n; i++)
    {
-      int y = ys[order[i]];
-      if(i > 0 && y < placed[i - 1] + minGap)
-         y = placed[i - 1] + minGap;
-      placed[i] = y;
-   }
-   int overflow = placed[n - 1] - ((int)height - 16);
-   if(overflow > 0)
-   {
-      for(i = 0; i < n; i++)
-         placed[i] -= overflow;
-   }
-   if(placed[0] < 8)
-   {
-      int shift = 8 - placed[0];
-      for(i = 0; i < n; i++)
-         placed[i] += shift;
+      double p = zonePrices[order[i]];
+      if(i > 0 && placed[i - 1] - p < gap)
+         p = placed[i - 1] - gap;
+      placed[i] = p;
    }
 
    for(i = 0; i < n; i++)
    {
       int idx = order[i];
       string textName = zonePrefix + IntegerToString(idx) + "_text";
-      if(ObjectFind(0, textName) >= 0 && ObjectType(textName) != OBJ_LABEL)
-         ObjectDelete(textName);
+      if(ObjectFind(0, textName) >= 0 &&
+         (ENUM_OBJECT)ObjectGetInteger(0, textName, OBJPROP_TYPE) != OBJ_TEXT)
+         ObjectDelete(0, textName);
       if(ObjectFind(0, textName) < 0)
-         ObjectCreate(0, textName, OBJ_LABEL, 0, 0, 0);
+         ObjectCreate(0, textName, OBJ_TEXT, 0, labelTime, placed[i]);
+      MovePointIfChanged(textName, 0, labelTime, placed[i]);
 
       string rtag = "";
       if(ShowReactionTag && zoneReaction[idx] != "" && zoneReaction[idx] != "NONE")
@@ -858,14 +839,16 @@ void PlaceZonePriceLabels()
          rtag = "  [" + zoneReaction[idx] + arrow + "]";
       }
 
-      SetIntIfChanged(textName, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-      SetIntIfChanged(textName, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
-      SetIntIfChanged(textName, OBJPROP_XDISTANCE, 8);
-      SetIntIfChanged(textName, OBJPROP_YDISTANCE, placed[i]);
-      SetStrIfChanged(textName, OBJPROP_TEXT, DoubleToString(zonePrices[idx], 2) + rtag);
-      SetIntIfChanged(textName, OBJPROP_COLOR, ZoneLabelColor());
+      color c = zoneScores[idx] >= ScoreHighFrom ? ZoneColorHigh
+              : zoneScores[idx] >= ScoreMidFrom  ? ZoneColorMid
+                                                 : ZoneColorLow;
+      if(zoneFallback[idx]) c = ZoneColorLow;
+
+      SetStrIfChanged(textName, OBJPROP_TEXT, " " + DoubleToString(zonePrices[idx], 2) + rtag);
+      SetIntIfChanged(textName, OBJPROP_COLOR, c);
       SetStrIfChanged(textName, OBJPROP_FONT, "Arial Bold");
       SetIntIfChanged(textName, OBJPROP_FONTSIZE, 9);
+      SetIntIfChanged(textName, OBJPROP_ANCHOR, ANCHOR_LEFT);
       SetIntIfChanged(textName, OBJPROP_SELECTABLE, false);
       SetIntIfChanged(textName, OBJPROP_HIDDEN, true);
       SetIntIfChanged(textName, OBJPROP_BACK, false);
