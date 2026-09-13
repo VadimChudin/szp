@@ -622,8 +622,8 @@ int PriceToPixelY(double price)
 
 void PlaceZonePriceLabels()
 {
-   // Цена стоит НА линии, справа от последней свечи (пустое место),
-   // не на шкале терминала и не в исторических фитилях.
+   // Всегда видимые подписи внутри графика: 90 px от правой границы,
+   // точно на высоте линии. Не зависят от Chart Shift и будущих баров.
    int i;
    if(!ShowPriceLabels)
    {
@@ -636,68 +636,40 @@ void PlaceZonePriceLabels()
       return;
    }
 
-   int n = currentZoneCount;
-   if(n <= 0)
-      return;
-
-   datetime labelTime = iTime(_Symbol, _Period, 0) + PeriodSeconds() * 3;
-
-   int order[];
-   ArrayResize(order, n);
-   for(i = 0; i < n; i++)
-      order[i] = i;
-   for(i = 0; i < n; i++)
+   for(i = 0; i < currentZoneCount; i++)
    {
-      for(int j = i + 1; j < n; j++)
-      {
-         if(zonePrices[order[j]] > zonePrices[order[i]])
-         {
-            int tmp = order[i];
-            order[i] = order[j];
-            order[j] = tmp;
-         }
-      }
-   }
-
-   double gap = ZoneLabelGap();
-   double placed[];
-   ArrayResize(placed, n);
-   for(i = 0; i < n; i++)
-   {
-      double p = zonePrices[order[i]];
-      if(i > 0 && placed[i - 1] - p < gap)
-         p = placed[i - 1] - gap;
-      placed[i] = p;
-   }
-
-   for(i = 0; i < n; i++)
-   {
-      int idx = order[i];
-      string textName = zonePrefix + IntegerToString(idx) + "_text";
+      string textName = zonePrefix + IntegerToString(i) + "_text";
       if(ObjectFind(0, textName) >= 0 &&
-         (ENUM_OBJECT)ObjectGetInteger(0, textName, OBJPROP_TYPE) != OBJ_TEXT)
+         (ENUM_OBJECT)ObjectGetInteger(0, textName, OBJPROP_TYPE) != OBJ_LABEL)
          ObjectDelete(0, textName);
       if(ObjectFind(0, textName) < 0)
-         ObjectCreate(0, textName, OBJ_TEXT, 0, labelTime, placed[i]);
-      MovePointIfChanged(textName, 0, labelTime, placed[i]);
+         ObjectCreate(0, textName, OBJ_LABEL, 0, 0, 0);
+
+      int x = 0;
+      int y = 0;
+      if(!ChartTimePriceToXY(0, 0, AnchorBar(), zonePrices[i], x, y))
+         y = PriceToPixelY(zonePrices[i]);
 
       string rtag = "";
-      if(ShowReactionTag && zoneReaction[idx] != "" && zoneReaction[idx] != "NONE")
+      if(ShowReactionTag && zoneReaction[i] != "" && zoneReaction[i] != "NONE")
       {
-         string arrow = zoneReactionDir[idx] == "UP" ? " ^" : zoneReactionDir[idx] == "DOWN" ? " v" : "";
-         rtag = "  [" + zoneReaction[idx] + arrow + "]";
+         string arrow = zoneReactionDir[i] == "UP" ? " ^" : zoneReactionDir[i] == "DOWN" ? " v" : "";
+         rtag = "  [" + zoneReaction[i] + arrow + "]";
       }
 
-      color c = zoneScores[idx] >= ScoreHighFrom ? ZoneColorHigh
-              : zoneScores[idx] >= ScoreMidFrom  ? ZoneColorMid
-                                                 : ZoneColorLow;
-      if(zoneFallback[idx]) c = ZoneColorLow;
+      color c = zoneScores[i] >= ScoreHighFrom ? ZoneColorHigh
+              : zoneScores[i] >= ScoreMidFrom  ? ZoneColorMid
+                                               : ZoneColorLow;
+      if(zoneFallback[i]) c = ZoneColorLow;
 
-      SetStrIfChanged(textName, OBJPROP_TEXT, " " + DoubleToString(zonePrices[idx], 2) + rtag);
+      SetIntIfChanged(textName, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      SetIntIfChanged(textName, OBJPROP_ANCHOR, ANCHOR_RIGHT);
+      SetIntIfChanged(textName, OBJPROP_XDISTANCE, 90);
+      SetIntIfChanged(textName, OBJPROP_YDISTANCE, y);
+      SetStrIfChanged(textName, OBJPROP_TEXT, DoubleToString(zonePrices[i], 2));
       SetIntIfChanged(textName, OBJPROP_COLOR, c);
       SetStrIfChanged(textName, OBJPROP_FONT, "Arial Bold");
-      SetIntIfChanged(textName, OBJPROP_FONTSIZE, 9);
-      SetIntIfChanged(textName, OBJPROP_ANCHOR, ANCHOR_LEFT);
+      SetIntIfChanged(textName, OBJPROP_FONTSIZE, 10);
       SetIntIfChanged(textName, OBJPROP_SELECTABLE, false);
       SetIntIfChanged(textName, OBJPROP_HIDDEN, true);
       SetIntIfChanged(textName, OBJPROP_BACK, false);
