@@ -278,6 +278,8 @@ jobs:
             --hidden-import ui_theme `
             --hidden-import pystray `
             --hidden-import PIL `
+            --hidden-import PIL.Image `
+            --hidden-import PIL.ImageDraw `
             --hidden-import market_data `
             --hidden-import zone_confirmation `
             --hidden-import zone_reaction `

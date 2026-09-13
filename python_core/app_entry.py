@@ -226,8 +226,9 @@ def run_tray(bridge_thread):
         # used to skip the icon and look like "SZP did not start".
         print(f"[app] Tray unavailable ({type(e).__name__}: {e})")
         print(traceback.format_exc())
-        if bridge_thread is not None and bridge_thread.is_alive():
-            bridge_thread.join()
+    if bridge_thread is not None and bridge_thread.is_alive():
+        print("[app] Tray closed, keeping the bridge running")
+        bridge_thread.join()
 
 
 # ── ГЛАВНЫЙ ЗАПУСК ────────────────────────────────────────────────
@@ -280,12 +281,12 @@ def main():
     # 2. Патчинг MT4/MT5 в фоне
     threading.Thread(target=patch_terminals, daemon=True).start()
 
-    # 3. Мост в фоне. Импорт bridge_server тянет data_fetcher/MT5 — раньше
-    # любой сбой здесь убивал процесс до иконки в трее.
-    bridge_thread = threading.Thread(target=_run_bridge, daemon=True)
+    # 3. Мост. Не daemon: если трей не удержался, процесс не должен
+    # убить расчёт зон вместе с собой.
+    bridge_thread = threading.Thread(target=_run_bridge, daemon=False, name="szp-bridge")
     bridge_thread.start()
 
-    # 4. Иконка в трее (блокирует главный поток)
+    # 4. Иконка в трее (блокирует главный поток, пока жива)
     run_tray(bridge_thread)
 
 
