@@ -9,8 +9,14 @@ def source(request):
     return (ROOT / 'mql' / request.param / 'Indicators' / f'StrongZones.{ext}').read_text(encoding='utf-8')
 
 def test_draws_actual_zone_bounds(source):
+    # Клиент: только чёткие сплошные линии. Пунктирная рамка зоны удалена,
+    # DrawZoneBounds остался как уборщик старых "_band" объектов.
     assert 'DrawZoneBounds(baseName, top, bottom, zoneColor);' in source
-    assert 'OBJ_RECTANGLE, 0, left, top, right, bottom' in source
+    fn = source[source.index('void DrawZoneBounds'):]
+    fn = fn[:fn.index('\n}\n') + 3]
+    assert 'OBJ_RECTANGLE' not in fn
+    assert 'STYLE_DOT' not in fn
+    assert 'ObjectDelete' in fn
     assert 'baseName + "_band"' in source
 
 def test_label_follows_theme_and_chart_scale(source):

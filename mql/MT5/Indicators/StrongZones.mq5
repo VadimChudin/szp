@@ -722,28 +722,11 @@ void PlaceZonePriceLabels()
 
 void DrawZoneBounds(string baseName, double top, double bottom, color zoneColor)
 {
+   // Клиент: нужны только чёткие сплошные линии. Пунктирная рамка зоны
+   // удалена совсем; заодно чистим её объекты, оставшиеся от старых сборок.
    string name = baseName + "_band";
-   if(!ShowZoneBounds || top <= bottom || bottom <= 0)
-   {
-      if(ObjectFind(0, name) >= 0) ObjectDelete(0, name);
-      return;
-   }
-   int bars = Bars(_Symbol, _Period);
-   int lookback = MathMin(MathMax(1, ZoneHistoryBars), bars - 1);
-   if(lookback < 1) return;
-   datetime left = iTime(_Symbol, _Period, lookback);
-   datetime right = AnchorBar() + PeriodSeconds() * 8;
-   if(ObjectFind(0, name) < 0)
-      ObjectCreate(0, name, OBJ_RECTANGLE, 0, left, top, right, bottom);
-   MovePointIfChanged(name, 0, left, top);
-   MovePointIfChanged(name, 1, right, bottom);
-   SetIntIfChanged(name, OBJPROP_COLOR, zoneColor);
-   SetIntIfChanged(name, OBJPROP_FILL, false);
-   SetIntIfChanged(name, OBJPROP_BACK, true);
-   SetIntIfChanged(name, OBJPROP_WIDTH, 1);
-   SetIntIfChanged(name, OBJPROP_STYLE, STYLE_DOT);
-   SetIntIfChanged(name, OBJPROP_SELECTABLE, false);
-   SetIntIfChanged(name, OBJPROP_HIDDEN, true);
+   if(ObjectFind(0, name) >= 0)
+      ObjectDelete(0, name);
 }
 
 void DrawAllZones()
