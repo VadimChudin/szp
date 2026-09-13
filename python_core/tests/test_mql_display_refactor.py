@@ -32,6 +32,10 @@ def test_label_follows_theme_and_chart_scale(source):
     assert 'ChartTimePriceToXY' in fn
     assert 'PeriodSeconds() * 3' not in fn
     assert 'PeriodSeconds() * 10' not in fn
+    # Клиент: цена белая и НАД линией, не поверх неё и не красная.
+    assert 'OBJPROP_COLOR, clrWhite' in fn
+    assert 'ANCHOR_RIGHT_LOWER' in fn
+    assert 'OBJPROP_YDISTANCE, y - 3' in fn
 
 def test_empty_array_clears_objects_before_short_file_guard(source):
     loader = source[source.index('void LoadZonesFromFile('):]

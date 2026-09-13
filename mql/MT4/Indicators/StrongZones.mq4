@@ -773,8 +773,8 @@ int PriceToPixelY(double price)
 
 void PlaceZonePriceLabels()
 {
-   // Всегда видимые подписи внутри графика: 90 px от правой границы,
-   // точно на высоте линии. Не зависят от Chart Shift и будущих баров.
+   // Белая цена НАД линией: ANCHOR_RIGHT_LOWER ставит низ текста на
+   // уровень, поэтому цифры не лежат поверх красной линии.
    int i;
    if(!ShowPriceLabels)
    {
@@ -808,17 +808,12 @@ void PlaceZonePriceLabels()
          rtag = "  [" + zoneReaction[i] + arrow + "]";
       }
 
-      color c = zoneScores[i] >= ScoreHighFrom ? ZoneColorHigh
-              : zoneScores[i] >= ScoreMidFrom  ? ZoneColorMid
-                                               : ZoneColorLow;
-      if(zoneFallback[i]) c = ZoneColorLow;
-
       SetIntIfChanged(textName, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-      SetIntIfChanged(textName, OBJPROP_ANCHOR, ANCHOR_RIGHT);
+      SetIntIfChanged(textName, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
       SetIntIfChanged(textName, OBJPROP_XDISTANCE, 90);
-      SetIntIfChanged(textName, OBJPROP_YDISTANCE, y);
+      SetIntIfChanged(textName, OBJPROP_YDISTANCE, y - 3);
       SetStrIfChanged(textName, OBJPROP_TEXT, DoubleToString(zonePrices[i], 2));
-      SetIntIfChanged(textName, OBJPROP_COLOR, c);
+      SetIntIfChanged(textName, OBJPROP_COLOR, clrWhite);
       SetStrIfChanged(textName, OBJPROP_FONT, "Arial Bold");
       SetIntIfChanged(textName, OBJPROP_FONTSIZE, 10);
       SetIntIfChanged(textName, OBJPROP_SELECTABLE, false);
