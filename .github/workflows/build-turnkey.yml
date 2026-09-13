@@ -9,7 +9,7 @@ name: Build Turnkey Installer
 
 on:
   push:
-    branches: [ 'devin/**', 'experiment/**' ]
+    branches: [ 'devin/**', 'experiment/**', 'release/**' ]
     tags: [ 'v*', 'exp-v*' ]
   workflow_dispatch:
 

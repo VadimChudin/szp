@@ -606,6 +606,120 @@ double ZoneLabelGap()
    return MathAbs(LabelOffsetUSD);
 }
 
+int PriceToPixelY(double price)
+{
+   int x = 0;
+   int y = 0;
+   if(ChartTimePriceToXY(0, 0, AnchorBar(), price, x, y))
+      return y;
+   long height = ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS, 0);
+   double pmax = ChartGetDouble(0, CHART_PRICE_MAX, 0);
+   double pmin = ChartGetDouble(0, CHART_PRICE_MIN, 0);
+   if(height <= 0 || pmax <= pmin)
+      return 0;
+   return (int)MathRound((pmax - price) / (pmax - pmin) * (double)height);
+}
+
+void PlaceZonePriceLabels()
+{
+   int i;
+   if(!ShowPriceLabels)
+   {
+      for(i = 0; i < currentZoneCount + 32; i++)
+      {
+         string stale = zonePrefix + IntegerToString(i) + "_text";
+         if(ObjectFind(0, stale) >= 0)
+            ObjectDelete(0, stale);
+      }
+      return;
+   }
+
+   int n = currentZoneCount;
+   if(n <= 0)
+      return;
+
+   int order[];
+   int ys[];
+   ArrayResize(order, n);
+   ArrayResize(ys, n);
+   for(i = 0; i < n; i++)
+   {
+      order[i] = i;
+      ys[i] = PriceToPixelY(zonePrices[i]);
+   }
+   for(i = 0; i < n; i++)
+   {
+      for(int j = i + 1; j < n; j++)
+      {
+         if(ys[order[j]] < ys[order[i]])
+         {
+            int tmp = order[i];
+            order[i] = order[j];
+            order[j] = tmp;
+         }
+      }
+   }
+
+   long height = ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS, 0);
+   if(height < 24)
+      height = 24;
+   int minGap = MathMax(14, LabelGapPixels);
+   if(n * minGap > (int)height - 16)
+      minGap = MathMax(10, ((int)height - 16) / n);
+
+   int placed[];
+   ArrayResize(placed, n);
+   for(i = 0; i < n; i++)
+   {
+      int y = ys[order[i]];
+      if(i > 0 && y < placed[i - 1] + minGap)
+         y = placed[i - 1] + minGap;
+      placed[i] = y;
+   }
+   int overflow = placed[n - 1] - ((int)height - 16);
+   if(overflow > 0)
+   {
+      for(i = 0; i < n; i++)
+         placed[i] -= overflow;
+   }
+   if(placed[0] < 8)
+   {
+      int shift = 8 - placed[0];
+      for(i = 0; i < n; i++)
+         placed[i] += shift;
+   }
+
+   for(i = 0; i < n; i++)
+   {
+      int idx = order[i];
+      string textName = zonePrefix + IntegerToString(idx) + "_text";
+      if(ObjectFind(0, textName) >= 0 &&
+         (ENUM_OBJECT)ObjectGetInteger(0, textName, OBJPROP_TYPE) != OBJ_LABEL)
+         ObjectDelete(0, textName);
+      if(ObjectFind(0, textName) < 0)
+         ObjectCreate(0, textName, OBJ_LABEL, 0, 0, 0);
+
+      string rtag = "";
+      if(ShowReactionTag && zoneReaction[idx] != "" && zoneReaction[idx] != "NONE")
+      {
+         string arrow = zoneReactionDir[idx] == "UP" ? " ^" : zoneReactionDir[idx] == "DOWN" ? " v" : "";
+         rtag = "  [" + zoneReaction[idx] + arrow + "]";
+      }
+
+      SetIntIfChanged(textName, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      SetIntIfChanged(textName, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+      SetIntIfChanged(textName, OBJPROP_XDISTANCE, 8);
+      SetIntIfChanged(textName, OBJPROP_YDISTANCE, placed[i]);
+      SetStrIfChanged(textName, OBJPROP_TEXT, DoubleToString(zonePrices[idx], 2) + rtag);
+      SetIntIfChanged(textName, OBJPROP_COLOR, ZoneLabelColor());
+      SetStrIfChanged(textName, OBJPROP_FONT, "Arial Bold");
+      SetIntIfChanged(textName, OBJPROP_FONTSIZE, 9);
+      SetIntIfChanged(textName, OBJPROP_SELECTABLE, false);
+      SetIntIfChanged(textName, OBJPROP_HIDDEN, true);
+      SetIntIfChanged(textName, OBJPROP_BACK, false);
+   }
+}
+
 void DrawZoneBounds(string baseName, double top, double bottom, color zoneColor)
 {
    string name = baseName + "_band";
@@ -636,6 +750,7 @@ void DrawAllZones()
 {
    for(int i = 0; i < currentZoneCount; i++)
       DrawSingleZone(i);
+   PlaceZonePriceLabels();
 }
 
 //+------------------------------------------------------------------+
@@ -677,36 +792,7 @@ void DrawSingleZone(int index)
    SetIntIfChanged(lineName, OBJPROP_HIDDEN, true);
    SetIntIfChanged(lineName, OBJPROP_BACK, true);
 
-   // ── 3. Текстовая подпись ──────────────────────────────────────────
-   string textName = baseName + "_text";
-   if(ShowPriceLabels)
-   {
-      // Подпись ставим НАД линией: ANCHOR_LEFT_LOWER прижимает низ текста к цене
-      // зоны, поэтому цифры больше не лежат поверх самой линии.
-      datetime textTime  = AnchorBar() - PeriodSeconds() * 10;
-      double   textPrice = (LabelAboveLine ? MathMax(price, top) : MathMin(price, bottom))
-                          + (LabelAboveLine ? ZoneLabelGap() : -ZoneLabelGap());
-
-      EnsureObject(textName, OBJ_TEXT, textTime, textPrice);
-      MovePointIfChanged(textName, 0, textTime, textPrice);
-
-      string rtag = "";
-      if(ShowReactionTag && reaction != "" && reaction != "NONE")
-      {
-         string arrow = reactionDir == "UP" ? " ^" : reactionDir == "DOWN" ? " v" : "";
-         rtag = "  [" + reaction + arrow + "]";
-      }
-      SetStrIfChanged(textName, OBJPROP_TEXT, DoubleToString(price, 2) + rtag);
-      SetIntIfChanged(textName, OBJPROP_COLOR, ZoneLabelColor());
-      SetStrIfChanged(textName, OBJPROP_FONT, "Arial Bold");
-      SetIntIfChanged(textName, OBJPROP_FONTSIZE, 9);
-      SetIntIfChanged(textName, OBJPROP_ANCHOR,
-                      LabelAboveLine ? ANCHOR_LEFT_LOWER : ANCHOR_LEFT_UPPER);
-      SetIntIfChanged(textName, OBJPROP_SELECTABLE, false);
-      SetIntIfChanged(textName, OBJPROP_HIDDEN, true);
-   }
-   else if(ObjectFind(0, textName) >= 0)
-      ObjectDelete(0, textName);
+   // Price labels are OBJ_LABEL at the right scale (PlaceZonePriceLabels).
 
    // ── 3b. Бейдж со скором зоны ──────────────────────────────────────
    // ── 3z. Пометка «ЗАКРЕП за зоной» (H1 закрытие и удержание за уровнем) ──

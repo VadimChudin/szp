@@ -17,8 +17,12 @@ def test_label_follows_theme_and_chart_scale(source):
     assert 'CHART_COLOR_FOREGROUND' in source
     assert 'CHART_HEIGHT_IN_PIXELS' in source
     assert 'OBJPROP_COLOR, ZoneLabelColor()' in source
-    assert 'LabelAboveLine ? ZoneLabelGap() : -ZoneLabelGap()' in source
+    assert 'void PlaceZonePriceLabels()' in source
+    assert 'OBJ_LABEL' in source
+    assert 'CORNER_RIGHT_UPPER' in source
+    assert 'PeriodSeconds() * 10' not in source
     assert 'if(id == CHARTEVENT_CHART_CHANGE)' in source
+    assert 'PlaceZonePriceLabels();' in source
 
 def test_empty_array_clears_objects_before_short_file_guard(source):
     loader = source[source.index('void LoadZonesFromFile('):]

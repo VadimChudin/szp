@@ -36,7 +36,9 @@ def test_mt4_mt5_zone_cap_is_configurable_not_hardcoded_six():
 def test_active_zone_drawers_use_horizontal_lines_not_rectangle_ranges():
     for relative in ("mql/MT4/Indicators/StrongZones.mq4", "mql/MT5/Indicators/StrongZones.mq5"):
         source = _source(relative)
-        section = source[source.index("void DrawSingleZone"):source.index("// ── 3.", source.index("void DrawSingleZone"))]
+        start = source.index("void DrawSingleZone")
+        end = source.find("string zkName", start)
+        section = source[start:end if end > start else start + 2500]
         assert "OBJ_HLINE" in section
         assert "OBJ_RECTANGLE" not in section
 
