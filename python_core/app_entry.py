@@ -165,11 +165,21 @@ def patch_terminals():
 
 
 # ── Системный трей ──────────────────────────────────────────────
+def _run_bridge():
+    """Мост в фоне. Ошибка импорта/расчёта не должна гасить иконку в трее."""
+    try:
+        from bridge_server import run_monitor_loop
+        run_monitor_loop(5)
+    except Exception as e:
+        print(f"[app] Bridge stopped: {e}")
+        print(traceback.format_exc())
+
+
 def run_tray(bridge_thread):
     """Иконка в трее: Smart Zones Pro работает в фоне."""
     try:
         import pystray
-        from PIL import Image, ImageDraw, ImageFont  # noqa: F401  (проба доступности шрифтов)
+        from PIL import Image, ImageDraw
         
         # Маленький логотип без рамки — синий круг и SZ.
         img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
@@ -217,10 +227,14 @@ def run_tray(bridge_thread):
             menu,
         )
         icon.run()
-        
-    except ImportError:
-        # Без pystray просто ждём
-        bridge_thread.join()
+
+    except Exception as e:
+        # Windowed EXE has no console. ImportError (missing ImageFont/pystray)
+        # used to skip the icon and look like "SZP did not start".
+        print(f"[app] Tray unavailable ({type(e).__name__}: {e})")
+        print(traceback.format_exc())
+        if bridge_thread is not None and bridge_thread.is_alive():
+            bridge_thread.join()
 
 
 # ── ГЛАВНЫЙ ЗАПУСК ────────────────────────────────────────────────
@@ -272,12 +286,12 @@ def main():
     
     # 2. Патчинг MT4/MT5 в фоне
     threading.Thread(target=patch_terminals, daemon=True).start()
-    
-    # 3. Мост (bridge_server) в фоновом потоке
-    from bridge_server import run_monitor_loop
-    bridge_thread = threading.Thread(target=run_monitor_loop, args=(5,), daemon=True)
+
+    # 3. Мост в фоне. Импорт bridge_server тянет data_fetcher/MT5 — раньше
+    # любой сбой здесь убивал процесс до иконки в трее.
+    bridge_thread = threading.Thread(target=_run_bridge, daemon=True)
     bridge_thread.start()
-    
+
     # 4. Иконка в трее (блокирует главный поток)
     run_tray(bridge_thread)
 

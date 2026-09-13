@@ -18,9 +18,11 @@ from market_data import closed_data, TIMEFRAME_SECONDS
 try:
     import MetaTrader5 as mt5
     MT5_AVAILABLE = True
-except ImportError:
+except Exception as e:
+    # Frozen Windows builds often raise OSError (missing/broken native DLL),
+    # not ImportError. That used to abort app_entry before the tray appeared.
     MT5_AVAILABLE = False
-    print("[data_fetcher] WARN: MetaTrader5 package not found. Using CSV mode.")
+    print(f"[data_fetcher] WARN: MetaTrader5 unavailable ({type(e).__name__}: {e}). Using CSV mode.")
 
 
 # Длительность свечи по таймфреймам — допуск к возрасту данных.

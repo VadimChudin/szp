@@ -3,6 +3,7 @@
 """
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -123,6 +124,14 @@ class TestFetchAllTimeframes:
 
         data = fetch_all_timeframes("XAUUSD")
         assert set(data) == set(config.TIMEFRAMES)
+
+
+class TestMt5Optional:
+    def test_broken_native_dll_is_treated_as_unavailable(self):
+        text = Path(data_fetcher.__file__).read_text(encoding="utf-8")
+        block = text.split("import MetaTrader5 as mt5", 1)[1][:500]
+        assert "except Exception as e:" in block
+        assert "MT5_AVAILABLE = False" in block
 
 
 class TestCsvEncoding:
