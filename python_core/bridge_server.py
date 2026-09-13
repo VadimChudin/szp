@@ -387,8 +387,13 @@ def run_monitor_loop(interval_seconds: int = 5):
     print(f"[bridge] Output:   {ZONES_OUTPUT}")
     print("[bridge] Press Ctrl+C to stop\n")
 
-    # Первый расчёт при старте
-    data_ok = calculate_and_export_zones() is not None
+    # Первый расчёт при старте. Сбой данных/импорта не должен гасить процесс.
+    try:
+        data_ok = calculate_and_export_zones() is not None
+    except Exception as e:
+        print(f"[bridge] ERROR: initial calculation failed: {e}")
+        traceback.print_exc()
+        data_ok = False
 
     last_calc_time = time.time()
     last_attempt_time = last_calc_time

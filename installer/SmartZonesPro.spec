@@ -51,7 +51,10 @@ hiddenimports += [
     'fvg_detector', 'bridge_server', 'footprint_data', 'footprint_window',
     'tick_reader', 'sync_zones_to_mt4', 'persistent_zones',
     'telegram_bot', 'smart_zones_tray', 'dukascopy_loader',
-    'settings_window', 'paths', 'installer_gui',
+    'settings_window', 'paths', 'installer_gui', 'ui_theme', 'version',
+    'applog', 'market_data', 'zone_confirmation', 'zone_reaction',
+    'accumulation', 'active_zones', 'sl_model', 'liquidity_source',
+    'broker_normalize',
     # ── Слой ИИ ──
     # ai.keygen сюда НЕ входит осознанно: генератор ключей содержит логику
     # выпуска лицензий и остаётся только у разработчика (см. excludes ниже).

@@ -278,6 +278,16 @@ jobs:
             --hidden-import ui_theme `
             --hidden-import pystray `
             --hidden-import PIL `
+            --hidden-import market_data `
+            --hidden-import zone_confirmation `
+            --hidden-import zone_reaction `
+            --hidden-import accumulation `
+            --hidden-import active_zones `
+            --hidden-import sl_model `
+            --hidden-import applog `
+            --hidden-import version `
+            --hidden-import liquidity_source `
+            --hidden-import broker_normalize `
             --add-data "$repo\python_core\brokers.json;." `
             --add-data "$repo\python_core\build_version.txt;." `
             --add-data "$repo\data_bridge\footprint_1h.html;data_bridge" `
