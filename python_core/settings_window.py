@@ -10,8 +10,9 @@ settings_window.py — Окно настроек Smart Zones Pro (Tkinter).
 Запускается как отдельный процесс (`app_entry.py --settings`), чтобы Tkinter
 работал в своём главном потоке и не конфликтовал с иконкой pystray.
 """
+import math
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox, ttk
 
 import paths
 import ui_theme as ui
@@ -27,6 +28,16 @@ _DEFAULT_BROKERS = {
         for i in range(BROKER_SLOTS)
     ],
 }
+
+
+def _positive_number(raw: str, label: str) -> float:
+    try:
+        value = float(raw.replace(" ", "").replace(",", "."))
+    except ValueError:
+        raise ValueError(f"{label} должен быть числом больше 0") from None
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{label} должен быть числом больше 0")
+    return value
 
 
 # ── brokers.json ──────────────────────────────────────────────────────
@@ -337,12 +348,14 @@ class SettingsWindow(tk.Tk):
 
     def _collect_brokers(self) -> dict:
         brokers = []
-        for vars_ in self._broker_vars:
+        for i, vars_ in enumerate(self._broker_vars, start=1):
             login_raw = vars_["login"].get().strip()
             try:
                 login = int(login_raw) if login_raw else 0
             except ValueError:
-                login = 0
+                raise ValueError(f"Broker {i}: Login должен быть целым положительным числом") from None
+            if login_raw and login <= 0:
+                raise ValueError(f"Broker {i}: Login должен быть целым положительным числом")
             brokers.append({
                 "name": vars_["name"].get().strip(),
                 "server": vars_["server"].get().strip(),
@@ -354,27 +367,27 @@ class SettingsWindow(tk.Tk):
 
     def _save(self):
         try:
-            scope_raw = self._zone_scope.get().replace(" ", "").replace(",", ".")
             max_raw = self._max_zones.get().replace(" ", "")
-            scope = float(scope_raw)
+            scope = _positive_number(self._zone_scope.get(), "Скоп")
             max_zones = int(max_raw)
             min_score = int(self._min_score.get().replace(" ", ""))
-            if scope <= 0:
-                raise ValueError("Скоп должен быть больше 0")
+            tolerance = _positive_number(self._validation_tolerance.get().strip() or "5.0",
+                                         "Допуск совпадения")
             if not 1 <= max_zones <= 500:
                 raise ValueError("Количество зон должно быть от 1 до 500")
             if not 0 <= min_score <= 100:
                 raise ValueError("Мин. сила зоны должна быть от 0 до 100")
+            brokers = self._collect_brokers()
         except ValueError as exc:
             messagebox.showerror("Ошибка", str(exc))
             return
 
-        ok_brokers = save_brokers(self._collect_brokers())
+        ok_brokers = save_brokers(brokers)
         ok_env = update_env({
             "DATA_SOURCE": self._data_source.get(),
             "VALIDATION_MODE": self._validation_mode.get().strip().lower(),
             "BROKER_OFFSET_ENABLED": "true" if self._broker_offset.get() else "false",
-            "VALIDATION_TOLERANCE": self._validation_tolerance.get().strip() or "5.0",
+            "VALIDATION_TOLERANCE": f"{tolerance:g}",
             "ZONE_SCOPE_PIPS": f"{scope:g}",
             "MAX_ZONES_ON_CHART": str(max_zones),
             "MIN_ZONE_SCORE": str(min_score),

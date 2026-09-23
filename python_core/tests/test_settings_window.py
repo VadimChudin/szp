@@ -12,10 +12,10 @@ Tkinter требует дисплей, поэтому само окно здес
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
+from types import SimpleNamespace
 
 import paths
+import pytest
 import settings_window
 
 SOURCE = Path(settings_window.__file__).read_text(encoding="utf-8")
@@ -121,3 +121,76 @@ def test_save_does_not_write_duplicate_scope_knob():
 def test_settings_mentions_terminal_input_for_limit():
     """Клиент должен знать, что в терминале лимит задаётся входом индикатора."""
     assert "MaxZonesToDraw" in SOURCE
+
+
+def _form(*, login="12345", scope="800", tolerance="5.0"):
+    def field(value):
+        return SimpleNamespace(get=lambda: value)
+
+    form = SimpleNamespace(
+        _zone_scope=field(scope), _max_zones=field("6"), _min_score=field("11"),
+        _validation_tolerance=field(tolerance), _data_source=field("dukascopy"),
+        _validation_mode=field("validate"), _broker_offset=field(True),
+        _test_invalidates=field(False), _tg_enabled=field(False),
+        _tg_token=field(""), _tg_chat=field(""), _active_var=field(0),
+        _broker_vars=[{key: field(value) for key, value in {
+            "name": "Broker 1", "server": "", "login": login,
+            "password": "", "path": "",
+        }.items()}],
+        destroy=lambda: None,
+    )
+    form._collect_brokers = lambda: settings_window.SettingsWindow._collect_brokers(form)
+    return form
+
+
+@pytest.mark.parametrize(("field", "value", "error"), [
+    ("login", "12oops", "Broker 1: Login"),
+    ("login", "-10", "Broker 1: Login"),
+    ("login", "0", "Broker 1: Login"),
+    ("scope", "nan", "Скоп"),
+    ("scope", "inf", "Скоп"),
+    ("tolerance", "oops", "Допуск совпадения"),
+    ("tolerance", "0", "Допуск совпадения"),
+    ("tolerance", "nan", "Допуск совпадения"),
+])
+def test_invalid_settings_do_not_write_any_file(env_file, tmp_path, monkeypatch,
+                                                field, value, error):
+    brokers_file = tmp_path / "brokers.json"
+    monkeypatch.setattr(paths, "BROKERS_FILE", brokers_file)
+    messages = []
+    monkeypatch.setattr(settings_window.messagebox, "showerror", lambda _, msg: messages.append(msg))
+
+    settings_window.SettingsWindow._save(_form(**{field: value}))
+
+    assert messages and error in messages[0]
+    assert not env_file.exists()
+    assert not brokers_file.exists()
+
+
+def test_invalid_login_preserves_existing_settings(env_file, tmp_path, monkeypatch):
+    brokers_file = tmp_path / "brokers.json"
+    env_file.write_text("ZONE_SCOPE_PIPS=800\n", encoding="utf-8")
+    brokers_file.write_text('{"active_broker": 0, "brokers": []}\n', encoding="utf-8")
+    monkeypatch.setattr(paths, "BROKERS_FILE", brokers_file)
+    monkeypatch.setattr(settings_window.messagebox, "showerror", lambda *_: None)
+
+    settings_window.SettingsWindow._save(_form(login="123x"))
+
+    assert env_file.read_text(encoding="utf-8") == "ZONE_SCOPE_PIPS=800\n"
+    assert brokers_file.read_text(encoding="utf-8") == '{"active_broker": 0, "brokers": []}\n'
+
+
+def test_valid_settings_save_login_and_normalized_numbers(env_file, tmp_path, monkeypatch):
+    import json
+
+    brokers_file = tmp_path / "brokers.json"
+    monkeypatch.setattr(paths, "BROKERS_FILE", brokers_file)
+    monkeypatch.setattr(settings_window.messagebox, "showinfo", lambda *_: None)
+
+    settings_window.SettingsWindow._save(_form(login=" 12345 ", scope="800,5",
+                                               tolerance="2,5"))
+
+    assert json.loads(brokers_file.read_text(encoding="utf-8"))["brokers"][0]["login"] == 12345
+    text = env_file.read_text(encoding="utf-8")
+    assert "ZONE_SCOPE_PIPS=800.5" in text
+    assert "VALIDATION_TOLERANCE=2.5" in text
