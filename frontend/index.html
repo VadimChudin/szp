@@ -8,13 +8,24 @@
 </head>
 <body>
 <div class="app">
-  <header class="topbar">
-    <div class="brand">
-      <img alt="SysAT" class="brand-logo" src="assets/logo.webp"/>
-      <div>
-        <div class="brand-title">ЛПЗС «РОДИНА» · ЛИНИЯ ПОДГОТОВКИ ЗЕРНА И СЕМЯН</div>
-        <div class="brand-sub">Эмулятор пульта · логика по проекту ПЛК CODESYS «Rodina» · ЕФБШ-630.01</div>
-      </div>
+  <header class="site-header">
+    <a class="site-logo" href="https://sysat.by/" title="SysAT — на главную"><img alt="SysAT" src="assets/logo-contur.webp"/></a>
+    <nav class="site-nav" aria-label="Сайт SysAT">
+      <a href="https://sysat.by/projects/">Проекты</a>
+      <a href="https://sysat.by/uslugi/">Услуги</a>
+      <a href="https://sysat.by/certificates/">Сертификаты</a>
+      <a class="current" aria-current="page" href="./">Симулятор</a>
+      <a href="https://sysat.by/news/">Новости</a>
+      <a href="https://sysat.by/contact-us/">Контакты</a>
+      <a href="https://sysat.by/about/">О компании</a>
+      <a href="https://sysat.by/vakansii/">Вакансии</a>
+    </nav>
+  </header>
+
+  <div class="topbar">
+    <div class="page-title">
+      <h1>Симулятор ЛПЗС «Родина»</h1>
+      <div class="page-sub">Линия подготовки зерна и семян · логика ПЛК CODESYS «Rodina» · ЕФБШ-630.01</div>
     </div>
     <nav class="tabs" aria-label="Разделы">
       <button class="tab active" data-tab="mimic" type="button">Мнемосхема</button>
@@ -26,13 +37,13 @@
     <div class="top-right">
       <div class="lamps">
         <span class="lamp" id="lamp-mode" title="Mode_och — режим очистки"><i></i>Режим</span>
-        <span class="lamp" id="lamp-gemer" title="GEMER — общая авария"><i></i>Общая авария</span>
+        <span class="lamp" id="lamp-gemer" title="GEMER — общая авария"><i></i>Авария</span>
         <span class="lamp" id="lamp-siren" title="SIRENA — выход сирены"><i></i>Сирена</span>
       </div>
       <div class="clock-block"><div id="clock">00:00:00</div><div id="date"></div></div>
-      <button class="estop" id="btn-estop" type="button" title="Кнопка «СТОП» на шкафу управления (AVAR_STOP, x0_1)">АВАРИЙНЫЙ СТОП</button>
+      <button class="estop" id="btn-estop" type="button" title="Кнопка «СТОП» на шкафу управления (AVAR_STOP, x0_1)">Аварийный стоп</button>
     </div>
-  </header>
+  </div>
 
   <div class="workspace">
     <main class="stage-wrap">

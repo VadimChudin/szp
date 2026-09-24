@@ -288,7 +288,20 @@
           bo_1: "ДВУ снимает CYCLE у конвейера 2 (подача).", bo_2: "ДВУ снимает CYCLE у конвейера 2 и остеобрушивателя.",
           bo_3: "ДВУ снимает CYCLE у конвейера 2, ТОР и битера ТОР, триеров, норий 12 и 15.",
         }[key]));
-        b.append(h("div", { class: "btn-row" }, h("button", { class: "btn-sw", type: "button", onclick: () => run(P.unload(key)) }, "Выгрузить бункер")));
+        const tid = { V: "truck_out", A: "truck_A", B: "truck_B" }[key];
+        if (tid) {
+          const st = h("div", { class: "row" }, h("span", {}, "Автомобиль под бункером"), h("span", { class: "val" }));
+          up(() => {
+            const t = S.trucks[tid];
+            st.lastChild.textContent = { away: "нет", arrive: "подъезжает", work: t.pour ? "загрузка " + Math.round(t.load * 100) + " %" : "на месте", leave: "уезжает" }[t.phase];
+          });
+          b.append(st);
+          b.append(h("div", { class: "btn-row" },
+            h("button", { class: "btn-sw", type: "button", onclick: () => run(P.callTruck(tid)) }, "Вызвать автомобиль"),
+            h("button", { class: "btn-sw", type: "button", onclick: () => run(P.unload(key)) }, "Выгрузить мгновенно")));
+        } else {
+          b.append(h("div", { class: "btn-row" }, h("button", { class: "btn-sw", type: "button", onclick: () => run(P.unload(key)) }, "Выгрузить бункер")));
+        }
       },
     });
   }
@@ -299,9 +312,17 @@
         b.append(row("Уровень зерна", val(() => S.levels.pit * 100, up, (x) => x.toFixed(1)), h("span", { class: "unit" }, "%")));
         b.append(h("div", { class: "row link", onclick: () => openDrive("conv_2") }, h("span", {}, "Окно: конвейер поз. 2"), h("span", {}, "»")));
         b.append(h("div", { class: "row link", onclick: () => openDrive("vor") }, h("span", {}, "Окно: ворошитель поз. 1"), h("span", {}, "»")));
+        const st = h("div", { class: "row" }, h("span", {}, "Автомобиль с зерном"), h("span", { class: "val" }));
+        up(() => {
+          const t = S.trucks.truck_in;
+          st.lastChild.textContent = { away: "нет", arrive: "подъезжает", work: t.pour ? "разгрузка, осталось " + Math.round(t.load * 100) + " %" : "на месте", leave: "уезжает" }[t.phase];
+        });
+        b.append(st);
         b.append(h("div", { class: "btn-row" },
-          h("button", { class: "btn-sw", type: "button", onclick: () => run(P.refillPit(100)) }, "Разгрузить автомобиль (100 %)"),
+          h("button", { class: "btn-sw", type: "button", onclick: () => run(P.callTruck("truck_in")) }, "Вызвать автомобиль"),
+          h("button", { class: "btn-sw", type: "button", onclick: () => run(P.refillPit(100)) }, "Заполнить мгновенно"),
           h("button", { class: "btn-sw", type: "button", onclick: () => run(P.unload("pit")) }, "Очистить")));
+        b.append(h("div", { class: "note" }, "При включённом автотранспорте (Настройки → Модель) автомобиль приезжает сам, когда в яме меньше 30 %, а под бункеры В, А, Б — когда они заполнены больше чем на 72 %."));
       },
     });
   }
@@ -578,8 +599,11 @@
     const sp = h("select", {}, ...[1, 2, 5, 10, 20].map((k) => h("option", { value: k, selected: S.timeScale === k }, "×" + k)));
     sp.addEventListener("change", () => { run(P.setTimeScale(sp.value)); $("#speed").value = S.timeScale; });
     sim.append(h("div", { class: "set-row" }, h("span", {}, "Скорость модели (вместе с таймерами ПЛК)"), sp));
+    const auto = h("input", { type: "checkbox", checked: S.autoTrucks });
+    auto.addEventListener("change", () => run(P.setAutoTrucks(auto.checked)));
+    sim.append(h("label", { class: "set-row" }, h("span", {}, "Автотранспорт: подвоз в яму и вывоз из бункеров"), auto));
     sim.append(h("div", { class: "set-row" }, h("span", {}, "Завальная яма"),
-      h("button", { class: "btn btn-sm", type: "button", onclick: () => run(P.refillPit(100)) }, "Загрузить 100 %")));
+      h("button", { class: "btn btn-sm", type: "button", onclick: () => run(P.callTruck("truck_in")) }, "Вызвать автомобиль")));
     sim.append(h("div", { class: "set-row" }, h("span", {}, "Конечные бункеры А, Б, В"),
       h("button", { class: "btn btn-sm", type: "button", onclick: () => { ["A", "B", "V"].forEach((k) => P.unload(k)); save(); } }, "Выгрузить все")));
     const vw = $("#set-view");
@@ -620,7 +644,7 @@
       Object.keys(V).forEach((k) => { if (RETAIN(k)) v[k] = V[k]; });
       const hours = {};
       Object.entries(S.machines).forEach(([id, m]) => { hours[id] = [m.hours, m.hoursTotal, m.toHours]; });
-      try { localStorage.setItem(STORE, JSON.stringify({ v, hours, user: S.user.login, speed: S.timeScale, view: R.getViewOpt() })); } catch (e) { /* приватный режим */ }
+      try { localStorage.setItem(STORE, JSON.stringify({ v, hours, user: S.user.login, speed: S.timeScale, autoTrucks: S.autoTrucks, view: R.getViewOpt() })); } catch (e) { /* приватный режим */ }
     }, 300);
   }
   function load() {
@@ -641,6 +665,7 @@
     });
     if (typeof d.user === "string" && d.user) S.user.login = d.user.slice(0, 40);
     if (d.speed) P.setTimeScale(d.speed);
+    if (typeof d.autoTrucks === "boolean") S.autoTrucks = d.autoTrucks;
     if (d.view && typeof d.view === "object") R.setViewOpt(Object.fromEntries(Object.entries(d.view).filter(([, x]) => typeof x === "boolean")));
   }
   setInterval(save, 10000);
@@ -715,7 +740,10 @@
       let html = "";
       if (ids.length) html = ids.map((d) => `<b>${esc(S.machines[d].name)}</b> · поз. ${S.machines[d].poz}<br>${esc(stateText(d)[0])}`).join("<hr style='border-color:#2b3d50'>");
       else if (n.level) html = `<b>${n.letter ? "Бункер " + n.letter : "Бункер оперативный " + n.poz}</b><br>Уровень ${(S.levels[n.level] * 100).toFixed(0)} %`;
-      else if (id.startsWith("truck")) html = id === "truck_in" ? "Автомобиль: загрузка завальной ямы" : "Автомобиль: выгрузка бункера";
+      else if (id.startsWith("truck")) {
+        const t = S.trucks[id];
+        html = (id === "truck_in" ? "<b>Автомобиль с зерном</b><br>Осталось в кузове " : "<b>Автомобиль под бункером</b><br>Загружен на ") + Math.round(t.load * 100) + " %";
+      }
       else html = { magnet_3: "Магнитный сепаратор ПМ-200 (поз. 3)", cyc_1: "Циклон АС-1", cyc_2: "Циклон АС-2", cyc_3: "Циклон АС-3" }[id] || id;
       tip.innerHTML = html;
       tip.style.display = "block";

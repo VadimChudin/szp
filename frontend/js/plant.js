@@ -27,7 +27,7 @@
   /* ------------------------------------------------------------ узлы схемы */
   // drive — привод ПЛК, по которому анимируется узел.
   const ND = {
-    truck_in:  { ...byW("truck", 40, 250, 300), kind: "truck" },
+    truck_in:  { ...byW("truck", 40, 250, 300), kind: "truck", serves: "pit" },
     intake:    { ...byW("intake", 40, 450, 420), kind: "intake", drive: "conv_2", poz: "1–2" },
     m_vor:     { ...motor(70, 700, "vor"), poz: "1", parent: "intake" },
     magnet_3:  { ...byW("magnet", 488, 600, 64), kind: "magnet", poz: "3" },
@@ -58,7 +58,7 @@
     fan_asp_3: { ...byW("fan", 2745, 110, 100), kind: "fan", drive: "fan_asp_3", poz: "19" },
     noria_20:  { ...byH("noria", 3035, 200, 470), kind: "noria", drive: "noria_20", poz: "20" },
     bun_21:    { ...byH("silo", 3265, 225, 360), kind: "silo", level: "V", poz: "21", letter: "В" },
-    truck_out: { ...byW("truck", 3250, 640, 300), kind: "truck" },
+    truck_out: { ...byW("truck", 3250, 640, 300), kind: "truck", serves: "V" },
 
     cyc_1:     { ...byH("cyclone", 60, 905, 290), kind: "cyclone", poz: "7" },
     cyc_2:     { ...byH("cyclone", 265, 905, 290), kind: "cyclone", poz: "11" },
@@ -72,8 +72,8 @@
     bun_A:     { ...byH("silo", 1500, 1150, 330), kind: "silo", level: "A", poz: "25", letter: "А" },
     bun_B:     { ...byH("silo", 1700, 1150, 330), kind: "silo", level: "B", poz: "25", letter: "Б" },
     noria_24:  { ...byH("noria", 1905, 1060, 460), kind: "noria", drive: "noria_24", poz: "24" },
-    truck_A:   { ...byW("truck", 1470, 1560, 220), kind: "truck" },
-    truck_B:   { ...byW("truck", 1700, 1560, 220), kind: "truck" },
+    truck_A:   { ...byW("truck", 1450, 1560, 220), kind: "truck", serves: "A" },
+    truck_B:   { ...byW("truck", 1672, 1560, 220), kind: "truck", serves: "B" },
     conv_22_4: { ...byW("screw", 2040, 905, 440), kind: "screw", drive: "conv_22_4", poz: "22.4" },
     conv_22_2: { ...byW("screw", 2180, 1255, 480), kind: "screw", drive: "conv_22_2", poz: "22.2" },
     conv_22_3: { ...byW("screw", 2780, 1080, 480), kind: "screw", drive: "conv_22_3", poz: "22.3" },
@@ -198,6 +198,14 @@
     machines: {},
     levels: { pit: 0.86, bo_1: 0, bo_2: 0, bo_3: 0, V: 0.18, A: 0.34, B: 0.22 },
     clock: 0, timeScale: 1, scanDt: 0.02,
+    autoTrucks: true,
+    // Автотранспорт: подвоз зерна в яму и вывоз из бункеров В, А, Б.
+    trucks: {
+      truck_in: { phase: "away", x: -600, load: 1, req: false },
+      truck_out: { phase: "away", x: 600, load: 0, req: false },
+      truck_A: { phase: "away", x: 600, load: 0, req: false },
+      truck_B: { phase: "away", x: 600, load: 0, req: false },
+    },
     alarms: [], archive: [],
     user: { login: "operator", role: "Оператор" },
   };
@@ -444,6 +452,55 @@
     }
   }
 
+  /* ------------------------------------------------------- автотранспорт */
+  const TRUCK = {
+    truck_in: { key: "pit", kg: 4200, rate: 420, from: -600, auto: () => S.levels.pit < 0.3 },
+    truck_out: { key: "V", kg: 8000, rate: 700, from: 600, auto: () => S.levels.V > 0.72 },
+    truck_A: { key: "A", kg: 2500, rate: 350, from: 600, auto: () => S.levels.A > 0.72 },
+    truck_B: { key: "B", kg: 2500, rate: 350, from: 600, auto: () => S.levels.B > 0.72 },
+  };
+  const DRIVE_SPEED = 260;                          // ед. схемы в секунду
+  function stepTrucks(dt) {
+    for (const [id, t] of Object.entries(S.trucks)) {
+      const c = TRUCK[id];
+      const move = (to) => {
+        const d = to - t.x, st = DRIVE_SPEED * dt;
+        t.x = Math.abs(d) <= st ? to : t.x + Math.sign(d) * st;
+        t.moving = t.x !== to;
+        return !t.moving;
+      };
+      if (t.phase === "away") {
+        t.moving = false;
+        if (t.req || (S.autoTrucks && c.auto())) {
+          t.req = false; t.phase = "arrive"; t.x = c.from;
+          t.load = id === "truck_in" ? 1 : 0;
+        }
+      } else if (t.phase === "arrive") {
+        if (move(0)) { t.phase = "work"; t.t = 0; }
+      } else if (t.phase === "work") {
+        t.t += dt;
+        if (t.t < 0.8) continue;                     // пауза: подъём кузова / открытие затвора
+        const kg = c.rate * dt;
+        if (id === "truck_in") {
+          const room = (1 - S.levels.pit) * CAP.pit;
+          const q = Math.min(kg, t.load * c.kg, room);
+          t.pour = q > 0;
+          t.load = Math.max(0, t.load - q / c.kg);
+          addLevel("pit", q);
+          if (t.load <= 0.001 || (room <= 1 && t.t > 3)) { t.phase = "leave"; t.pour = false; }
+        } else {
+          const q = Math.min(kg, L(c.key), (1 - t.load) * c.kg);
+          t.pour = q > 0;
+          t.load = Math.min(1, t.load + q / c.kg);
+          addLevel(c.key, -q);
+          if (t.load >= 0.999 || (L(c.key) <= 1 && t.t > 3)) { t.phase = "leave"; t.pour = false; }
+        }
+      } else if (t.phase === "leave") {
+        if (move(c.from)) { t.phase = "away"; t.x = c.from; }
+      }
+    }
+  }
+
   /* ------------------------------------------------------- физика приводов */
   function stepMachines(dt) {
     for (const [id, m] of Object.entries(S.machines)) {
@@ -581,6 +638,7 @@
       stepMachines(h);
       plc.scan(h);
       stepFlow(h);
+      stepTrucks(h);
     }
     watch();
   }
@@ -675,11 +733,21 @@
     if (String(h).trim() === "" || !Number.isFinite(n) || n < 0 || n > 100000) return fail("Недопустимое значение");
     S.machines[id].toHours = n; return ok();
   }
+  // Вызов автомобиля: разгрузка в яму или вывоз из бункера.
+  function callTruck(id) {
+    const t = S.trucks[id];
+    if (!t) return fail("Нет такого места разгрузки");
+    if (t.phase !== "away" || t.req) return fail("Автомобиль уже вызван");
+    t.req = true;
+    raise(id === "truck_in" ? "Вызван автомобиль с зерном к завальной яме" : "Вызван автомобиль под " + LEVEL_NAME[TRUCK[id].key].toLowerCase(), "info");
+    return ok();
+  }
   function refillPit(pct) {
     S.levels.pit = Math.max(0, Math.min(1, (pct == null ? 100 : pct) / 100));
     raise("Завальная яма загружена до " + Math.round(S.levels.pit * 100) + " %", "ok");
     return ok();
   }
+  function setAutoTrucks(on) { S.autoTrucks = !!on; return ok(); }
   const LEVEL_NAME = { V: "Бункер В", A: "Бункер А", B: "Бункер Б", bo_1: "БО-1", bo_2: "БО-2", bo_3: "БО-3", pit: "Завальная яма" };
   function unload(key) {
     if (!(key in S.levels)) return fail("Нет такой ёмкости");
@@ -731,6 +799,6 @@
     S, V, plc, W, H, ND, A, DUCTS, ELEM, DEF, PCH, LOCAL_STOP, CAP, ESTOP_TEXT, LEVEL_NAME, OPTIONS,
     tick, routeName, setOption, modeStart, modeStop, resetErr, setMute, setInput,
     hmi, setTimer, getTimer, pressStart, pressStop, pressPos, setSim, setLocal, localVar, setDvu,
-    resetHours, setToHours, refillPit, unload, setTimeScale, info, statusLine, raise, ts, routesOf,
+    resetHours, setToHours, refillPit, unload, callTruck, setAutoTrucks, TRUCK, setTimeScale, info, statusLine, raise, ts, routesOf,
   };
 })(typeof window !== "undefined" ? window : globalThis);

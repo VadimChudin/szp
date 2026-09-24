@@ -18,6 +18,7 @@ function fresh() {
   globalThis.window = globalThis;
   require(path.join(ROOT, 'plc.js'));
   require(path.join(ROOT, 'plant.js'));
+  globalThis.PLANT.S.autoTrucks = false;             // автотранспорт проверяется отдельно
   return globalThis.PLANT;
 }
 const run = (P, sec) => { for (let i = 0; i < Math.round(sec / 0.05); i++) P.tick(0.05); };
@@ -273,6 +274,31 @@ test('Задержки: 0 в поле ПЛК заменяет значением
   assert.equal(P.setTimer('noria_4', 'start', 0).ok, true); run(P, 0.1);
   assert.equal(P.getTimer('noria_4', 'start'), 3);
   assert.equal(P.getTimer('noria_20', 'start'), P.getTimer('noria_23', 'start'), 'нория 20 делит таймеры с норией 23');
+});
+
+/* ---------------------------------------------------- автотранспорт */
+test('Автомобиль приезжает, разгружается в яму и уезжает', () => {
+  const P = fresh(), S = P.S;
+  S.levels.pit = 0.1;
+  assert.equal(P.callTruck('truck_in').ok, true);
+  assert.equal(P.callTruck('truck_in').ok, false, 'повторный вызов отклоняется');
+  run(P, 4); assert.equal(S.trucks.truck_in.phase, 'work');
+  run(P, 15);
+  assert.ok(S.levels.pit > 0.45, 'яма пополнена: ' + S.levels.pit.toFixed(2));
+  run(P, 5); assert.equal(S.trucks.truck_in.phase, 'away');
+});
+test('Автовывоз из бункера В не даёт сработать ДВУ, пока идёт очистка', () => {
+  const P = fresh(), S = P.S;
+  S.autoTrucks = true; S.levels.V = 0.9;
+  run(P, 20);
+  assert.ok(S.levels.V < 0.5, 'бункер В выгружен: ' + S.levels.V.toFixed(2));
+  assert.equal(P.V.out_dvy_a, false);
+});
+test('Автоподвоз: яма пополняется сама, когда меньше 30 %', () => {
+  const P = fresh(), S = P.S;
+  S.autoTrucks = true; S.levels.pit = 0.2;
+  run(P, 20);
+  assert.ok(S.levels.pit > 0.5);
 });
 
 for (const r of results) console.log(r[0].padEnd(4), r[1] + (r[2] ? '\n     ' + r[2] : ''));

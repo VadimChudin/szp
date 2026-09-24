@@ -22,10 +22,10 @@
     "fan", "tor", "trier", "diverter", "pneumo", "silo", "screw", "cyclone", "truck"];
 
   const C = {
-    bg0: "#0a1119", bg1: "#0e1822", grid: "#13202c",
+    bg0: "#050b15", bg1: "#0a1628", grid: "rgba(70,130,210,.07)",
     grain0: "#f0c24e", grain1: "#d9a333", grain2: "#a9761c",
     dust: "rgba(190,186,176,.8)", chaff: "#8a6a2e",
-    pipe: "#3d4a57", text: "#d3dde8", textDim: "#7a8898",
+    pipe: "#34465f", text: "#d3dde8", textDim: "#7a8898",
     ok: "#37b866", warn: "#d9a53a", bad: "#e0503f", info: "#4b8fd1", idle: "#6f7d8c",
   };
 
@@ -126,6 +126,7 @@
   function hitAt(wx, wy) {
     let best = null, area = 1e12;
     for (const [id, n] of Object.entries(S.ND)) {
+      if (n.kind === "truck" && S.trucks[id] && S.trucks[id].phase === "away") continue;
       const pad = n.kind === "motor" ? 6 : 0;
       if (wx >= n.x - pad && wx <= n.x + n.w + pad && wy >= n.y - pad && wy <= n.y + n.h + pad) {
         const a = n.w * n.h;
@@ -186,7 +187,7 @@
       ctx.stroke();
       ctx.restore();
       const p = d.pts[4];
-      ctx.font = "700 16px 'Segoe UI', sans-serif";
+      ctx.font = "700 16px Raleway, 'Segoe UI', sans-serif";
       ctx.textAlign = "left";
       ctx.fillStyle = on ? "#d7a3de" : "#7a5a80";
       ctx.fillText(d.poz, p[0] + 12, p[1] - 8);
@@ -446,12 +447,114 @@
         ctx.beginPath(); ctx.moveTo(p, a.beltY - 6); ctx.lineTo(p, a.beltY + 6); ctx.stroke();
       }
     }
-    if (n.kind === "fan" && m && m.w > 0.02) {
-      // вращение крыльчатки поверх спрайта
-      const cx = n.x + n.w * 0.44, cy = n.y + n.h * 0.46, r = n.w * 0.2;
-      ctx.save(); ctx.translate(cx, cy); ctx.rotate(m.spin * 9);
-      ctx.strokeStyle = "rgba(220,232,240,.55)"; ctx.lineWidth = 2.2;
-      for (let k = 0; k < 4; k++) { ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(r, r * 0.3); ctx.stroke(); }
+    if (n.kind === "fan" && m) drawImpeller(n, m);
+  }
+
+  // Крыльчатка в решётке входного патрубка спрайта fan.webp (центр и радиус замерены по рисунку).
+  function drawImpeller(n, m) {
+    const cx = n.x + n.w * 0.333, cy = n.y + n.h * 0.347, R = n.w * 0.143;
+    const dark = !m.running && m.w < 0.05;
+    const a0 = (m.spin || 0) * 7;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.clip();
+    const g = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R);
+    g.addColorStop(0, dark ? "#202a36" : "#2a3644"); g.addColorStop(1, "#0b1119");
+    ctx.fillStyle = g; ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+    // лопатки загнуты назад — как у радиального вентилятора
+    const blades = 10;
+    for (let k = 0; k < blades; k++) {
+      const a = a0 + k * TAU / blades;
+      const r0 = R * 0.22, r1 = R * 0.95;
+      ctx.beginPath();
+      ctx.moveTo(cx + r0 * Math.cos(a), cy + r0 * Math.sin(a));
+      ctx.quadraticCurveTo(cx + R * 0.62 * Math.cos(a + 0.55), cy + R * 0.62 * Math.sin(a + 0.55),
+        cx + r1 * Math.cos(a + 0.95), cy + r1 * Math.sin(a + 0.95));
+      ctx.strokeStyle = dark ? "#58677a" : "#9fb0c2"; ctx.lineWidth = R * 0.12; ctx.lineCap = "round"; ctx.stroke();
+      ctx.strokeStyle = dark ? "#6f7f93" : "#dbe6ef"; ctx.lineWidth = R * 0.035; ctx.stroke();
+    }
+    // размытие при вращении
+    if (m.w > 0.3) {
+      ctx.globalAlpha = 0.25 * m.w; ctx.fillStyle = "#8ea0b4";
+      ctx.beginPath(); ctx.arc(cx, cy, R * 0.95, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+    // неподвижная защитная решётка и ступица
+    ctx.save();
+    ctx.strokeStyle = "rgba(190,205,220,.55)"; ctx.lineWidth = R * 0.03;
+    [0.45, 0.72, 0.97].forEach((k) => { ctx.beginPath(); ctx.arc(cx, cy, R * k, 0, TAU); ctx.stroke(); });
+    for (let k = 0; k < 8; k++) {
+      const a = k * TAU / 8;
+      ctx.beginPath(); ctx.moveTo(cx + R * 0.2 * Math.cos(a), cy + R * 0.2 * Math.sin(a));
+      ctx.lineTo(cx + R * 0.97 * Math.cos(a), cy + R * 0.97 * Math.sin(a)); ctx.stroke();
+    }
+    const hub = ctx.createRadialGradient(cx - R * 0.05, cy - R * 0.05, 0, cx, cy, R * 0.2);
+    hub.addColorStop(0, "#dfe7ee"); hub.addColorStop(1, "#56657a");
+    ctx.fillStyle = hub; ctx.beginPath(); ctx.arc(cx, cy, R * 0.18, 0, TAU); ctx.fill();
+    ctx.restore();
+    // шкив ремённой передачи
+    const px = n.x + n.w * 0.625, py = n.y + n.h * 0.509, pr = n.w * 0.045;
+    ctx.save(); ctx.translate(px, py); ctx.rotate(a0 * 1.4);
+    ctx.strokeStyle = dark ? "rgba(150,165,180,.5)" : "rgba(220,230,240,.8)"; ctx.lineWidth = pr * 0.18;
+    for (let k = 0; k < 3; k++) { ctx.rotate(TAU / 3); ctx.beginPath(); ctx.moveTo(pr * 0.25, 0); ctx.lineTo(pr * 0.85, 0); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  /* --------------------------------------------------------- автотранспорт */
+  // В спрайте truck.webp шапка зерна занимает верх рисунка до ~13,5 % высоты.
+  const HEAP = 0.135;
+  function drawTruck(id) {
+    const n = S.ND[id], t = S.trucks[id], img = VAR.truck && VAR.truck.norm;
+    if (!n || !t || !img || t.phase === "away") return;
+    const iw = img.width, ih = img.height;
+    const x = n.x + t.x;
+    const bump = t.moving ? Math.sin(performance.now() / 60) * 0.8 : 0;
+    const y = n.y + bump;
+    ctx.save();
+    // кузов и шасси без шапки зерна
+    ctx.drawImage(img, 0, ih * HEAP, iw, ih * (1 - HEAP), x, y + n.h * HEAP, n.w, n.h * (1 - HEAP));
+    // шапка зерна по степени загрузки
+    const f = Math.max(0, Math.min(1, t.load));
+    if (f > 0.01) {
+      const hh = n.h * HEAP * f;
+      ctx.drawImage(img, 0, 0, iw, ih * HEAP, x, y + n.h * HEAP - hh, n.w, hh);
+    }
+    ctx.restore();
+  }
+  // Струя зерна: из кузова в приёмную решётку ямы, из бункера — в кузов.
+  function drawStreams() {
+    const now = performance.now() / 1000;
+    for (const [id, t] of Object.entries(S.trucks)) {
+      if (!t.pour) continue;
+      const n = S.ND[id];
+      let x0, y0, x1, y1;
+      if (id === "truck_in") {
+        const it = S.ND.intake;
+        x0 = n.x + t.x + n.w * 0.97; y0 = n.y + n.h * 0.28;
+        x1 = x0 + 6; y1 = it.y + it.h * 0.06;
+      } else {
+        const b = S.ND[{ truck_out: "bun_21", truck_A: "bun_A", truck_B: "bun_B" }[id]];
+        const a = S.A[{ truck_out: "bun_21", truck_A: "bun_A", truck_B: "bun_B" }[id]];
+        x0 = a.out[0]; y0 = b.y + b.h * 0.97; x1 = x0; y1 = n.y + n.h * (HEAP * (1 - t.load) + 0.02);
+      }
+      const len = y1 - y0;
+      ctx.save();
+      const g = ctx.createLinearGradient(0, y0, 0, y1);
+      g.addColorStop(0, "rgba(240,194,78,.9)"); g.addColorStop(1, "rgba(217,163,51,.55)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(x0 - 5, y0); ctx.lineTo(x0 + 5, y0); ctx.lineTo(x1 + 11, y1); ctx.lineTo(x1 - 11, y1); ctx.closePath(); ctx.fill();
+      for (let k = 0; k < 26; k++) {
+        const ph = (now * 1.6 + k / 26) % 1;
+        const yy = y0 + len * ph * ph;             // свободное падение
+        const spread = 4 + 9 * ph;
+        const xx = x0 + (x1 - x0) * ph + Math.sin(k * 12.9898) * spread;
+        ctx.fillStyle = k % 3 ? C.grain0 : C.grain2;
+        ctx.beginPath(); ctx.ellipse(xx, yy, 3.4, 2.5, 0.6, 0, TAU); ctx.fill();
+      }
+      // пыль в месте падения
+      ctx.globalAlpha = 0.18 + 0.08 * Math.sin(now * 6);
+      ctx.fillStyle = "#e8d7a8";
+      ctx.beginPath(); ctx.ellipse(x1, y1 - 4, 34, 10, 0, 0, TAU); ctx.fill();
       ctx.restore();
     }
   }
@@ -495,7 +598,7 @@
     ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 2;
     for (let k = 0; k < 3; k++) { ctx.rotate(Math.PI * 2 / 3); ctx.beginPath(); ctx.moveTo(0, r * 0.35); ctx.lineTo(0, r * 0.8); ctx.stroke(); }
     ctx.restore();
-    ctx.font = "800 22px 'Segoe UI', sans-serif";
+    ctx.font = "800 22px Raleway, 'Segoe UI', sans-serif";
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillStyle = "#e6edf4"; ctx.fillText("M", cx, cy + 1);
     ctx.textBaseline = "alphabetic";
@@ -568,7 +671,7 @@
 
   /* --------------------------------------------------------- подписи */
   const SHORT = {
-    intake: "Завальная яма · конвейер 2", m_vor: "Ворошитель", magnet_3: "Магнит ПМ-200",
+    intake: "Завальная яма", m_vor: "Ворошитель", magnet_3: "Магнит ПМ-200",
     noria_4: "Нория 4", ost: "ОП-11", bun_61: "БО-1", ksp: "МУЗ-8М", m_biter: "Битер МУЗ",
     fan_asp_1: "АС-1", noria_8: "Нория 8", bun_9: "БО-2", tor: "ТОР-18", m_tor_biter: "Битер ТОР",
     fan_asp_2: "АС-2", noria_12: "Нория 12", flow_1: "Поток 13.1", bt_14_1: "БТ 14.1", bt_14_2: "БТ 14.2",
@@ -577,7 +680,7 @@
     fan_asp_3: "АС-3", noria_20: "Нория 20", bun_21: "БЗ-А-20", cyc_1: "Циклон 1", cyc_2: "Циклон 2",
     cyc_3: "Циклон 3", shl_1: "Шлюз 1", shl_2: "Шлюз 2", shl_3: "Шлюз 3", conv_22_1: "Шнек 22.1",
     conv_22_2: "Шнек 22.2", conv_22_3: "Шнек 22.3", conv_22_4: "Шнек 22.4", conv_22_5: "Шнек 22.5",
-    noria_23: "Нория 23", noria_24: "Нория 24", bun_A: "Отходы А", bun_B: "Отходы Б",
+    noria_23: "Нория 23", noria_24: "Нория 24",
   };
   // Подписи рисуются в экранных координатах: читаемы при любом масштабе.
   function drawLabels() {
@@ -589,14 +692,19 @@
       if (!s) continue;
       const motor = n.kind === "motor";
       if (motor && fs < 11) continue;                     // на мелком масштабе подписи моторов мешают
-      const x = SX(n.x + n.w / 2);
-      const y = motor ? SY(n.y + n.h) + px(13) : SY(n.y) - px(6);
-      ctx.font = `${motor ? 600 : 700} ${px(motor ? fs - 2 : fs)}px 'Segoe UI', sans-serif`;
-      ctx.textAlign = "center";
+      // Переключатели потока стоят вплотную к нориям — подпись справа; магнит — под узлом.
+      const side = n.kind === "diverter" ? "right" : id === "magnet_3" ? "below" : null;
+      let x = SX(n.x + n.w / 2);
+      let y = motor || side === "below" ? SY(n.y + n.h) + px(13) : SY(n.y) - px(6);
+      if (side === "right") { x = SX(n.x + n.w) + px(4); y = SY(n.y + n.h * 0.5); }
+      ctx.font = `${motor ? 700 : 800} ${px(motor ? fs - 2.5 : fs - 1)}px Raleway, 'Segoe UI', sans-serif`;
+      ctx.textAlign = side === "right" ? "left" : "center";
+      if ("letterSpacing" in ctx) ctx.letterSpacing = px(motor ? 0.4 : 0.9) + "px";
       ctx.lineWidth = px(3.2); ctx.strokeStyle = "rgba(6,10,14,.92)";
-      ctx.strokeText(s, x, y);
-      ctx.fillStyle = motor ? "#aebccb" : C.text; ctx.fillText(s, x, y);
+      ctx.strokeText(motor ? s : s.toUpperCase(), x, y);
+      ctx.fillStyle = motor ? "#aebccb" : C.text; ctx.fillText(motor ? s : s.toUpperCase(), x, y);
     }
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
     ctx.setTransform(scale, 0, 0, scale, offX, offY);
   }
 
@@ -627,7 +735,7 @@
   };
   function drawTags() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.font = `700 ${px(11)}px 'Segoe UI', sans-serif`;
+    ctx.font = `700 ${px(11)}px Raleway, 'Segoe UI', sans-serif`;
     for (const [id, n] of Object.entries(S.ND)) {
       if (!n.drive || n.kind === "motor") continue;
       let tags = tagsFor(n);
@@ -675,14 +783,14 @@
       const cx = SX(n.x + n.w / 2);
       let py = SY(n.y + n.h * (n.kind === "silo" ? 0.3 : 0.36));
       if (n.letter) {
-        ctx.font = `800 ${px(26)}px 'Segoe UI', sans-serif`;
+        ctx.font = `800 ${px(26)}px Raleway, 'Segoe UI', sans-serif`;
         ctx.textAlign = "center";
         ctx.lineWidth = px(4); ctx.strokeStyle = "rgba(8,12,18,.88)";
         ctx.strokeText(n.letter, cx, py);
         ctx.fillStyle = "#e8eef5"; ctx.fillText(n.letter, cx, py);
         py += px(8);
       }
-      ctx.font = `700 ${px(n.letter ? 14 : 12)}px 'Segoe UI', sans-serif`;
+      ctx.font = `700 ${px(n.letter ? 14 : 12)}px Raleway, 'Segoe UI', sans-serif`;
       const txt = Math.round(f) + "%" + (full ? " ДВУ" : "");
       const w = ctx.measureText(txt).width + px(14), h = px(n.letter ? 19 : 17);
       rr(cx - w / 2, py, w, h, px(3));
@@ -719,7 +827,7 @@
     ctx.fillRect(0, 860, S.W, S.H - 860);
     ctx.strokeStyle = "rgba(150,178,210,.14)"; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(0, 860); ctx.lineTo(S.W, 860); ctx.stroke();
-    ctx.font = "700 30px 'Segoe UI', sans-serif";
+    ctx.font = "700 30px Raleway, 'Segoe UI', sans-serif";
     ctx.textAlign = "right"; ctx.fillStyle = "rgba(150,178,210,.28)";
     ctx.fillText("ОСНОВНОЙ ТРАКТ ОЧИСТКИ", S.W - 30, 44);
     ctx.fillText("АСПИРАЦИЯ И ОТХОДЫ", S.W - 30, 904);
@@ -747,7 +855,7 @@
     rr(x, y, w, h, px(5));
     const a = 0.65 + 0.35 * Math.sin(performance.now() / 240);
     ctx.strokeStyle = "rgba(224,80,63," + a + ")"; ctx.lineWidth = px(2.4); ctx.stroke();
-    ctx.font = `800 ${px(17)}px 'Segoe UI', sans-serif`;
+    ctx.font = `800 ${px(17)}px Raleway, 'Segoe UI', sans-serif`;
     ctx.textAlign = "center"; ctx.fillStyle = "#ffd2cb";
     ctx.fillText("ОБЩАЯ АВАРИЯ · " + (P.statusLine().length > 34 ? "см. журнал" : P.statusLine()).toUpperCase(), x + w / 2, y + px(28));
     ctx.restore();
@@ -766,15 +874,14 @@
     drawBackdrop();
     if (!ready) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.font = "600 15px 'Segoe UI', sans-serif";
+      ctx.font = "600 15px Raleway, 'Segoe UI', sans-serif";
       ctx.fillStyle = C.textDim; ctx.textAlign = "center";
       ctx.fillText("Загрузка моделей оборудования…", cv.width / 2, cv.height / 2);
       return;
     }
-    drawWatermark();
     if (VOPT.ducts) drawDucts();
     if (VOPT.pipes) drawPipes();
-    BACK.forEach(drawSprite);
+    BACK.forEach(drawTruck);
     drawLevels();
     for (const [id, n] of Object.entries(S.ND)) {
       if (BACK.includes(id)) continue;
@@ -785,6 +892,7 @@
     Object.keys(S.ND).forEach(drawMoving);
     grainWindows();
     drawFlow();
+    drawStreams();
     ["flow_1", "flow_2"].forEach(drawFlapper);
     for (const [id, n] of Object.entries(S.ND)) if (n.kind === "motor") drawMotor(id);
     drawSelection();

@@ -40,7 +40,7 @@ const check = (ok, name) => { results.push([!!ok, name]); console.log(ok ? 'ok  
   // щелчок по схеме
   const [x, y] = await page.evaluate(() => { const n = PLANT.ND.noria_4; return RENDER.toClient(n.x + n.w / 2, n.y + n.h / 2); });
   await page.mouse.click(x, y);
-  check((await page.locator('#dlg-title').innerText()).includes('Нория НС-В.10.10'), 'Щелчок по нории 4 на схеме открывает её окно');
+  check((await page.locator('#dlg-title').textContent()).includes('Нория НС-В.10.10'), 'Щелчок по нории 4 на схеме открывает её окно');
   await page.keyboard.press('Escape');
 
   // режим очистки из окна HMI
