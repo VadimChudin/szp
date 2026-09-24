@@ -659,7 +659,8 @@
     return ok();
   }
   function modeStart() {
-    if (V.gemer) return fail("Общая авария — ПЛК сбрасывает режим очистки");
+    // Входы проверяются напрямую: GEMER пересчитается только в следующем цикле ПЛК.
+    if (plc.ESTOP_INPUTS.some((k) => V[k]) || V.phase_control || !V.x0_8) return fail("Общая авария — ПЛК сбрасывает режим очистки");
     if (V.out_dvy_a || V.out_dvy_bunk_1 || V.out_dvy_bunk_2) return fail("Конечный бункер заполнен — ПЛК сбрасывает режим очистки");
     V.mode_och = true;
     return ok();
