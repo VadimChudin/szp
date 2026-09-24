@@ -1,0 +1,4 @@
+--- NET "" n=1
+   S DU_out := TON_du_ON=TON(I_DU, TimerDU*T#1S)
+--- NET "" n=1
+   R DU_out := TON_du_off=TON(NOT I_DU, TimerDU*T#1S)

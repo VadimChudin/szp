@@ -1,0 +1,12 @@
+--- NET "" n=1
+   OUT_dvy_bo_1 := DVY_BO_2=LevelSensor(I_DU=NOT x5_11, TimerDU=HMI_TM_dvy_bo_1)
+--- NET "" n=1
+   OUT_dvy_bo_2 := DVY_BO_1=LevelSensor(I_DU=NOT x5_12, TimerDU=HMI_TM_dvy_bo_2)
+--- NET "" n=1
+   OUT_dvy_bo_3 := DVY_BO_3=LevelSensor(I_DU=NOT x5_13, TimerDU=HMI_TM_dvy_bo_3)
+--- NET "" n=1
+   OUT_dvy_A := DVY_Bunk_23=LevelSensor(I_DU=NOT x5_15, TimerDU=HMI_TM_dvy_bunk_23)
+--- NET "" n=1
+   OUT_dvy_bunk_1 := DVY_Torba=LevelSensor(I_DU=NOT x5_14, TimerDU=HMI_TM_dvy_torba)
+--- NET "" n=1
+   OUT_dvy_bunk_2 := DNY_Torba=LevelSensor(I_DU=NOT x5_16, TimerDU=HMI_TM_dny_torba)

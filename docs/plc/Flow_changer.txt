@@ -1,0 +1,4 @@
+--- NET "Переключатель потока ППМ-2.160 0/45 (поз. 13.1) лист 19" n=1
+   Flow_1=Flapper(PROTECT=IN_protect_flow_1, POL_1=IN_fw_1_1, POL_2=IN_fw_2_1, CYCLE_POL_1=(Mode_och AND with_trier), CYCLE_POL_2=(Mode_och AND NOT with_trier), HAND_MODE=HMI_HM_fw_1, M_POL_1=FALSE, M_POL_2=FALSE, TIMER_ERR=HMI_Timer_fw_1, BUTTON_POL_1=HMI_BTN_fw_1_1, BUTTON_POL_2=HMI_BTN_fw_2_1)=>[HMI_DA_flow_1,Y_flow_1_1,Y_flow_2_1,NOT HMI_BTN_fw_1_1<fl3>,NOT HMI_BTN_fw_2_1<fl3>,HMI_Err_swap_1,HMI_Err_conc_1]
+--- NET "Переключатель потока ППМ-2.160 0/45 (поз. 13.2) лист 20" n=1
+   Flow_2=Flapper(PROTECT=IN_protect_flow_2, POL_1=IN_fw_1_2, POL_2=IN_fw_2_2, CYCLE_POL_1=(Mode_och AND with_pnev), CYCLE_POL_2=(Mode_och AND NOT with_pnev), HAND_MODE=HMI_HM_fw_2, M_POL_1=FALSE, M_POL_2=FALSE, TIMER_ERR=HMI_Timer_fw_2, BUTTON_POL_1=HMI_BTN_fw_1_2, BUTTON_POL_2=HMI_BTN_fw_2_2)=>[HMI_DA_flow_2,Y_flow_1_2,Y_flow_2_2,NOT HMI_BTN_fw_1_2<fl3>,NOT HMI_BTN_fw_2_2<fl3>,HMI_Err_swap_2,HMI_Err_conc_2]

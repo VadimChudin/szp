@@ -1,256 +1,163 @@
 <!DOCTYPE html>
-
 <html lang="ru">
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1" name="viewport"/>
-<title>ЛПЗС Родина — эмулятор линии подготовки зерна</title>
+<title>ЛПЗС «Родина» — эмулятор пульта и ПЛК</title>
 <link href="css/style.css" rel="stylesheet"/>
-<link href="css/operator.css" rel="stylesheet"/></head>
+</head>
 <body>
 <div class="app">
-<header class="topbar">
-<div class="brand">
-<img alt="SysAT" class="brand-logo" src="assets/logo.webp"/>
-<div class="brand-div"></div>
-<div>
-<div class="brand-title">ЛИНИЯ ПОДГОТОВКИ ЗЕРНА И СЕМЯН</div>
-<div class="brand-sub">ЛПЗС «Родина» · ЕФБШ-630.01 · интерактивный эмулятор пульта</div>
-</div>
-</div>
-<nav class="tabs">
-<button class="tab active" data-tab="mimic" type="button">Симуляция</button>
-<button class="tab" data-tab="equip" type="button">Оборудование</button>
-<button class="tab" data-tab="params" type="button">Температура и параметры</button>
-<button class="tab" data-tab="alarms" type="button">Аварии<span class="tab-badge" id="tab-alarm-count"></span></button>
-<button class="tab" data-tab="settings" type="button">Настройки</button>
-<button class="tab" data-tab="diagnostics" type="button">Диагностика</button></nav>
-<div class="top-right">
-<div class="mode-chip"><span class="dot" id="mode-dot"></span><span id="mode-text">Аварийный стоп</span></div>
-<div class="clock-block"><div id="clock">00:00:00</div><div id="date">21.09.2026</div></div>
-<button class="estop" id="btn-estop" type="button">АВАРИЙНЫЙ СТОП</button>
-</div>
-</header>
-<div class="workspace">
-<main class="stage-wrap">
-<!-- ═════════════════ вид: мнемосхема ═════════════════ -->
-<section class="view active" id="view-mimic">
-<div class="stage" id="stage">
-<canvas id="plant-canvas"></canvas>
-<div class="hint-float">Выберите механизм на схеме или откройте синее меню справа.</div>
-</div>
-<footer class="statusbar"><button class="btn-go" id="btn-start" type="button">▶ Запустить линию</button><button class="btn-stop" id="btn-stop" type="button">■ Остановить</button>
-<button class="btn-quiet" id="btn-ack" type="button">Сброс аварии</button>
-<span class="alarm-line" id="alarm-line">Нажат аварийный стоп на шкафу</span>
-<span class="route-line" id="route-line">—</span>
-</footer>
-</section>
-<!-- ═════════════════ вид: оборудование ═════════════════ -->
-<section class="view" id="view-equip">
-<div class="view-head">
-<h2>Оборудование линии</h2>
-<div class="view-tools">
-<input aria-label="Поиск оборудования" id="eq-search" placeholder="Поиск по названию или позиции…" type="search"/>
-<select id="eq-filter">
-<option value="all">Все механизмы</option>
-<option value="run">Только в работе</option>
-<option value="stop">Только остановленные</option>
-<option value="fault">С авариями</option>
-<option value="to">Требуют ТО</option>
-</select>
-</div>
-</div>
-<div class="view-body">
-<div class="table-wrap">
-<table class="grid-table" id="eq-table">
-<thead>
-<tr>
-<th>Поз.</th><th>Наименование</th><th>Состояние</th><th>Продукт</th>
-<th>Ток, А</th><th>Об/мин</th><th>Нагрузка</th><th>t, °C</th>
-<th>Наработка, ч</th><th>До ТО, ч</th><th>Управление</th>
-</tr>
-</thead>
-<tbody id="eq-rows"></tbody>
-</table>
-</div>
-</div>
-</section>
-<!-- ═════════════════ вид: параметры ═════════════════ -->
-<section class="view" id="view-params">
-<div class="view-head"><h2>Технологические параметры</h2></div>
-<div class="view-body">
-<div class="param-cards" id="param-cards"></div>
-<div class="param-split">
-<section class="panel tall">
-<h3>Тренд параметров</h3>
-<div class="chart-tabs">
-<button class="chip active" data-chart2="temp" type="button">Температура агента</button>
-<button class="chip" data-chart2="hum" type="button">Влажность на выходе</button>
-<button class="chip" data-chart2="prod" type="button">Производительность</button>
-</div>
-<canvas id="chart-big"></canvas>
-</section>
-<section class="panel tall">
-<h3>Уровни бункеров и ёмкостей</h3>
-<div id="param-levels"></div>
-</section>
-</div>
-<section class="panel">
-<h3>Материальный поток по тракту</h3>
-<div class="flow-strip" id="param-flow"></div>
-</section>
-</div>
-</section>
-<!-- ═════════════════ вид: аварии ═════════════════ -->
-<section class="view" id="view-alarms">
-<div class="view-head">
-<h2>Аварии и сообщения</h2>
-<div class="view-tools">
-<button class="btn-mini" id="al-ack" type="button">↺ Квитировать всё</button>
-<select id="al-scope">
-<option value="active">Активные и текущие</option>
-<option value="archive">Архив сообщений</option>
-</select>
-</div>
-</div>
-<div class="view-body">
-<div class="alarm-summary" id="al-summary"></div>
-<div class="causes" id="al-causes" style="display:none"></div>
-<div class="table-wrap">
-<table class="grid-table" id="al-table">
-<thead><tr><th>Время</th><th>Тип</th><th>Механизм</th><th>Сообщение</th><th>Состояние</th></tr></thead>
-<tbody id="al-rows"></tbody>
-</table>
-</div>
-</div>
-</section>
-<!-- ═════════════════ вид: настройки ═════════════════ -->
-<section class="view" id="view-settings">
-<div class="view-head">
-<h2>Настройки системы</h2>
-<div class="view-tools">
-<button class="btn-mini" id="set-reset" type="button">Значения по умолчанию</button>
-<button class="btn-go" id="set-save" type="button">Сохранить</button>
-</div>
-</div>
-<div class="view-body">
-<div class="set-grid">
-<section class="panel">
-<h3>Задержки ДВУ (датчиков верхнего уровня)</h3>
-<p class="muted">Время, которое уровень должен держаться, прежде чем система остановит подачу.</p>
-<div id="set-dvu"></div>
-</section>
-<section class="panel">
-<h3>Задержки пуска и останова</h3>
-<p class="muted">Интервал между запуском соседних механизмов в каскаде.</p>
-<div id="set-seq"></div>
-</section>
-<section class="panel">
-<h3>Режим очистки по умолчанию</h3>
-<div id="set-route"></div>
-</section>
-<section class="panel">
-<h3>Учётная запись</h3>
-<div id="set-user"></div>
-</section>
-<section class="panel">
-<h3>Отображение</h3>
-<div id="set-view"></div>
-</section>
-<section class="panel">
-<h3>Модель процесса</h3>
-<div id="set-sim"></div>
-</section>
-</div>
-</div>
-</section>
-<section class="view" id="view-diagnostics"><div class="view-head"><h2>Диагностика и дополнительные функции</h2><span class="muted">Расчётные значения учебной модели, не показания реальных датчиков</span></div><div class="view-body diagnostics-body"><div class="bottom-panels">
-<section class="panel">
-<h3>Выбранное оборудование</h3>
-<div class="muted" id="sel-body">Кликните по механизму на схеме.</div>
-</section>
-<section class="panel">
-<h3>График параметров</h3>
-<div class="chart-tabs">
-<button class="chip active" data-chart="temp" type="button">Температура</button>
-<button class="chip" data-chart="hum" type="button">Влажность</button>
-<button class="chip" data-chart="prod" type="button">Производительность</button>
-</div>
-<canvas id="chart"></canvas>
-</section>
-<section class="panel">
-<h3>Журнал событий</h3>
-<div class="log" id="log"></div>
-</section>
-</div><aside class="diagnostic-cards">
-<section class="card">
-<h3>Общее состояние</h3>
-<div class="big-status" id="big-status"><span class="dot"></span>Линия остановлена</div>
-<div class="kv"><span>Производительность</span><b id="kv-prod">0.0 т/ч</b></div>
-<div class="kv"><span>Влажность на входе</span><b id="kv-hum-in">18.6 %</b></div>
-<div class="kv"><span>Влажность на выходе</span><b id="kv-hum-out">13.2 %</b></div>
-<div class="kv"><span>Температура агента</span><b id="kv-temp">24.0 °C</b></div>
-<div class="btn-col">
+  <header class="topbar">
+    <div class="brand">
+      <img alt="SysAT" class="brand-logo" src="assets/logo.webp"/>
+      <div>
+        <div class="brand-title">ЛПЗС «РОДИНА» · ЛИНИЯ ПОДГОТОВКИ ЗЕРНА И СЕМЯН</div>
+        <div class="brand-sub">Эмулятор пульта · логика по проекту ПЛК CODESYS «Rodina» · ЕФБШ-630.01</div>
+      </div>
+    </div>
+    <nav class="tabs" aria-label="Разделы">
+      <button class="tab active" data-tab="mimic" type="button">Мнемосхема</button>
+      <button class="tab" data-tab="equip" type="button">Оборудование</button>
+      <button class="tab" data-tab="alarms" type="button">Аварии <span class="tab-badge" id="tab-alarm-count"></span></button>
+      <button class="tab" data-tab="signals" type="button">Сигналы ПЛК</button>
+      <button class="tab" data-tab="settings" type="button">Настройки</button>
+    </nav>
+    <div class="top-right">
+      <div class="lamps">
+        <span class="lamp" id="lamp-mode" title="Mode_och — режим очистки"><i></i>Режим</span>
+        <span class="lamp" id="lamp-gemer" title="GEMER — общая авария"><i></i>Общая авария</span>
+        <span class="lamp" id="lamp-siren" title="SIRENA — выход сирены"><i></i>Сирена</span>
+      </div>
+      <div class="clock-block"><div id="clock">00:00:00</div><div id="date"></div></div>
+      <button class="estop" id="btn-estop" type="button" title="Кнопка «СТОП» на шкафу управления (AVAR_STOP, x0_1)">АВАРИЙНЫЙ СТОП</button>
+    </div>
+  </header>
 
-<button class="btn-mini" id="btn-ack2" type="button">↺ Сброс аварий</button>
+  <div class="workspace">
+    <main class="stage-wrap">
+      <section class="view active" id="view-mimic">
+        <div class="stage" id="stage">
+          <canvas id="plant-canvas" aria-label="Мнемосхема линии"></canvas>
+          <div class="zoom">
+            <button class="btn zbtn" id="zoom-in" type="button" title="Приблизить">+</button>
+            <button class="btn zbtn" id="zoom-out" type="button" title="Отдалить">−</button>
+            <button class="btn zbtn" id="zoom-fit" type="button" title="Вся схема">⤢</button>
+          </div>
+          <div class="stage-hint">Щелчок по механизму — окно управления · колесо мыши — масштаб · перетаскивание — сдвиг</div>
+        </div>
+      </section>
+
+      <section class="view" id="view-equip">
+        <div class="view-head">
+          <h2>Оборудование линии</h2>
+          <div class="view-tools">
+            <input aria-label="Поиск оборудования" id="eq-search" placeholder="Поиск по названию или позиции…" type="search"/>
+            <select aria-label="Фильтр" id="eq-filter">
+              <option value="all">Все механизмы</option>
+              <option value="run">В работе</option>
+              <option value="stop">Остановленные</option>
+              <option value="fault">С аварией</option>
+              <option value="hand">Ручной / местный режим</option>
+              <option value="to">Требуют ТО</option>
+            </select>
+          </div>
+        </div>
+        <div class="view-body">
+          <div class="table-wrap">
+            <table class="grid-table">
+              <thead><tr>
+                <th>Поз.</th><th>Наименование</th><th>Состояние</th>
+                <th title="CYCLE — режим и разрешение; NEXT — следующий механизм; PREV — предыдущий механизм; RR — готовность">Условия ПЛК</th>
+                <th>Пуск / стоп, с</th><th>Наработка, ч</th><th>Продукт</th><th></th>
+              </tr></thead>
+              <tbody id="eq-rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-alarms">
+        <div class="view-head">
+          <h2>Аварии и сообщения</h2>
+          <div class="view-tools">
+            <select aria-label="Журнал" id="al-scope">
+              <option value="active">Журнал сообщений</option>
+              <option value="archive">Архив сообщений</option>
+            </select>
+            <button class="btn" id="al-reset" type="button">↺ Сброс аварий</button>
+          </div>
+        </div>
+        <div class="view-body">
+          <div class="causes" id="al-causes"></div>
+          <div class="table-wrap">
+            <table class="grid-table">
+              <thead><tr><th>Время</th><th>Тип</th><th>Сообщение</th><th>Состояние</th></tr></thead>
+              <tbody id="al-rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-signals">
+        <div class="view-head">
+          <h2>Сигналы ПЛК</h2>
+          <span class="muted">Переменные эмулируемой программы в реальном времени. Имена — как в проекте CODESYS.</span>
+        </div>
+        <div class="view-body" id="signals-body"></div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <div class="view-head">
+          <h2>Настройки</h2>
+          <div class="view-tools">
+            <button class="btn" id="set-defaults" type="button">Значения по умолчанию</button>
+          </div>
+        </div>
+        <div class="view-body">
+          <div class="set-grid">
+            <section class="panel"><h3>Задержки ДВУ</h3><p class="muted">HMI_TM_dvy_* — сколько секунд датчик должен держать уровень (блок LevelSensor).</p><div id="set-dvu"></div></section>
+            <section class="panel"><h3>Модель</h3><div id="set-sim"></div></section>
+            <section class="panel"><h3>Отображение</h3><div id="set-view"></div></section>
+            <section class="panel wide"><h3>Задержки механизмов</h3><p class="muted">HMI_timer_start_* / HMI_timer_stop_*. Значение 0 ПЛК заменяет на 3 с (пуск) и 15 с (останов).</p><div id="set-timers"></div></section>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <aside aria-label="Панель оператора" class="rail">
+      <div class="rail-caption">ПАНЕЛЬ ОПЕРАТОРА</div>
+      <button class="rail-button" id="btn-menu" type="button">☰ Меню управления</button>
+      <button class="rail-button" id="rail-clean" type="button">Режим очистки <span>›</span></button>
+      <button class="rail-button" id="rail-settings" type="button">Настройки ДВУ <span>›</span></button>
+      <button class="rail-button" id="rail-alarms" type="button">Журнал аварий <span>›</span></button>
+      <button class="rail-button" id="rail-cabinet" type="button">Шкаф управления <span>›</span></button>
+      <div class="rail-caption">МЕХАНИЗМЫ</div>
+      <input aria-label="Найти механизм" id="rail-search" placeholder="Найти механизм…" type="search"/>
+      <div class="rail-machines" id="rail-machines"></div>
+    </aside>
+  </div>
+
+  <footer class="statusbar">
+    <div class="sb-group">
+      <button class="btn btn-go" id="btn-start" type="button" title="Mode_och := TRUE с текущими настройками режима очистки">▶ Пуск режима</button>
+      <button class="btn btn-stop" id="btn-stop" type="button" title="Mode_och := FALSE — штатный останов по задержкам">■ Стоп режима</button>
+      <button class="btn" id="btn-ack" type="button" title="RESET_ERR — сброс защёлкнутых аварий">↺ Сброс аварий</button>
+      <button class="btn" id="btn-mute" type="button" title="MUTE — отключить сирену">Сирена вкл.</button>
+    </div>
+    <span class="alarm-line" id="alarm-line">—</span>
+    <div class="sb-group sb-right">
+      <span class="route-line" id="route-line">—</span>
+      <label class="speed" title="Ускорение модели вместе с таймерами ПЛК">Скорость
+        <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="5">×5</option><option value="10">×10</option><option value="20">×20</option></select>
+      </label>
+    </div>
+  </footer>
 </div>
-</section>
-<section class="card">
-<h3>Подача зерна</h3>
-<div class="kv"><span>Завальная яма</span><b id="kv-pit">86 %</b></div>
-<div class="pit-bar"><i id="pit-fill"></i></div>
-<div class="btn-row2">
-<button class="btn-mini" id="btn-feed" type="button">Открыть подачу</button>
-<button class="btn-mini" id="btn-refill" type="button">Загрузить яму</button>
-</div>
-</section>
-<section class="card">
-<h3>Уровни бункеров</h3>
-<div id="bunker-meters"></div>
-</section>
-<section class="card">
-<h3>Режим очистки</h3>
-<label class="sw"><input checked="" id="opt-trier" type="checkbox"/> Через триеры</label>
-<div class="row-2">
-<label class="sw"><input checked="" id="opt-t1" type="checkbox"/> Триер 1</label>
-<label class="sw"><input checked="" id="opt-t2" type="checkbox"/> Триер 2</label>
-</div>
-<label class="sw"><input checked="" id="opt-sp" type="checkbox"/> Через пневмостол</label>
-<label class="sw"><input checked="" id="opt-op" type="checkbox"/> Остеобрушиватель</label>
-</section>
-<section class="card">
-<h3>Быстрое управление</h3>
-<div class="quick" id="quick"></div>
-</section>
-<section class="card">
-<h3>Тренажёр аварий</h3>
-<p class="muted">Нажмите — датчик сработает, линия встанет.</p>
-<div class="fault-grid">
-<button data-fault="noria_20:dks" type="button">ДКС нории 20</button>
-<button data-fault="sp_18:prot" type="button">Защита пневмостола</button>
-<button data-fault="bt_14_1:prot" type="button">Защита триера 1.1</button>
-<button data-fault="noria_4:dp" type="button">Подпор нории 4</button>
-<button data-fault="sluice_3:dks" type="button">ДКС шлюза АС-3</button>
-<button data-fault="muz_6:prot" type="button">Защита МУЗ-8М</button>
-<button data-fault="tor_10:prot" type="button">Защита ТОР-18</button>
-<button data-fault="noria_12:dsl1" type="button">Сход ленты нории 12</button>
-</div>
-</section>
-</aside></div></section></main>
-<aside aria-label="Меню управления симуляцией" class="operator-rail">
-<div class="rail-caption">УПРАВЛЕНИЕ · HMI</div><div id="rail-main"><button aria-label="Меню управления" class="rail-button" id="btn-menu" title="Меню управления" type="button">☰ Меню управления</button></div>
-<button class="rail-button" id="rail-clean" type="button">Режим очистки <span>›</span></button>
-<button class="rail-button" id="rail-settings" type="button">Настройки ДВУ <span>›</span></button>
-<button class="rail-button" id="rail-alarms" type="button">Журнал аварий <span>›</span></button>
-<div class="rail-caption">ОКНА МЕХАНИЗМОВ</div>
-<input aria-label="Найти меню механизма" id="rail-search" placeholder="Найти механизм…" type="search"/>
-<div class="rail-machines" id="rail-machines"></div>
-<div class="rail-note">Учебная симуляция<br/>Без подключения к ПЛК</div>
-</aside></div>
-</div>
-<!-- Окна HMI: управление остаётся в существующем API PLANT. -->
 <div class="modal-root" id="modal-root"></div>
 <div class="tooltip" id="tooltip"></div>
+<div class="toast" id="toast" role="status"></div>
+<script src="js/plc.js"></script>
 <script src="js/plant.js"></script>
 <script src="js/render.js"></script>
 <script src="js/ui.js"></script>

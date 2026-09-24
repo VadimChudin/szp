@@ -1,0 +1,10 @@
+--- NET "" n=1
+   Do_Alarm := (HMI_DA_2 OR HMI_DA_noria_4 OR HMI_DA_ost OR HMI_DA_ksp OR HMI_DA_biter OR HMI_DA_fan_asp_1 OR HMI_DA_shl_1 OR HMI_DA_noria_8 OR HMI_DA_TOR OR HMI_DA_TOR_biter OR HMI_DA_fan_asp_2 OR HMI_DA_shl_2 OR HMI_DA_noria_12 OR HMI_DA_flow_1 OR HMI_DA_flow_2 OR HMI_DA_trier_1 OR HMI_DA_trier_2_1 OR HMI_DA_trier_1_2 OR HMI_DA_trier_2_2 OR HMI_DA_noria_15 OR HMI_DA_fan_pnev OR HMI_DA_pnev OR HMI_DA_shl_3 OR HMI_DA_noria_20 OR HMI_DA_conv_22_1 OR HMI_DA_conv_22_2 OR HMI_DA_conv_22_3 OR HMI_DA_conv_22_4 OR HMI_DA_conv_22_5 OR HMI_DA_noria_23 OR HMI_DA_noria_24)
+--- NET "" n=1
+   LAMP := (BLINK_Alarm=BLINK(Do_Alarm, t#2s, t#1s) AND BLINK_Alarm.ENABLE)
+--- NET "" n=1
+   SIRENA := ((LAMP AND NOT MUTE) OR TP_0.Q OR PREDPUSKOVAYA=TP(R_TRIG(Mode_och), t#2s))
+--- NET "" n=1
+   GEMER := (PUSK OR AVAR_STOP OR AVAR_STOP_1 OR AVAR_STOP_2 OR AVAR_STOP_3 OR AVAR_STOP_4 OR AVAR_STOP_5 OR FIRE_ALARM OR PHASE_CONTROL)
+--- NET "" n=1
+   TP_0=TP((R_TRIG(OUT_dvy_bo_1) OR R_TRIG(OUT_dvy_bo_2) OR R_TRIG(OUT_dvy_bo_3) OR R_TRIG(OUT_dvy_A) OR R_TRIG(OUT_dvy_bunk_1) OR R_TRIG(OUT_dvy_bunk_2)), T#3S)

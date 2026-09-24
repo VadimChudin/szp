@@ -1,6 +1,7 @@
-/* ЛПЗС «Родина» — Canvas-рендерер на реальных 2D-моделях оборудования.
-   Спрайты assets/*.webp рисуются по геометрии узлов без растяжения,
-   поверх — равномерный поток зерна, уровни бункеров и индикация состояний. */
+/* ЛПЗС «Родина» — отрисовка мнемосхемы на Canvas.
+   Спрайты assets/* рисуются по геометрии узлов без растяжения. Продукт
+   рисуется по ячейкам модели тракта (PLANT.ELEM): где стоит элемент —
+   там стоит и зерно. */
 
 (function (global) {
   "use strict";
@@ -8,12 +9,14 @@
   const P = global.PLANT;
   const S = P.S;
 
-  let cv, ctx, scale = 1, offX = 0, offY = 0, hover = null;
+  let cv, ctx, scale = 1, offX = 0, offY = 0, hover = null, selected = null;
+  let fitScale = 1, zoom = 1, panX = 0, panY = 0;
   const IMG = {};
   const GRAIN_TEXTURE = {};
   const TEXTURED = new Set(["intake", "tor", "muz", "pneumo"]);
   const VAR = {};
   let ready = false;
+  let VOPT = { labels: true, pipes: true, ducts: true, tags: true };
 
   const SPRITES = ["intake", "magnet", "noria", "debearder", "hopper", "muz",
     "fan", "tor", "trier", "diverter", "pneumo", "silo", "screw", "cyclone", "truck"];
@@ -21,12 +24,10 @@
   const C = {
     bg0: "#0a1119", bg1: "#0e1822", grid: "#13202c",
     grain0: "#f0c24e", grain1: "#d9a333", grain2: "#a9761c",
-    dust: "rgba(178,176,166,.75)", chaff: "#8a6a2e",
-    duct: "#a45fb0", pipe: "#3d4a57",
-    text: "#c8d4e0", textDim: "#7a8898",
-    ok: "#37b866", warn: "#d9a53a", bad: "#d9483c", info: "#4b8fd1",
+    dust: "rgba(190,186,176,.8)", chaff: "#8a6a2e",
+    pipe: "#3d4a57", text: "#d3dde8", textDim: "#7a8898",
+    ok: "#37b866", warn: "#d9a53a", bad: "#e0503f", info: "#4b8fd1", idle: "#6f7d8c",
   };
-  const SENS = { dks: "ДКС", dsl1: "ДСЛ1", dsl2: "ДСЛ2", dp: "ДП", prot: "ЗАЩИТА" };
 
   function tint(img, filter) {
     const c = document.createElement("canvas");
@@ -50,8 +51,8 @@
       im.onload = () => {
         IMG[name] = im;
         VAR[name] = {
-          norm: tint(im, "saturate(0.92) brightness(0.96)"),
-          idle: tint(im, "saturate(0.3) brightness(0.52)"),
+          norm: tint(im, "saturate(0.92) brightness(0.98)"),
+          idle: tint(im, "saturate(0.35) brightness(0.6)"),
           fault: tint(im, "saturate(1.5) brightness(0.82) sepia(0.35) hue-rotate(-28deg)"),
         };
         done();
@@ -76,25 +77,57 @@
     cv.height = Math.max(200, Math.round(r.height * dpr));
     cv.style.width = r.width + "px";
     cv.style.height = r.height + "px";
-    scale = Math.min(cv.width / S.W, cv.height / S.H);
-    offX = (cv.width - S.W * scale) / 2;
-    offY = (cv.height - S.H * scale) / 2;
+    fitScale = Math.min(cv.width / S.W, cv.height / S.H);
+    applyView();
   }
+
+  // Пользовательский масштаб поверх «вписать»; сдвиг ограничен краями схемы.
+  function applyView() {
+    scale = fitScale * zoom;
+    const mx = Math.max(0, (S.W * scale - cv.width) / 2), my = Math.max(0, (S.H * scale - cv.height) / 2);
+    panX = Math.max(-mx, Math.min(mx, panX));
+    panY = Math.max(-my, Math.min(my, panY));
+    offX = (cv.width - S.W * scale) / 2 + panX;
+    offY = (cv.height - S.H * scale) / 2 + panY;
+  }
+  function zoomAt(clientX, clientY, k) {
+    const r = cv.getBoundingClientRect();
+    const sx = (clientX - r.left) * cv.width / r.width, sy = (clientY - r.top) * cv.height / r.height;
+    const wx = (sx - offX) / scale, wy = (sy - offY) / scale;
+    zoom = Math.max(1, Math.min(5, zoom * k));
+    const ns = fitScale * zoom;
+    panX = sx - wx * ns - (cv.width - S.W * ns) / 2;
+    panY = sy - wy * ns - (cv.height - S.H * ns) / 2;
+    applyView();
+  }
+  function panBy(dx, dy) {
+    const r = cv.getBoundingClientRect();
+    panX += dx * cv.width / r.width; panY += dy * cv.height / r.height;
+    applyView();
+  }
+  function fit() { zoom = 1; panX = 0; panY = 0; applyView(); }
 
   const SX = (wx) => offX + wx * scale;
   const SY = (wy) => offY + wy * scale;
+  const px = (v) => v * Math.min(2, window.devicePixelRatio || 1);   // экранные пиксели → пиксели холста
 
-  function toWorld(px, py) {
+  function toWorld(cx, cy) {
     const r = cv.getBoundingClientRect();
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
     if (!r.width || !r.height) return [NaN, NaN];
-    return [((px - r.left) * cv.width / r.width - offX) / scale, ((py - r.top) * cv.height / r.height - offY) / scale];
+    return [((cx - r.left) * cv.width / r.width - offX) / scale, ((cy - r.top) * cv.height / r.height - offY) / scale];
   }
 
+  function toClient(wx, wy) {
+    const r = cv.getBoundingClientRect();
+    return [r.left + (offX + wx * scale) * r.width / cv.width, r.top + (offY + wy * scale) * r.height / cv.height];
+  }
+
+  // Узел под курсором: мелкие (моторы, шлюзы) имеют приоритет над крупными.
   function hitAt(wx, wy) {
     let best = null, area = 1e12;
     for (const [id, n] of Object.entries(S.ND)) {
-      if (wx >= n.x && wx <= n.x + n.w && wy >= n.y && wy <= n.y + n.h) {
+      const pad = n.kind === "motor" ? 6 : 0;
+      if (wx >= n.x - pad && wx <= n.x + n.w + pad && wy >= n.y - pad && wy <= n.y + n.h + pad) {
         const a = n.w * n.h;
         if (a < area) { area = a; best = id; }
       }
@@ -113,100 +146,125 @@
     ctx.closePath();
   }
 
-  function activeSegs() {
-    const set = new Set();
-    for (const p of S.grain) {
-      const s = p.route[p.i];
-      if (s && s.k === "path") set.add(s);
-    }
-    return set;
+  const machineOf = (n) => (n && n.drive ? S.machines[n.drive] : null);
+  function nodeFault(n) {
+    if (!n) return false;
+    return (n.drive && S.machines[n.drive].fault) || (n.drive2 && S.machines[n.drive2].fault);
+  }
+  function nodeRun(n) {
+    const m = machineOf(n);
+    if (!m) return false;
+    return n.drive2 ? m.running || S.machines[n.drive2].running : m.running || m.w > 0.05;
   }
 
-  function drawPipes(active) {
-    const routes = [];
-    if (S.ROUTES) {
-      if (S.ROUTES.main) routes.push(S.ROUTES.main);
-      (S.ROUTES.dust || []).forEach((r) => routes.push(r));
-      Object.values(S.ROUTES.chaff || {}).forEach((r) => routes.push(r));
-    }
-    const seen = new Set();
-    routes.forEach((route) => {
-      route.forEach((s) => {
-        if (s.k !== "path" || s.spd >= 120) return;
-        const key = s.pts.map((p) => p.join(",")).join(";");
-        if (seen.has(key)) return;
-        seen.add(key);
-        ctx.lineJoin = "round"; ctx.lineCap = "round";
-        ctx.beginPath();
-        s.pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
-        ctx.strokeStyle = C.pipe; ctx.lineWidth = 11; ctx.stroke();
-        ctx.strokeStyle = "rgba(255,255,255,.07)"; ctx.lineWidth = 3.5; ctx.stroke();
-        if (active.has(s)) {
-          ctx.beginPath();
-          s.pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
-          ctx.strokeStyle = "rgba(240,194,78,.7)";
-          ctx.lineWidth = 3;
-          ctx.setLineDash([8, 10]);
-          ctx.lineDashOffset = -(performance.now() / 1000) * 34;
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
-      });
-    });
+  /* --------------------------------------------------------- трубы и потоки */
+  function polyPath(pts) {
+    ctx.beginPath();
+    pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
   }
-
+  function drawPipes() {
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+    for (const e of Object.values(P.ELEM)) {
+      if (e.drive && !e.id.startsWith("d_")) continue;       // пути внутри машин не рисуем
+      if (e.id.startsWith("d_")) continue;
+      polyPath(e.pts);
+      ctx.strokeStyle = C.pipe; ctx.lineWidth = e.dust ? 7 : 11; ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,.07)"; ctx.lineWidth = 3; ctx.stroke();
+    }
+  }
   function drawDucts() {
     S.DUCTS.forEach((d) => {
       const m = S.machines[d.id];
       const on = m && m.running;
       ctx.save();
       ctx.lineJoin = "round";
-      ctx.beginPath();
-      d.pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+      polyPath(d.pts);
       ctx.strokeStyle = on ? "rgba(164,95,176,.85)" : "rgba(164,95,176,.32)";
-      ctx.lineWidth = 4.5;
-      ctx.setLineDash([14, 10]);
+      ctx.lineWidth = 5;
+      ctx.setLineDash([16, 11]);
       if (on) ctx.lineDashOffset = -(performance.now() / 1000) * 40;
       ctx.stroke();
       ctx.restore();
-      const p0 = d.pts[0];
-      ctx.font = "700 14px 'Segoe UI', sans-serif";
+      const p = d.pts[4];
+      ctx.font = "700 16px 'Segoe UI', sans-serif";
       ctx.textAlign = "left";
-      ctx.fillStyle = on ? "#cb92d4" : "#7a5a80";
-      ctx.fillText(d.poz, p0[0] + 8, p0[1] - 12);
+      ctx.fillStyle = on ? "#d7a3de" : "#7a5a80";
+      ctx.fillText(d.poz, p[0] + 12, p[1] - 8);
     });
   }
 
-  function variantFor(m) {
-    if (!m) return "norm";
-    if (m.fault) return "fault";
-    if (m.running || m.starting) return "norm";
-    return "idle";
+  // Позиция на ломаной по доле длины.
+  function along(pts, t) {
+    let total = 0;
+    const seg = [];
+    for (let i = 1; i < pts.length; i++) {
+      const L = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      seg.push(L); total += L;
+    }
+    let d = t * total;
+    for (let i = 0; i < seg.length; i++) {
+      if (d <= seg[i] || i === seg.length - 1) {
+        const k = seg[i] ? Math.min(1, d / seg[i]) : 0;
+        return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * k, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * k];
+      }
+      d -= seg[i];
+    }
+    return pts[pts.length - 1];
+  }
+  const HIDDEN_FLOW = new Set(["ksp", "tor", "pnev", "bt_14_1", "bt_14_2", "ost", "conv_22_1", "conv_22_2",
+    "conv_22_3", "conv_22_4", "conv_22_5"]);
+  function drawFlow() {
+    for (const e of Object.values(P.ELEM)) {
+      if (HIDDEN_FLOW.has(e.id)) continue;                  // внутри корпуса — показывает текстура/окно
+      const unit = e.dust ? 0.03 : 0.9;
+      const nominal = 3.4 * e.T / e.N;
+      for (let i = 0; i < e.N; i++) {
+        const q = e.cells[i];
+        if (q <= 1e-4) continue;
+        const k = Math.min(4, Math.ceil(q / (e.dust ? nominal * 0.02 : nominal) * 2 - 0.2));
+        for (let j = 0; j < k; j++) {
+          const t = (i + e.acc + (j + 0.5) / k * 0.9) / e.N;
+          const p = along(e.pts, Math.min(1, t));
+          const h = (Math.sin((i * 12.9898 + j * 78.233) * 43758.5453) + 1) / 2;
+          const jx = (h - 0.5) * 7, jy = (((h * 7.3) % 1) - 0.5) * 6;
+          ctx.beginPath();
+          ctx.ellipse(p[0] + jx, p[1] + jy, e.dust ? 2.8 : 4.4, e.dust ? 2.2 : 3.1, 0.6, 0, 7);
+          ctx.fillStyle = e.dust ? C.dust : (h < 0.33 ? C.grain0 : h < 0.66 ? C.grain1 : C.grain2);
+          ctx.fill();
+        }
+        void unit;
+      }
+    }
   }
 
+  /* --------------------------------------------------------- спрайты */
+  function variantFor(n) {
+    if (nodeFault(n)) return "fault";
+    if (!n.drive) return n.kind === "silo" || n.kind === "hopper" || n.kind === "truck" || n.kind === "magnet" || n.kind === "cyclone" ? "norm" : "idle";
+    return nodeRun(n) || (machineOf(n) && machineOf(n).cmd) ? "norm" : "idle";
+  }
   function drawSprite(id) {
     const n = S.ND[id];
     if (!n || !n.sprite) return;
     const set = VAR[n.sprite];
     if (!set) return;
-    const m = S.machines[id];
-    const v = set[variantFor(m)] || set.norm;
+    const m = machineOf(n);
+    const v = set[variantFor(n)];
     ctx.save();
-    if (m && m.running && m.vib > 0.15 && n.kind !== "screw" && n.kind !== "trier") {
+    if (m && m.vib > 0.02 && (n.kind === "muz" || n.kind === "tor" || n.kind === "sp" || n.kind === "op")) {
       const t = performance.now() / 1000;
-      ctx.translate(Math.sin(t * 34) * 0.55 * m.vib, Math.cos(t * 29) * 0.4 * m.vib);
+      ctx.translate(Math.sin(t * 37) * 0.55 * m.vib, Math.cos(t * 29) * 0.4 * m.vib);
     }
     ctx.drawImage(v, n.x, n.y, n.w, n.h);
     const grain = GRAIN_TEXTURE[n.sprite];
     if (grain) {
-      // Original artwork alpha mask: no grain can cover steel or leave the housing.
-      const amount = Math.max(0, Math.min(1, n.kind === "intake" ? (S.piles.pit || 0) : (m ? m.mat : 0)));
+      const amount = Math.max(0, Math.min(1, n.kind === "intake" ? S.levels.pit : (m ? m.mat : 0)));
       if (n.kind === "intake") {
-        const split = .44, gh = grain.naturalHeight, gw = grain.naturalWidth;
+        const split = 0.44, gh = grain.naturalHeight, gw = grain.naturalWidth;
         ctx.globalAlpha = amount;
-        ctx.drawImage(grain, 0, 0, gw, gh*split, n.x, n.y, n.w, n.h*split);
+        ctx.drawImage(grain, 0, 0, gw, gh * split, n.x, n.y, n.w, n.h * split);
         ctx.globalAlpha = Math.max(0, Math.min(1, m ? m.mat : 0));
-        ctx.drawImage(grain, 0, gh*split, gw, gh*(1-split), n.x, n.y+n.h*split, n.w, n.h*(1-split));
+        ctx.drawImage(grain, 0, gh * split, gw, gh * (1 - split), n.x, n.y + n.h * split, n.w, n.h * (1 - split));
       } else {
         ctx.globalAlpha = amount;
         ctx.drawImage(grain, n.x, n.y, n.w, n.h);
@@ -217,43 +275,22 @@
   }
 
   function grainWindows() {
-    const t = performance.now() / 1000;
     for (const [id, n] of Object.entries(S.ND)) {
-      const a = S.A[id];
-      const m = S.machines[id];
-      if (!a || !a.win || !m) continue;
-      // Solid mechanisms own their occlusion; do not draw schematic grain over steel.
-      if (n.kind === "screw" || n.kind === "trier" || TEXTURED.has(n.sprite)) continue;
-      const mat = m.mat || 0;
-      if (mat <= 0) continue;                    // продукт кончился — окно пустое
+      if (n.kind !== "noria") continue;
+      const a = S.A[id], m = machineOf(n);
+      if (!a || !a.win || !m || m.mat <= 0.01) continue;
       const [ux, uy, uw, uh] = a.win;
       const x = n.x + ux * n.w, y = n.y + uy * n.h, w = uw * n.w, h = uh * n.h;
       ctx.save();
       rr(x, y, w, h, 3); ctx.clip();
-      ctx.globalAlpha = 0.8 * Math.min(1, mat * 1.25);
-      if (n.kind === "noria") {
-        const step = 17, off = (m.spin * 66) % step;
-        for (let gy = y + h + step; gy > y - step; gy -= step) {
-          const py = gy - off;
-          ctx.fillStyle = C.grain1;
-          ctx.beginPath(); ctx.ellipse(x + w * 0.5, py, w * 0.32, 3.4, 0, 0, 7); ctx.fill();
-          ctx.fillStyle = C.grain0;
-          ctx.beginPath(); ctx.ellipse(x + w * 0.5, py - 1.4, w * 0.2, 2, 0, 0, 7); ctx.fill();
-        }
-      } else if (n.kind === "screw" || n.kind === "intake") {
-        const step = 15, off = (m.spin * 44) % step;
+      ctx.globalAlpha = 0.85 * Math.min(1, m.mat * 1.3);
+      const step = 17, off = (m.spin * 66) % step;
+      for (let gy = y + h + step; gy > y - step; gy -= step) {
+        const py = gy - off;
         ctx.fillStyle = C.grain1;
-        for (let gx = x - step; gx < x + w + step; gx += step) {
-          ctx.beginPath(); ctx.ellipse(gx + off, y + h * 0.6, 4.4, 3, 0, 0, 7); ctx.fill();
-        }
-      } else {
-        const off = (m.spin * 20) % 13;
-        ctx.fillStyle = "rgba(240,194,78,.42)";
-        ctx.fillRect(x, y + h * (0.84 - 0.34 * mat), w, h * 0.34 * mat + 2);
-        ctx.fillStyle = "rgba(217,163,51,.55)";
-        for (let gx = x - 13; gx < x + w + 13; gx += 13) {
-          ctx.beginPath(); ctx.ellipse(gx + off, y + h * 0.68, 3.6, 2.5, 0, 0, 7); ctx.fill();
-        }
+        ctx.beginPath(); ctx.ellipse(x + w * 0.5, py, w * 0.32, 3.4, 0, 0, 7); ctx.fill();
+        ctx.fillStyle = C.grain0;
+        ctx.beginPath(); ctx.ellipse(x + w * 0.5, py - 1.4, w * 0.2, 2, 0, 0, 7); ctx.fill();
       }
       ctx.restore();
     }
@@ -390,80 +427,120 @@
   }
 
   function drawMoving(id) {
-    const n = S.ND[id], m = S.machines[id];
-    if (!n || !m) return;
-    // Render these even at rest: stopping must freeze, never reveal the old sprite.
-    if (n.kind === "screw") { drawScrewSolid(n, m); return; }
+    const n = S.ND[id];
+    if (!n) return;
+    const m = machineOf(n);
+    if (n.kind === "screw" && m) { drawScrewSolid(n, m); return; }
     if (n.kind === "trier") {
-      MECH_WINDOWS.trier.forEach((win, i) => drawTrierDrum(n, m, win, i));
+      const m1 = S.machines[n.drive], m2 = S.machines[n.drive2];
+      MECH_WINDOWS.trier.forEach((win, i) => drawTrierDrum(n, i ? m2 : m1, win, i));
       return;
     }
-    const w = m.w || 0;
-    if (w < 0.02) return;
-    const spin = m.spin || 0;
-    const mat = m.mat || 0;
-    const steel = "rgba(214,226,240,.5)";
-    ctx.save();
-
-    if (n.kind === "intake") {
-      // скребки приёмного транспортёра
+    if (n.kind === "intake" && m && m.w > 0.02) {
       const a = S.A[id];
-      if (a && a.beltY !== undefined) {
-        const off = (spin * 46) % 30;
-        ctx.strokeStyle = steel; ctx.lineWidth = 1.8;
-        for (let x = a.bx1; x <= a.bx2; x += 30) {
-          const px = x + off;
-          if (px > a.bx2) continue;
-          ctx.beginPath(); ctx.moveTo(px, a.beltY - 6); ctx.lineTo(px, a.beltY + 6); ctx.stroke();
-        }
+      const off = (m.spin * 46) % 30;
+      ctx.strokeStyle = "rgba(214,226,240,.5)"; ctx.lineWidth = 1.8;
+      for (let x = a.bx1; x <= a.bx2; x += 30) {
+        const p = x + off;
+        if (p > a.bx2) continue;
+        ctx.beginPath(); ctx.moveTo(p, a.beltY - 6); ctx.lineTo(p, a.beltY + 6); ctx.stroke();
       }
     }
+    if (n.kind === "fan" && m && m.w > 0.02) {
+      // вращение крыльчатки поверх спрайта
+      const cx = n.x + n.w * 0.44, cy = n.y + n.h * 0.46, r = n.w * 0.2;
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(m.spin * 9);
+      ctx.strokeStyle = "rgba(220,232,240,.55)"; ctx.lineWidth = 2.2;
+      for (let k = 0; k < 4; k++) { ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(r, r * 0.3); ctx.stroke(); }
+      ctx.restore();
+    }
+  }
+
+  function stateColor(m) {
+    if (!m) return C.idle;
+    if (m.fault) return C.bad;
+    if (m.running) return C.ok;
+    if (m.cmd || m.w > 0.02) return C.warn;
+    return C.idle;
+  }
+
+  // Шлюзовый затвор: корпус и ротор с лопастями.
+  function drawSluice(id) {
+    const n = S.ND[id], m = machineOf(n);
+    const cx = n.x + n.w / 2, cy = n.y + n.h / 2, r = n.h * 0.36;
+    rr(n.x, n.y, n.w, n.h, 6);
+    const g = ctx.createLinearGradient(n.x, 0, n.x + n.w, 0);
+    g.addColorStop(0, "#2b3844"); g.addColorStop(0.5, "#5b6d7a"); g.addColorStop(1, "#2b3844");
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = m && m.fault ? C.bad : "#1b252e"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate((m ? m.spin : 0) * 3);
+    ctx.strokeStyle = m && m.running ? "#d8e3ea" : "#8391a0"; ctx.lineWidth = 3;
+    for (let k = 0; k < 6; k++) { ctx.rotate(Math.PI / 3); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(r, 0); ctx.stroke(); }
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(n.x + n.w - 9, n.y + 9, 5, 0, 7); ctx.fillStyle = stateColor(m); ctx.fill();
+  }
+
+  // Значок электродвигателя для приводов без отдельного спрайта.
+  function drawMotor(id) {
+    const n = S.ND[id], m = machineOf(n);
+    const cx = n.x + n.w / 2, cy = n.y + n.h / 2, r = n.w / 2 - 3;
+    const col = stateColor(m);
+    ctx.save();
+    if (m && m.fault) { ctx.shadowColor = C.bad; ctx.shadowBlur = 14 + 8 * Math.sin(performance.now() / 160); }
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7);
+    ctx.fillStyle = "#15202a"; ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = col; ctx.stroke();
+    ctx.restore();
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate((m ? m.spin : 0) * 6);
+    ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 2;
+    for (let k = 0; k < 3; k++) { ctx.rotate(Math.PI * 2 / 3); ctx.beginPath(); ctx.moveTo(0, r * 0.35); ctx.lineTo(0, r * 0.8); ctx.stroke(); }
+    ctx.restore();
+    ctx.font = "800 22px 'Segoe UI', sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "#e6edf4"; ctx.fillText("M", cx, cy + 1);
+    ctx.textBaseline = "alphabetic";
+  }
+
+  // Переключатель потока: стрелка показывает текущее положение заслонки.
+  function drawFlapper(id) {
+    const n = S.ND[id], m = machineOf(n), a = S.A[id];
+    if (!m) return;
+    const cx = a.in[0], cy = n.y + n.h * 0.46;
+    const t = m.pos;
+    const tx = a.oa[0] + (a.ob[0] - a.oa[0]) * t, ty = a.oa[1];
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = m.fault ? C.bad : m.running ? C.warn : "#9fe0b5";
+    ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + (tx - cx) * 0.8, cy + (ty - cy) * 0.8); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 7); ctx.fillStyle = "#e6edf4"; ctx.fill();
     ctx.restore();
   }
 
-  /* уровень зерна в завальной яме — видно, как она пустеет */
+  /* --------------------------------------------------------- ёмкости */
   function drawPit() {
-    const n = S.ND.intake, a = S.A.intake;
-    if (!n || !a) return;
-    const f = Math.max(0, Math.min(1, S.piles.pit || 0));
+    const n = S.ND.intake;
+    const f = Math.max(0, Math.min(1, S.levels.pit));
     const x = n.x + n.w * 0.10, w = n.w * 0.50;
     const yTop = n.y + n.h * 0.30, hMax = n.h * 0.30;
+    if (f <= 0.006 || GRAIN_TEXTURE.intake) return;
+    const h = hMax * f, y = yTop + hMax - h;
     ctx.save();
     ctx.globalAlpha = 0.92;
-    if (f > 0.006) {
-      const h = hMax * f, y = yTop + hMax - h;
-      ctx.beginPath();
-      ctx.moveTo(x, yTop + hMax);
-      ctx.lineTo(x, y + 5);
-      ctx.quadraticCurveTo(x + w * 0.5, y - 9 * f, x + w, y + 5);
-      ctx.lineTo(x + w, yTop + hMax);
-      ctx.closePath();
-      const g = ctx.createLinearGradient(0, y, 0, yTop + hMax);
-      g.addColorStop(0, C.grain0); g.addColorStop(1, C.grain2);
-      ctx.fillStyle = g; ctx.fill();
-      ctx.fillStyle = "rgba(120,74,14,.22)";
-      const cnt = Math.floor(f * 42);
-      for (let i = 0; i < cnt; i++) {
-        ctx.fillRect(x + 6 + ((i * 47) % Math.max(6, w - 12)),
-                     yTop + hMax - 4 - ((i * 31) % Math.max(4, h - 5)), 2.3, 2.3);
-      }
-    } else {
-      // яма пуста — видно дно
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = "rgba(38,50,66,.7)";
-      ctx.fillRect(x, yTop + hMax - 5, w, 5);
-    }
+    ctx.beginPath();
+    ctx.moveTo(x, yTop + hMax); ctx.lineTo(x, y + 5);
+    ctx.quadraticCurveTo(x + w * 0.5, y - 9 * f, x + w, y + 5);
+    ctx.lineTo(x + w, yTop + hMax); ctx.closePath();
+    ctx.fillStyle = C.grain1; ctx.fill();
     ctx.restore();
   }
-
   function drawLevels() {
-    const map = { bun_21: "V", bun_A: "A", bun_B: "B", bun_61: "b61", bun_9: "b9", bun_16: "b16" };
-    for (const [id, key] of Object.entries(map)) {
-      const n = S.ND[id], a = S.A[id];
-      const f = S.piles[key] || 0;
-      if (!n || !a || f <= 0.004) continue;
-      const body = a.body || [0.16, 0.10, 0.68, 0.46];
-      const cone = a.cone || [0.20, 0.58, 0.60, 0.30];
+    for (const [id, n] of Object.entries(S.ND)) {
+      if (!n.level) continue;
+      const a = S.A[id];
+      const f = S.levels[n.level] || 0;
+      if (f <= 0.004) continue;
+      const body = a.body, cone = a.cone;
       const bx = n.x + body[0] * n.w, by = n.y + body[1] * n.h;
       const bw = body[2] * n.w, bh = body[3] * n.h;
       const cx = n.x + cone[0] * n.w, cy = n.y + cone[1] * n.h;
@@ -479,305 +556,205 @@
       ctx.fillStyle = gc; ctx.fill();
       const gh = bh * f, gy = by + bh - gh;
       ctx.beginPath();
-      ctx.moveTo(bx, by + bh);
-      ctx.lineTo(bx, gy + 6);
+      ctx.moveTo(bx, by + bh); ctx.lineTo(bx, gy + 6);
       ctx.quadraticCurveTo(bx + bw / 2, gy - 8, bx + bw, gy + 6);
-      ctx.lineTo(bx + bw, by + bh);
-      ctx.closePath();
+      ctx.lineTo(bx + bw, by + bh); ctx.closePath();
       const g = ctx.createLinearGradient(0, gy, 0, by + bh);
       g.addColorStop(0, C.grain0); g.addColorStop(1, C.grain2);
       ctx.fillStyle = g; ctx.fill();
-      ctx.fillStyle = "rgba(120,74,14,.26)";
-      const cnt = Math.floor(f * 60);
-      for (let i = 0; i < cnt; i++) {
-        ctx.fillRect(bx + 5 + ((i * 53) % Math.max(6, bw - 10)),
-                     by + bh - 4 - ((i * 29) % Math.max(4, gh - 6)), 2.4, 2.4);
-      }
       ctx.restore();
     }
   }
 
-  function drawGrain() {
-    for (const p of S.grain) {
-      if (p.route[p.i] && p.route[p.i].k === "dwell") continue;
-      if (Object.values(S.ND).some(n => TEXTURED.has(n.sprite) && p.x > n.x && p.x < n.x+n.w && p.y > n.y && p.y < n.y+n.h)) continue;
-      let col;
-      if (p.tone === -1) col = C.dust;
-      else if (p.tone === -2) col = C.chaff;
-      else col = p.tone < 0.34 ? C.grain0 : p.tone < 0.68 ? C.grain1 : C.grain2;
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y, p.r, p.r * 0.72, 0.6, 0, 7);
-      ctx.fillStyle = col;
-      ctx.fill();
-    }
-  }
-
-  let VOPT = { labels: true, pipes: true, ducts: true, legend: true };
-  let labelQ = [];
-  function flushLabels() {
+  /* --------------------------------------------------------- подписи */
+  const SHORT = {
+    intake: "Завальная яма · конвейер 2", m_vor: "Ворошитель", magnet_3: "Магнит ПМ-200",
+    noria_4: "Нория 4", ost: "ОП-11", bun_61: "БО-1", ksp: "МУЗ-8М", m_biter: "Битер МУЗ",
+    fan_asp_1: "АС-1", noria_8: "Нория 8", bun_9: "БО-2", tor: "ТОР-18", m_tor_biter: "Битер ТОР",
+    fan_asp_2: "АС-2", noria_12: "Нория 12", flow_1: "Поток 13.1", bt_14_1: "БТ 14.1", bt_14_2: "БТ 14.2",
+    m_trier_1: "N1", m_trier_2_1: "N2", m_trier_1_2: "N1", m_trier_2_2: "N2",
+    noria_15: "Нория 15", flow_2: "Поток 13.2", bun_16: "БО-3", pnev: "СП-200", fan_pnev: "Вент. СП",
+    fan_asp_3: "АС-3", noria_20: "Нория 20", bun_21: "БЗ-А-20", cyc_1: "Циклон 1", cyc_2: "Циклон 2",
+    cyc_3: "Циклон 3", shl_1: "Шлюз 1", shl_2: "Шлюз 2", shl_3: "Шлюз 3", conv_22_1: "Шнек 22.1",
+    conv_22_2: "Шнек 22.2", conv_22_3: "Шнек 22.3", conv_22_4: "Шнек 22.4", conv_22_5: "Шнек 22.5",
+    noria_23: "Нория 23", noria_24: "Нория 24", bun_A: "Отходы А", bun_B: "Отходы Б",
+  };
+  // Подписи рисуются в экранных координатах: читаемы при любом масштабе.
+  function drawLabels() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    for (const it of labelQ) {
-      const px = SX(it.x), py = SY(it.y);
-      if (it.t === "name") {
-        ctx.font = "600 12px 'Segoe UI', sans-serif";
-        ctx.textAlign = "center";
-        ctx.lineWidth = 3; ctx.strokeStyle = "rgba(6,10,14,.9)";
-        ctx.strokeText(it.s, px, py);
-        ctx.fillStyle = C.text; ctx.fillText(it.s, px, py);
-      } else {
-        ctx.font = "600 10px 'Segoe UI', sans-serif";
-        const w = ctx.measureText(it.s).width + 12;
-        rr(px - w / 2, py - 8, w, 15, 2.5);
-        ctx.fillStyle = "rgba(10,17,25,.92)"; ctx.fill();
-        ctx.strokeStyle = "#27333f"; ctx.lineWidth = 1; ctx.stroke();
-        ctx.fillStyle = "#8494a4"; ctx.textAlign = "center";
-        ctx.fillText(it.s, px, py + 3.5);
-      }
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const fs = Math.max(9, Math.min(15, 13 * scale / dpr / 0.36));
+    for (const [id, n] of Object.entries(S.ND)) {
+      const s = SHORT[id];
+      if (!s) continue;
+      const motor = n.kind === "motor";
+      if (motor && fs < 11) continue;                     // на мелком масштабе подписи моторов мешают
+      const x = SX(n.x + n.w / 2);
+      const y = motor ? SY(n.y + n.h) + px(13) : SY(n.y) - px(6);
+      ctx.font = `${motor ? 600 : 700} ${px(motor ? fs - 2 : fs)}px 'Segoe UI', sans-serif`;
+      ctx.textAlign = "center";
+      ctx.lineWidth = px(3.2); ctx.strokeStyle = "rgba(6,10,14,.92)";
+      ctx.strokeText(s, x, y);
+      ctx.fillStyle = motor ? "#aebccb" : C.text; ctx.fillText(s, x, y);
     }
-    labelQ = [];
     ctx.setTransform(scale, 0, 0, scale, offX, offY);
   }
 
-  function queueLabels() {
-    for (const [id, n] of Object.entries(S.ND)) {
-      const m = S.machines[id];
-      if (!m) continue;
-      const nm = m.name
-        .replace("Конвейер шнековый ", "Шнек ")
-        .replace("Бункер оперативный БО-1 ", "БО-1 ")
-        .replace("Бункер отходов 2х10 ", "Бункер ")
-        .replace("Бункер зерновой ", "")
-        .replace("Комплект аспирации ", "")
-        .replace("Переключатель потока ", "Поток ")
-        .replace("Стол пневмосортировальный ", "")
-        .replace("Магнитный сепаратор ", "Магнит ")
-        .replace("Яма завальная с конвейером", "Завальная яма")
-        .replace("Остеобрушиватель ", "");
-      labelQ.push({ t: "name", x: n.x + n.w / 2, y: n.y - 10, s: nm });
-      if (m.poz) labelQ.push({ t: "poz", x: n.x + n.w / 2, y: n.y + n.h + 16, s: m.poz });
-    }
-  }
-
-  const TAG = {
-    fault:   { bg: "rgba(58,16,14,.95)", br: "#d9483c", fg: "#ffb3aa", blink: true },
-    timer:   { bg: "rgba(52,40,10,.95)", br: "#d9a53a", fg: "#ffdf9c" },
-    stopped: { bg: "rgba(22,29,37,.95)", br: "#6f7d8c", fg: "#c2ccd8" },
-    manual:  { bg: "rgba(18,36,56,.95)", br: "#4b8fd1", fg: "#a9d0f2" },
-    bypass:  { bg: "rgba(42,24,50,.95)", br: "#a45fb0", fg: "#dcb2e4" },
-    to:      { bg: "rgba(46,34,10,.95)", br: "#b08a2a", fg: "#f0d79a" },
-  };
-
-  function shortFault(m) {
-    for (const k of m.sensorList) if (m.sens[k] && !m.byp[k]) return "АВАРИЯ · " + SENS[k];
-    return "АВАРИЯ";
-  }
-
-  function tagsFor(id, m, chainSet) {
+  function tagsFor(n) {
     const t = [];
-    if (m.fault) t.push(["fault", shortFault(m)]);
-    if (m.starting) t.push(["timer", "ПУСК " + m.t_start.toFixed(1) + " с"]);
-    if (m.stopping) t.push(["timer", "ОСТАНОВ " + m.t_stop.toFixed(1) + " с"]);
-    if (!m.running && !m.starting && !m.stopping && !m.fault &&
-        (S.mode_run || S.mode_starting) && chainSet.has(id)) t.push(["stopped", "НЕ В РАБОТЕ"]);
-    if (m.manual) t.push(["manual", "РР"]);
-    const byp = m.sensorList.filter((k) => m.byp[k]);
-    if (byp.length) t.push(["bypass", "Ø " + byp.map((k) => SENS[k]).join(" ")]);
-    if (m.hours_to > 0 && m.hours_cur >= m.hours_to) t.push(["to", "ТО"]);
+    const ids = [n.drive, n.drive2].filter(Boolean);
+    for (const id of ids) {
+      const m = S.machines[id], inf = P.info(id);
+      const pre = n.drive2 ? (id === n.drive ? "N1 " : "N2 ") : "";
+      if (inf.state === "fault") t.push(["fault", pre + "АВАРИЯ" + (inf.faults.length ? " · " + inf.faults[0] : "")]);
+      else if (inf.state === "starting") t.push(["timer", pre + "ПУСК " + inf.startLeft.toFixed(0) + " с"]);
+      else if (inf.state === "stopping") t.push(["timer", pre + "СТОП " + inf.stopLeft.toFixed(0) + " с"]);
+      else if (inf.state === "hand" || inf.state === "hand-run") t.push(["manual", pre + "РУЧН."]);
+      else if (inf.state === "local" || inf.state === "local-run") t.push(["manual", pre + "МЕСТН."]);
+      else if (inf.state === "blocked" && !S.V.gemer) t.push(["fault", pre + "СТОП КНОПКОЙ"]);
+      if (m.toHours > 0 && m.hours >= m.toHours) t.push(["to", pre + "ТО"]);
+      if (id === "flow_1" || id === "flow_2") {
+        if (inf.state === "moving") t.push(["timer", "ПЕРЕВОД"]);
+      }
+    }
     return t;
   }
-
-  function drawTag(x, y, text, kind) {
-    const st = TAG[kind] || TAG.stopped;
-    ctx.font = "700 11px 'Segoe UI', sans-serif";
-    const w = ctx.measureText(text).width + 16, h = 18;
-    const a = st.blink ? 0.8 + 0.2 * Math.sin(performance.now() / 180) : 1;
-    ctx.save();
-    ctx.globalAlpha = a;
-    ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 5; ctx.shadowOffsetY = 1;
-    rr(x, y, w, h, 3); ctx.fillStyle = st.bg; ctx.fill();
-    ctx.restore();
-    rr(x, y, w, h, 3); ctx.strokeStyle = st.br; ctx.lineWidth = 1.4; ctx.stroke();
-    ctx.fillStyle = st.br; ctx.fillRect(x + 2, y + 2, 3, h - 4);
-    ctx.fillStyle = st.fg; ctx.textAlign = "left";
-    ctx.fillText(text, x + 11, y + 12.5);
-    return w;
-  }
-
-  function drawAnnotations() {
-    const chainSet = new Set(P.chain());
+  const TAG = {
+    fault: { bg: "rgba(58,16,14,.96)", br: "#e0503f", fg: "#ffc0b6", blink: true },
+    timer: { bg: "rgba(52,40,10,.96)", br: "#d9a53a", fg: "#ffe2a4" },
+    manual: { bg: "rgba(18,36,56,.96)", br: "#4b8fd1", fg: "#b4d6f4" },
+    to: { bg: "rgba(46,34,10,.96)", br: "#b08a2a", fg: "#f0d79a" },
+  };
+  function drawTags() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    for (const [id, m] of Object.entries(S.machines)) {
-      const n = S.ND[id];
-      if (!n) continue;
-      const tags = tagsFor(id, m, chainSet);
+    ctx.font = `700 ${px(11)}px 'Segoe UI', sans-serif`;
+    for (const [id, n] of Object.entries(S.ND)) {
+      if (!n.drive || n.kind === "motor") continue;
+      let tags = tagsFor(n);
+      // приводы-значки показывают метки у своего узла
+      for (const [mid, mn] of Object.entries(S.ND)) {
+        if (mn.kind === "motor" && mn.parent === id && mn.drive !== n.drive && mn.drive !== n.drive2) tags = tags.concat(tagsFor(mn));
+      }
       if (!tags.length) continue;
-      const right = n.x + n.w < S.W - 430;
-      const ax = SX(right ? n.x + n.w : n.x);
-      const ay = SY(n.y + Math.min(26, n.h * 0.12));
-      const tx = ax + (right ? 12 : -12);
-      ctx.strokeStyle = "rgba(150,168,188,.5)"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(ax, ay + 9); ctx.lineTo(tx, ay + 9); ctx.stroke();
-      ctx.beginPath(); ctx.arc(ax, ay + 9, 1.8, 0, 7);
-      ctx.fillStyle = "rgba(150,168,188,.7)"; ctx.fill();
-      tags.slice(0, 4).forEach(([k, s], i) => {
-        ctx.font = "700 11px 'Segoe UI', sans-serif";
-        const w = ctx.measureText(s).width + 16;
-        drawTag(right ? tx : tx - w, ay + i * 21, s, k);
+      const x0 = SX(n.x + n.w / 2);
+      let y = SY(n.y + n.h) + px(6);
+      tags.slice(0, 3).forEach(([k, s]) => {
+        const st = TAG[k];
+        const w = ctx.measureText(s).width + px(14), h = px(17);
+        ctx.save();
+        ctx.globalAlpha = st.blink ? 0.82 + 0.18 * Math.sin(performance.now() / 180) : 1;
+        rr(x0 - w / 2, y, w, h, px(3)); ctx.fillStyle = st.bg; ctx.fill();
+        ctx.strokeStyle = st.br; ctx.lineWidth = px(1.3); ctx.stroke();
+        ctx.fillStyle = st.fg; ctx.textAlign = "center";
+        ctx.fillText(s, x0, y + px(12));
+        ctx.restore();
+        y += h + px(3);
       });
+    }
+    for (const [id, n] of Object.entries(S.ND)) {
+      if (n.kind !== "motor" || n.parent) continue;
+      const tags = tagsFor(n);
+      if (!tags.length) continue;
+      const [k, s] = tags[0], st = TAG[k];
+      const x0 = SX(n.x + n.w / 2), y = SY(n.y + n.h) + px(18);
+      const w = ctx.measureText(s).width + px(14), h = px(17);
+      rr(x0 - w / 2, y, w, h, px(3)); ctx.fillStyle = st.bg; ctx.fill();
+      ctx.strokeStyle = st.br; ctx.lineWidth = px(1.3); ctx.stroke();
+      ctx.fillStyle = st.fg; ctx.textAlign = "center"; ctx.fillText(s, x0, y + px(12));
     }
     ctx.setTransform(scale, 0, 0, scale, offX, offY);
   }
 
   function drawBunkerText() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const map = { bun_21: "V", bun_A: "A", bun_B: "B" };
-    for (const [id, key] of Object.entries(map)) {
-      const n = S.ND[id];
-      if (!n) continue;
-      const f = (S.piles[key] || 0) * 100;
-      const px = SX(n.x + n.w / 2), py = SY(n.y + n.h * 0.32);
-      ctx.font = "800 26px 'Segoe UI', sans-serif";
-      ctx.textAlign = "center";
-      ctx.lineWidth = 4; ctx.strokeStyle = "rgba(8,12,18,.88)";
-      ctx.strokeText(n.letter, px, py);
-      ctx.fillStyle = "#e8eef5"; ctx.fillText(n.letter, px, py);
-      ctx.font = "700 14px 'Segoe UI', sans-serif";
-      const txt = Math.round(f) + "%";
-      const w = ctx.measureText(txt).width + 14;
-      rr(px - w / 2, py + 8, w, 19, 3);
+    for (const [id, n] of Object.entries(S.ND)) {
+      if (!n.level) continue;
+      const f = (S.levels[n.level] || 0) * 100;
+      const full = { bo_1: S.V.out_dvy_bo_1, bo_2: S.V.out_dvy_bo_2, bo_3: S.V.out_dvy_bo_3,
+        V: S.V.out_dvy_a, A: S.V.out_dvy_bunk_1, B: S.V.out_dvy_bunk_2 }[n.level];
+      const cx = SX(n.x + n.w / 2);
+      let py = SY(n.y + n.h * (n.kind === "silo" ? 0.3 : 0.36));
+      if (n.letter) {
+        ctx.font = `800 ${px(26)}px 'Segoe UI', sans-serif`;
+        ctx.textAlign = "center";
+        ctx.lineWidth = px(4); ctx.strokeStyle = "rgba(8,12,18,.88)";
+        ctx.strokeText(n.letter, cx, py);
+        ctx.fillStyle = "#e8eef5"; ctx.fillText(n.letter, cx, py);
+        py += px(8);
+      }
+      ctx.font = `700 ${px(n.letter ? 14 : 12)}px 'Segoe UI', sans-serif`;
+      const txt = Math.round(f) + "%" + (full ? " ДВУ" : "");
+      const w = ctx.measureText(txt).width + px(14), h = px(n.letter ? 19 : 17);
+      rr(cx - w / 2, py, w, h, px(3));
       ctx.fillStyle = "rgba(10,17,25,.9)"; ctx.fill();
-      ctx.strokeStyle = f >= 95 ? C.bad : C.ok; ctx.lineWidth = 1.2; ctx.stroke();
-      ctx.fillStyle = f >= 95 ? "#ffb3aa" : "#b6f0c8";
-      ctx.fillText(txt, px, py + 22);
+      ctx.strokeStyle = full ? C.bad : f >= 90 ? C.warn : C.ok; ctx.lineWidth = px(1.2); ctx.stroke();
+      ctx.fillStyle = full ? "#ffb3aa" : "#b6f0c8"; ctx.textAlign = "center";
+      ctx.fillText(txt, cx, py + h - px(5));
     }
-    ctx.setTransform(scale, 0, 0, scale, offX, offY);
-  }
-
-  function drawLegend() {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const w = 240, h = 108, x = 14, y = cv.height - h - 14;
-    rr(x, y, w, h, 6);
-    ctx.fillStyle = "rgba(8,14,20,.9)"; ctx.fill();
-    ctx.strokeStyle = "#212c38"; ctx.lineWidth = 1.2; ctx.stroke();
-    ctx.font = "700 11px 'Segoe UI', sans-serif";
-    ctx.textAlign = "left"; ctx.fillStyle = C.textDim;
-    ctx.fillText("СОСТОЯНИЕ МЕХАНИЗМОВ", x + 13, y + 19);
-    [[C.ok, "работа"], [C.warn, "пуск / останов по задержке"], [C.bad, "авария по датчику"],
-     [C.info, "РР — ручной режим"], [C.duct, "Ø — контроль датчика снят"]]
-      .forEach(([col, s], i) => {
-        const iy = y + 37 + i * 14;
-        ctx.beginPath(); ctx.arc(x + 19, iy - 3.5, 3.6, 0, 7);
-        ctx.fillStyle = col; ctx.fill();
-        ctx.font = "500 11px 'Segoe UI', sans-serif";
-        ctx.fillStyle = "#94a3b3"; ctx.fillText(s, x + 30, iy);
-      });
-    ctx.setTransform(scale, 0, 0, scale, offX, offY);
-  }
-
-  function drawEstopBanner() {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const w = 440, h = 46, x = (cv.width - w) / 2, y = 16;
-    ctx.save();
-    rr(x, y, w, h, 5); ctx.fillStyle = "rgba(44,11,9,.95)"; ctx.fill();
-    rr(x, y, w, h, 5); ctx.clip();
-    ctx.strokeStyle = "rgba(217,72,60,.28)"; ctx.lineWidth = 7;
-    for (let i = -h; i < w; i += 20) {
-      ctx.beginPath(); ctx.moveTo(x + i, y + h); ctx.lineTo(x + i + h, y); ctx.stroke();
-    }
-    ctx.restore();
-    rr(x, y, w, h, 5);
-    const a = 0.65 + 0.35 * Math.sin(performance.now() / 240);
-    ctx.strokeStyle = "rgba(217,72,60," + a + ")"; ctx.lineWidth = 2.4; ctx.stroke();
-    ctx.font = "800 19px 'Segoe UI', sans-serif";
-    ctx.textAlign = "center";
-    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(18,4,3,.85)";
-    ctx.strokeText("АВАРИЙНЫЙ СТОП НАЖАТ", x + w / 2, y + 29);
-    ctx.fillStyle = "#ffd2cb";
-    ctx.fillText("АВАРИЙНЫЙ СТОП НАЖАТ", x + w / 2, y + 29);
     ctx.setTransform(scale, 0, 0, scale, offX, offY);
   }
 
   function drawSelection() {
-    for (const [id, m] of Object.entries(S.machines)) {
-      const n = S.ND[id];
-      if (!n) continue;
-      if (hover === id) {
-        rr(n.x - 4, n.y - 4, n.w + 8, n.h + 8, 7);
-        ctx.strokeStyle = "rgba(75,143,209,.9)"; ctx.lineWidth = 2.2; ctx.stroke();
+    for (const [id, n] of Object.entries(S.ND)) {
+      const pad = n.kind === "motor" ? 3 : 5;
+      if (hover === id || selected === id) {
+        rr(n.x - pad, n.y - pad, n.w + pad * 2, n.h + pad * 2, 8);
+        ctx.strokeStyle = selected === id ? "rgba(120,190,255,.95)" : "rgba(75,143,209,.8)";
+        ctx.lineWidth = selected === id ? 3.2 : 2.4; ctx.stroke();
       }
-      if (m.fault) {
-        rr(n.x - 4, n.y - 4, n.w + 8, n.h + 8, 7);
-        ctx.strokeStyle = "rgba(217,72,60," + (0.55 + 0.45 * Math.sin(performance.now() / 160)) + ")";
-        ctx.lineWidth = 2.6; ctx.stroke();
+      if (n.kind !== "motor" && nodeFault(n)) {
+        rr(n.x - pad, n.y - pad, n.w + pad * 2, n.h + pad * 2, 8);
+        ctx.strokeStyle = "rgba(224,80,63," + (0.55 + 0.45 * Math.sin(performance.now() / 160)) + ")";
+        ctx.lineWidth = 3; ctx.stroke();
       }
     }
   }
 
-  /* --------------------------------------------------------------- фон цеха
-     Каркас здания, отметки этажей и бетонный пол. Всё приглушённое:
-     фон не должен спорить с оборудованием и трассами. */
   function drawBackdrop() {
-    const FLOORS = [
-      [0, 300, "отм. +18.0"],
-      [300, 620, "отм. +12.6"],
-      [620, 950, "отм. +8.4"],
-      [950, 1250, "отм. +4.2"],
-      [1250, S.H, "отм. 0.000"],
-    ];
-    // перекрытия
-    FLOORS.forEach(([y0, y1, mark], i) => {
-      ctx.fillStyle = i % 2 ? "rgba(255,255,255,.016)" : "rgba(255,255,255,.032)";
-      ctx.fillRect(0, y0, S.W, y1 - y0);
-      ctx.strokeStyle = "rgba(150,178,210,.14)";
-      ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(S.W, y0); ctx.stroke();
-      ctx.font = "600 13px 'Segoe UI', sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillStyle = "rgba(150,178,210,.3)";
-      ctx.fillText(mark, 8, y0 + 17);
-    });
-    // колонны каркаса
-    ctx.strokeStyle = "rgba(150,178,210,.10)";
-    ctx.lineWidth = 9;
-    for (let x = 180; x < S.W; x += 470) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, S.H); ctx.stroke();
-    }
-    // мелкая координатная сетка
     ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
-    for (let x = 0; x <= S.W; x += 52) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, S.H); ctx.stroke(); }
-    for (let y = 0; y <= S.H; y += 52) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(S.W, y); ctx.stroke(); }
-    // бетонный пол
-    const fy = S.H - 96;
+    for (let x = 0; x <= S.W; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, S.H); ctx.stroke(); }
+    for (let y = 0; y <= S.H; y += 60) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(S.W, y); ctx.stroke(); }
+    // межэтажная граница основного и отходного трактов
+    ctx.fillStyle = "rgba(255,255,255,.018)";
+    ctx.fillRect(0, 860, S.W, S.H - 860);
+    ctx.strokeStyle = "rgba(150,178,210,.14)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, 860); ctx.lineTo(S.W, 860); ctx.stroke();
+    ctx.font = "700 30px 'Segoe UI', sans-serif";
+    ctx.textAlign = "right"; ctx.fillStyle = "rgba(150,178,210,.28)";
+    ctx.fillText("ОСНОВНОЙ ТРАКТ ОЧИСТКИ", S.W - 30, 44);
+    ctx.fillText("АСПИРАЦИЯ И ОТХОДЫ", S.W - 30, 904);
+    const fy = S.H - 60;
     const fg = ctx.createLinearGradient(0, fy, 0, S.H);
     fg.addColorStop(0, "rgba(46,60,78,.55)"); fg.addColorStop(1, "rgba(26,35,48,.8)");
-    ctx.fillStyle = fg; ctx.fillRect(0, fy, S.W, 96);
-    ctx.strokeStyle = "rgba(150,178,210,.18)"; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, fy); ctx.lineTo(S.W, fy); ctx.stroke();
-    ctx.strokeStyle = "rgba(150,178,210,.07)"; ctx.lineWidth = 1;
-    for (let x = 0; x < S.W; x += 140) {
-      ctx.beginPath(); ctx.moveTo(x, fy); ctx.lineTo(x - 38, S.H); ctx.stroke();
-    }
+    ctx.fillStyle = fg; ctx.fillRect(0, fy, S.W, 60);
   }
 
-  /* подпись владельца схемы — правый нижний угол, поверх фона */
   function drawWatermark() {
     const img = IMG.logo;
     if (!img) return;
-    const w = 214, h = (img.height / img.width) * w;
-    const x = S.W - w - 28, y = S.H - h - 26;
+    const w = 230, h = (img.height / img.width) * w;
     ctx.save();
-    ctx.globalAlpha = 0.5;
-    ctx.drawImage(img, x, y, w, h);
-    ctx.globalAlpha = 0.34;
-    ctx.font = "600 13px 'Segoe UI', sans-serif";
-    ctx.textAlign = "right";
-    ctx.fillStyle = "#9fb4cd";
-    ctx.fillText("промышленная автоматизация", S.W - 28, y + h + 16);
+    ctx.globalAlpha = 0.45;
+    ctx.drawImage(img, S.W - w - 40, S.H - h - 80, w, h);
     ctx.restore();
   }
 
+  function drawEstopBanner() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const w = px(460), h = px(44), x = (cv.width - w) / 2, y = px(12);
+    ctx.save();
+    rr(x, y, w, h, px(5)); ctx.fillStyle = "rgba(44,11,9,.95)"; ctx.fill();
+    rr(x, y, w, h, px(5));
+    const a = 0.65 + 0.35 * Math.sin(performance.now() / 240);
+    ctx.strokeStyle = "rgba(224,80,63," + a + ")"; ctx.lineWidth = px(2.4); ctx.stroke();
+    ctx.font = `800 ${px(17)}px 'Segoe UI', sans-serif`;
+    ctx.textAlign = "center"; ctx.fillStyle = "#ffd2cb";
+    ctx.fillText("ОБЩАЯ АВАРИЯ · " + (P.statusLine().length > 34 ? "см. журнал" : P.statusLine()).toUpperCase(), x + w / 2, y + px(28));
+    ctx.restore();
+    ctx.setTransform(scale, 0, 0, scale, offX, offY);
+  }
+
   const BACK = ["truck_in", "truck_out", "truck_A", "truck_B"];
-  const SILOS = ["bun_21", "bun_A", "bun_B"];
 
   function render() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -786,9 +763,7 @@
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.setTransform(scale, 0, 0, scale, offX, offY);
-
     drawBackdrop();
-
     if (!ready) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.font = "600 15px 'Segoe UI', sans-serif";
@@ -796,39 +771,32 @@
       ctx.fillText("Загрузка моделей оборудования…", cv.width / 2, cv.height / 2);
       return;
     }
-
     drawWatermark();
-
-    const active = activeSegs();
     if (VOPT.ducts) drawDucts();
-    if (VOPT.pipes) drawPipes(active);
-
+    if (VOPT.pipes) drawPipes();
     BACK.forEach(drawSprite);
-    SILOS.forEach(drawSprite);
     drawLevels();
-    Object.keys(S.ND).forEach((id) => {
-      if (BACK.includes(id) || SILOS.includes(id)) return;
-      drawSprite(id);
-    });
-
-    // Intake material uses the original masked texture, not a rectangular overlay.
+    for (const [id, n] of Object.entries(S.ND)) {
+      if (BACK.includes(id)) continue;
+      if (n.kind === "motor") continue;
+      if (n.kind === "sluice") drawSluice(id); else drawSprite(id);
+    }
+    drawPit();
     Object.keys(S.ND).forEach(drawMoving);
     grainWindows();
-    drawGrain();
+    drawFlow();
+    ["flow_1", "flow_2"].forEach(drawFlapper);
+    for (const [id, n] of Object.entries(S.ND)) if (n.kind === "motor") drawMotor(id);
     drawSelection();
-
-    if (VOPT.labels) { queueLabels(); flushLabels(); }
+    if (VOPT.labels) drawLabels();
     drawBunkerText();
-    drawAnnotations();
-    // Legend removed from simulation at operator request.
-
-    if (S.estop) {
-      ctx.fillStyle = "rgba(150,30,22,.05)";
-      ctx.fillRect(0, 0, S.W, S.H);
-      drawEstopBanner();
-    }
+    if (VOPT.tags) drawTags();
+    if (S.V.gemer) drawEstopBanner();
   }
 
-  global.RENDER = { init, render, toWorld, hitAt, setHover: (id) => { hover = id; },
-    setViewOpt: (o) => { VOPT = o; } };
+  global.RENDER = {
+    init, render, toWorld, toClient, hitAt, zoomAt, panBy, fit,
+    setHover: (id) => { hover = id; }, setSelected: (id) => { selected = id; },
+    setViewOpt: (o) => { VOPT = { ...VOPT, ...o }; }, getViewOpt: () => ({ ...VOPT }),
+  };
 })(window);

@@ -1,1097 +1,763 @@
-/* ЛПЗС «Родина» — интерфейс пульта: панель, окна механизмов (стиль пульта Weintek),
-   журнал, график, тренажёр аварий. Связка с PLANT (модель) и RENDER (канвас). */
+/* ЛПЗС «Родина» — интерфейс оператора: окна панели HMI, таблицы, журнал.
+   Все команды идут через PLANT и пишут те же переменные, что панель
+   оператора пишет в ПЛК (HMI_*, Mode_och, RESET_ERR…). */
 
-(function (global) {
+(function () {
   "use strict";
 
-  const P = global.PLANT;
-  const S = P.S;
-  const $ = (id) => document.getElementById(id);
+  const P = window.PLANT, R = window.RENDER;
+  const S = P.S, V = P.V;
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-  let selected = null;
-  let chartKey = "temp";
-  let chartKey2 = "temp";
-  const viewOpt = { labels: true, pipes: true, ducts: true, legend: true };
-  let openDiverterId = null;
-  let openDlgId = null;   // id механизма, чьё окно открыто — для живого обновления
-
-  const SENSOR_NAMES = { dks: "ДКС", dsl1: "ДСЛ 1", dsl2: "ДСЛ 2", dp: "ДП", prot: "Защита двигателя" };
-
-  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
-
-
-  let dialogReturnFocus = null;
-  const settingLimits = {"dvu_bo61": [0.0, 120.0], "dvu_bo9": [0.0, 120.0], "dvu_bo16": [0.0, 120.0], "dvu_a": [0.0, 120.0], "dvu_waste1": [0.0, 120.0], "dvu_waste2": [0.0, 120.0], "seq_up": [0.05, 5.0], "seq_down": [0.05, 5.0], "feed_rate": [1.0, 30.0], "prod_nom": [1.0, 40.0], "pit_load": [10.0, 100.0]};
-  const roles = ["Оператор", "Наладчик", "Администратор"];
-  function readNumber(inp) {
-    const v = inp.value.trim() === "" ? NaN : Number(inp.value);
-    const min = inp.min === "" ? 0 : Number(inp.min);
-    const max = inp.max === "" ? Number.MAX_SAFE_INTEGER : Number(inp.max);
-    if (!Number.isFinite(v) || v < min || v > max) {
-      inp.setAttribute("aria-invalid", "true");
-      toast("Введите число в допустимом диапазоне: " + min + " — " + max, true);
-      inp.focus(); return null;
+  function h(tag, attrs, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+      else if (k === "class") e.className = v;
+      else if (k === "html") e.innerHTML = v;
+      else e.setAttribute(k, v === true ? "" : v);
     }
-    inp.removeAttribute("aria-invalid"); return v;
-  }
-  function persistSettings() {
-    try {
-      localStorage.setItem("lpzs_settings", JSON.stringify({s:S.settings, u:S.user, v:viewOpt}));
-      return true;
-    } catch (e) {
-      toast("Изменения применены только в этой сессии: сохранение недоступно", true);
-      return false;
-    }
-  }
-  function rebuildSettingsDraft() {
-    const draft = Array.from($("view-settings").querySelectorAll("input, select"))
-      .map(el => [el.id ? "#" + el.id : '[data-s="' + el.dataset.s + '"]', el.value]);
-    buildSettings();
-    draft.forEach(([sel, val]) => { const el = $("view-settings").querySelector(sel); if (el) el.value = val; });
+    for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(String(c)));
+    return e;
   }
 
+  let toastT = 0;
   function toast(msg, bad) {
-    const t = document.createElement("div");
-    t.className = "toast" + (bad ? " bad" : "");
+    const t = $("#toast");
     t.textContent = msg;
-    t.setAttribute("role", bad ? "alert" : "status");
-    document.body.appendChild(t);
-    setTimeout(() => t.classList.add("show"), 10);
-    setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 300); }, 2800);
+    t.className = "toast show" + (bad ? " bad" : "");
+    clearTimeout(toastT);
+    toastT = setTimeout(() => { t.className = "toast" + (bad ? " bad" : ""); }, 2800);
   }
+  const run = (r, okMsg) => { if (r && !r.ok) toast(r.error, true); else if (okMsg) toast(okMsg); save(); return r; };
 
-  /* ------------------------------------------------------------- диалоги */
+  /* ------------------------------------------------ названия и порядок */
+  const ORDER = ["conv_2", "vor", "noria_4", "ost", "ksp_biter", "ksp", "fan_asp_1", "shl_1", "noria_8", "tor_biter", "tor",
+    "fan_asp_2", "shl_2", "noria_12", "flow_1", "trier_1", "trier_2_1", "trier_1_2", "trier_2_2", "noria_15", "flow_2",
+    "pnev", "fan_pnev", "fan_asp_3", "shl_3", "noria_20", "conv_22_5", "conv_22_1", "noria_23", "conv_22_4", "conv_22_3",
+    "conv_22_2", "noria_24"];
+  const RELATED = {
+    conv_2: ["vor"], vor: ["conv_2"], ksp: ["ksp_biter", "fan_asp_1"], ksp_biter: ["ksp"], tor: ["tor_biter", "fan_asp_2"],
+    tor_biter: ["tor"], fan_asp_1: ["shl_1"], fan_asp_2: ["shl_2"], fan_asp_3: ["shl_3"], shl_1: ["fan_asp_1"],
+    shl_2: ["fan_asp_2"], shl_3: ["fan_asp_3"], pnev: ["fan_pnev", "fan_asp_3"], fan_pnev: ["pnev"],
+    trier_1: ["trier_2_1"], trier_2_1: ["trier_1"], trier_1_2: ["trier_2_2"], trier_2_2: ["trier_1_2"],
+    noria_12: ["flow_1"], noria_15: ["flow_2"],
+  };
+  const SHARED_NOTE = {
+    noria_20: "В проекте ПЛК нория 20 использует задержки нории 23 (HMI_timer_start_23 / HMI_timer_stop_23).",
+    noria_23: "Эти задержки в проекте ПЛК общие с норией 20.",
+    tor_biter: "«Не отслеживать след. мех.» у битера ТОР — общий флаг с ТОР (HMI_off_next_TOR).",
+  };
+  const title = (id) => S.machines[id].name + " · поз. " + S.machines[id].poz;
+  const STATE = {
+    fault: ["АВАРИЯ", "bad"], blocked: ["Нет готовности", "bad"], hand: ["Ручной режим", "info"],
+    "hand-run": ["Ручной · работа", "info"], local: ["Местный режим", "info"], "local-run": ["Местный · работа", "info"],
+    stopping: ["Останов", "warn"], run: ["Работа", "ok"], starting: ["Пуск", "warn"], wait: ["Ждёт след. механизм", "warn"],
+    stop: ["Остановлен", ""], pos1: ["", "ok"], pos2: ["", "ok"], moving: ["Переключение", "warn"], mid: ["Не в положении", "warn"],
+  };
+  const FLAP_POS = { flow_1: ["На триеры (14.1/14.2)", "На норию 15"], flow_2: ["На пневмостол (через БО-3)", "На норию 20"] };
+  function stateText(id) {
+    const inf = P.info(id);
+    let [t, cls] = STATE[inf.state] || ["—", ""];
+    if (inf.state === "starting") t = "Пуск через " + Math.ceil(inf.startLeft) + " с";
+    if (inf.state === "stopping") t = "Останов через " + Math.ceil(inf.stopLeft) + " с";
+    if (inf.state === "fault" && inf.faults.length) t = "АВАРИЯ: " + inf.faults.join(", ");
+    if (inf.state === "blocked") t = V.gemer ? "Общая авария" : "Нажат местный стоп";
+    if (inf.state === "pos1") t = FLAP_POS[id][0];
+    if (inf.state === "pos2") t = FLAP_POS[id][1];
+    return [t, cls, inf];
+  }
+  const ledClass = (id) => {
+    const s = P.info(id).state;
+    return s === "fault" || s === "blocked" ? "fault" : s === "run" || s === "hand-run" || s === "local-run" || s === "pos1" || s === "pos2"
+      ? (s.startsWith("hand") || s.startsWith("local") ? "hand" : "run")
+      : s === "starting" || s === "stopping" || s === "wait" || s === "moving" || s === "mid" ? "wait" : s === "hand" || s === "local" ? "hand" : "";
+  };
+
+  /* ------------------------------------------------ окна */
+  let dlg = null;
+  function openDlg(o) {
+    const root = $("#modal-root");
+    root.innerHTML = "";
+    const ups = [];
+    const body = h("div", { class: "dlg-b" });
+    const box = h("div", { class: "dlg" + (o.wide ? " wide" : ""), role: "dialog", "aria-modal": "true", "aria-label": o.title },
+      h("div", { class: "dlg-h" },
+        h("button", { class: "dlg-x", type: "button", "aria-label": "Закрыть", onclick: closeDlg }, "✕"),
+        h("div", { class: "dlg-title", id: "dlg-title" }, o.title, o.sub ? h("small", {}, o.sub) : null)),
+      body);
+    root.append(box);
+    root.classList.add("open");
+    dlg = { id: o.id, ups, box };
+    o.build(body, (fn) => ups.push(fn));
+    ups.forEach((f) => f());
+    const first = box.querySelector(".dlg-b button, .dlg-b input");
+    (first || box.querySelector(".dlg-x")).focus({ preventScroll: true });
+    R.setSelected(o.node || null);
+  }
   function closeDlg() {
-    openDlgId = null;
-    openDiverterId = null;
-    const r = $("modal-root");
-    r.className = "modal-root";
-    r.innerHTML = "";
-    document.querySelector(".app").inert = false;
-    if (dialogReturnFocus && dialogReturnFocus.isConnected) dialogReturnFocus.focus();
-    dialogReturnFocus = null;
+    $("#modal-root").classList.remove("open");
+    $("#modal-root").innerHTML = "";
+    dlg = null;
+    R.setSelected(null);
   }
+  $("#modal-root").addEventListener("mousedown", (e) => { if (e.target.id === "modal-root") closeDlg(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && dlg) closeDlg(); });
 
-  function dlgShell(title, body, wide) {
-    openDiverterId = null;
-    const r = $("modal-root");
-    if (!r.classList.contains("open")) dialogReturnFocus = document.activeElement;
-    document.querySelector(".app").inert = true;
-    r.className = "modal-root open";
-    r.innerHTML = `
-      <div class="dlg ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
-        <div class="dlg-h">
-          <button type="button" class="dlg-x" id="dlg-x" aria-label="Закрыть окно">✕</button>
-          <span class="dlg-title" id="dlg-title">${esc(title)}</span>
-        </div>
-        <div class="dlg-b">${body}</div>
-      </div>`;
-    $("dlg-x").onclick = closeDlg;
-    r.querySelectorAll("input, select, .toggle").forEach(el => {
-      const row = el.closest(".row, .srow");
-      if (row) el.setAttribute("aria-label", row.textContent.trim());
+  // Элементы окна HMI
+  const row = (label, ...right) => h("div", { class: "row" }, h("span", {}, label), ...right);
+  function toggle(get, set, up, disabled) {
+    const b = h("button", { class: "toggle", type: "button", role: "switch" }, h("i"));
+    b.addEventListener("click", () => { run(set(!get())); refresh(); });
+    up(() => {
+      const on = !!get();
+      b.classList.toggle("on", on); b.setAttribute("aria-checked", on);
+      if (disabled) b.disabled = !!disabled();
     });
-    r.querySelectorAll(".row.link, .menu-item").forEach(el => {
-      el.tabIndex = 0; el.setAttribute("role", "button");
-      el.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); } };
-    });
-    r.querySelectorAll(".toggle").forEach(el => {
-      el.setAttribute("role", "switch");
-      el.setAttribute("aria-checked", String(el.classList.contains("on")));
-    });
-    $("dlg-x").focus();
-    r.onclick = (e) => { if (e.target === r) closeDlg(); };
+    return b;
   }
-
-  function rowToggle(cls, on, dataAttr, label) {
-    return `<div class="row ${cls}"><span>${label}</span>
-      <button type="button" class="toggle ${on ? "on" : ""}" ${dataAttr}><i></i></button></div>`;
+  function num(get, set, up, unit) {
+    const i = h("input", { type: "number", min: 0, step: 1 });
+    const commit = () => { const r = set(i.value); if (r && !r.ok) { toast(r.error, true); i.value = get(); } else save(); };
+    i.addEventListener("change", commit);
+    i.addEventListener("keydown", (e) => { if (e.key === "Enter") { commit(); i.blur(); } });
+    up(() => { if (document.activeElement !== i) i.value = Math.round(get() * 100) / 100; });
+    return h("span", {}, i, h("span", { class: "unit" }, unit));
   }
-  function rowNum(key, val, label, unit) {
-    return `<div class="row"><span>${label}</span>
-      <span><input type="number" step="0.1" min="0" data-n="${key}" value="${val}"> <span class="unit">${unit}</span></span></div>`;
+  const val = (get, up, fmt) => { const s = h("span", { class: "val" }); up(() => { s.textContent = fmt ? fmt(get()) : get(); }); return s; };
+  function lampb(label, get, up, kind) {
+    const s = h("span", { class: "lampb", title: label }, label);
+    up(() => { const v = get(); s.className = "lampb" + (v ? " " + (kind || "on") : ""); });
+    return s;
   }
-  function rowVal(label, val, unit, id) {
-    return `<div class="row"><span>${label}</span><span class="val" ${id ? `id="${id}"` : ""}>${val}${unit ? ' <span class="unit">' + unit + "</span>" : ""}</span></div>`;
-  }
+  function refresh() { if (dlg) dlg.ups.forEach((f) => f()); }
 
-  /* Окно механизма — как на пульте: тумблеры «Выкл. ДКС», задержки, ТО, ПУСК/СТОП */
-  function machineDlg(m) {
-    openDlgId = m.id;
-    const sensorRows = m.sensorList.filter((k) => k !== "prot").map((k) => {
-      const active = m.sens[k] && !m.byp[k];
-      return `<div class="row ${active ? "row-alarm" : ""}">
-        <span>Выкл. ${SENSOR_NAMES[k]}${m.sens[k] ? (m.byp[k] ? ' <i class="note">(сработал, контроль снят)</i>' : ' <i class="note bad">(СРАБОТАЛ)</i>') : ""}</span>
-        <button type="button" class="toggle ${m.byp[k] ? "on" : ""}" data-byp="${k}"><i></i></button></div>`;
-    }).join("");
-
-    // защита двигателя: обойти нельзя, только снять после устранения
-    const protRow = m.sensorList.includes("prot")
-      ? `<div class="row ${m.sens.prot ? "row-alarm" : ""}">
-           <span>Защита двигателя${m.sens.prot ? ' <i class="note bad">(СРАБОТАЛА)</i>' : " · норма"}</span>
-           ${m.sens.prot ? '<button type="button" class="btn-sw" id="prot-clear">Снять</button>' : ""}
-         </div>`
-      : "";
-
-    const links = [];
-    if (m.id === "bt_14_1") links.push(`<div class="row link" data-go="bt_14_2">Триерный блок 2.1 <span>≫</span></div>`);
-    if (m.id === "bt_14_2") links.push(`<div class="row link" data-go="bt_14_1">Триерный блок 1.1 <span>≫</span></div>`);
-    if (m.id === "sp_18") links.push(S.machines.sp_fan
-      ? `<div class="row link" data-go="sp_fan">Вентилятор пневмостола <span>→</span></div>`
-      : `<div class="row unavailable"><span>Вентилятор пневмостола<small>Отдельный привод отсутствует в текущей frontend-модели.</small></span><button type="button" class="btn-sw" disabled>Недоступно</button></div>`);
-    if (m.id === "as_1") links.push(`<div class="row link" data-go="sluice_1">Окно шлюз аспирации <span>≫</span></div>`);
-    if (m.id === "as_2") links.push(`<div class="row link" data-go="sluice_2">Окно шлюз аспирации <span>≫</span></div>`);
-    if (m.id === "as_3") links.push(`<div class="row link" data-go="sluice_3">Окно шлюз аспирации <span>≫</span></div>`);
-    if (m.id === "muz_6") links.push(`<div class="row link" data-go="beater_6">МУЗ-8М битер <span>≫</span></div>`);
-    if (m.id === "tor_10") links.push(`<div class="row link" data-go="beater_10">ТОР-18 битер <span>≫</span></div>`);
-    if (m.id === "beater_6") links.push(`<div class="row link" data-go="muz_6">МУЗ-8М <span>≪</span></div>`);
-    if (m.id === "beater_10") links.push(`<div class="row link" data-go="tor_10">ТОР-18 <span>≪</span></div>`);
-
-    const next = P.nextOf(m.id);
-    const nextName = next ? S.machines[next].name : "—";
-
-    dlgShell(m.name + (m.poz ? "  " + m.poz : ""), `
-      ${links.join("")}
-      <div class="hmi-section">Защита и контроль</div>
-      ${protRow}
-      ${sensorRows}
-      <div class="hmi-section">Временные параметры</div>
-      ${rowNum("delay_start", m.delay_start, "Задержка перед запуском", "с.")}
-      ${rowNum("delay_stop", m.delay_stop, "Задержка перед остановом", "с.")}
-      <div class="hmi-section">Наработка и обслуживание</div>
-      ${rowNum("hours_to", m.hours_to, "Интервал ТО", "ч.")}
-      ${rowVal("Текущее время работы", m.hours_cur.toFixed(3), "ч.", "dlg-hcur")}
-      ${rowVal("Общее время работы", m.hours_total.toFixed(1), "ч.", "dlg-htot")}
-      <div class="row">Сброс часов ТО <button type="button" class="btn-sw" id="dlg-reset">Сброс</button></div>
-      <div class="hmi-section">Управление механизмом</div>
-      ${rowToggle("", m.ignore_next, 'data-flag="ignore_next"', "Не контролировать следующий механизм")}
-      <div class="row sub"><span>следующий по потоку: ${esc(nextName)}</span></div>
-      ${rowToggle("", m.manual, 'data-flag="manual"', "Ручной режим")}
-      ${m.id === "intake" ? `<div class="row"><span>Заполнение ямы: ${(S.piles.pit*100).toFixed(0)} %</span>
-        <button type="button" class="btn-sw" id="pit-load">Засыпать</button></div>` : ""}
-      <div class="row status-row" id="dlg-status">${statusText(m)}</div>
-      <div class="btn-row">
-        <button type="button" class="btn-go" id="dlg-go">ПУСК</button>
-        <button type="button" class="btn-stop" id="dlg-stop">СТОП</button>
-      </div>`);
-    bindMachineDlg(m);
-  }
-
-  function statusText(m) {
-    if (m.fault) return "⚠ " + m.fault_text;
-    if (m.starting) return "Запуск… " + m.t_start.toFixed(1) + " с";
-    if (m.stopping) return "Останов… " + m.t_stop.toFixed(1) + " с";
-    if (m.running) return "Работает · " + m.rpm.toFixed(0) + " об/мин · " + m.amps.toFixed(1) + " A";
-    return "Остановлен";
-  }
-
-  function bindMachineDlg(m) {
-    const r = $("modal-root");
-    r.querySelectorAll("[data-byp]").forEach((t) => {
-      t.onclick = () => {
-        const k = t.dataset.byp;
-        P.setBypass(m.id, k, !m.byp[k]);
-        machineDlg(m); // перерисовать окно — состояние аварии могло измениться
-      };
-    });
-    r.querySelectorAll("[data-flag]").forEach((t) => {
-      t.onclick = () => {
-        const k = t.dataset.flag;
-        m[k] = !m[k];
-        t.classList.toggle("on", m[k]);
-        t.setAttribute("aria-checked", String(m[k]));
-      };
-    });
-    r.querySelectorAll("input[data-n]").forEach((inp) => {
-      inp.onchange = () => { const v = readNumber(inp); if (v !== null) m[inp.dataset.n] = v; else inp.value = m[inp.dataset.n]; };
-    });
-    const pl = $("pit-load");
-    if (pl) pl.onclick = () => { S.piles.pit = 0.9; toast("Завальная яма засыпана"); machineDlg(m); };
-    const pc = $("prot-clear");
-    if (pc) pc.onclick = () => { P.clearSensor(m.id, "prot"); toast("Защита двигателя снята"); machineDlg(m); };
-    const go = $("dlg-go"), st = $("dlg-stop"), rs = $("dlg-reset");
-    if (go) go.onclick = () => {
-      const res = P.startMachine(m.id);
-      if (!res.ok) toast(res.error, true);
-      else machineDlg(m);
-    };
-    if (st) st.onclick = () => { P.stopMachine(m.id); machineDlg(m); };
-    if (rs) rs.onclick = () => { m.hours_cur = 0; m.to_warned = false; toast("Часы ТО сброшены"); machineDlg(m); };
-    r.querySelectorAll("[data-go]").forEach((el) => {
-      el.onclick = () => { const t = S.machines[el.dataset.go]; if (t) machineDlg(t); };
-    });
-  }
-
-  /* живое обновление открытого окна (часы, статус) — раз в секунду */
-  function refreshDlg() {
-    if (openDiverterId) {
-      const d = S.diverters[openDiverterId];
-      const st = $("div-status");
-      if (d && st) {
-        st.textContent = d.busy > 0 ? "Идёт переключение · " + d.busy.toFixed(1) + " с" : "Переключение завершено";
-        $("modal-root").querySelectorAll("[data-pos]").forEach(b => {
-          const current = !d.busy && d.pos === b.dataset.pos;
-          b.textContent = current ? "Выбрано" : "Переключить";
-          b.setAttribute("aria-pressed", String(current));
-          b.disabled = d.busy > 0;
-          b.closest(".row").classList.toggle("direction-active", current);
+  /* ------------------------------------------------ окно привода */
+  function openDrive(id) {
+    const d = P.DEF[id], m = S.machines[id];
+    if (!d.fb) return openFlapper(id);
+    openDlg({
+      id, title: m.name, sub: "Поз. " + m.poz + " · блок " + (d.fb === "transport" ? "Transport" : "FB_och") + " · выход " + d.y.toUpperCase(),
+      node: nodeOfDrive(id),
+      build(b, up) {
+        const st = h("div", { class: "row" }, h("span", { class: "status" }));
+        up(() => {
+          const [t, cls] = stateText(id);
+          st.className = "row" + (cls === "bad" ? " bad" : cls === "ok" ? " good" : cls === "warn" ? " warn" : "");
+          st.firstChild.textContent = t;
         });
-      }
-      return;
+        b.append(st);
+        // живые входы блока ПЛК
+        const I = () => P.plc.fbs[id].inputs || {};
+        b.append(h("div", { class: "cond-grid" },
+          lampb("CYCLE", () => I().cycle, up), lampb("NEXT", () => I().next, up), lampb("PREV", () => I().prev, up),
+          lampb("RR", () => P.plc.fbs[id].rr, up), lampb("RUN", () => V[d.y], up)));
+        b.append(h("div", { class: "note" }, "CYCLE — режим/разрешение, NEXT — следующий механизм в работе, PREV — предыдущий в работе, RR — готовность."));
+        (RELATED[id] || []).forEach((rid) => {
+          b.append(h("div", { class: "row link", tabindex: 0, onclick: () => openAny(rid), onkeydown: (e) => { if (e.key === "Enter") openAny(rid); } },
+            h("span", {}, "Окно: " + S.machines[rid].name), h("span", {}, "»")));
+        });
+        const SENS = [["offDks", "Выкл. ДКС", "err_dks"], ["offDp", "Выкл. ДП", "err_dp"], ["offDsl1", "Выкл. ДСЛ 1", "err_dsl"], ["offDsl2", "Выкл. ДСЛ 2", "err_dsl"]];
+        SENS.forEach(([k, label, err]) => {
+          if (!d[k]) return;
+          b.append(row(label, lampb("ошибка", () => P.plc.fbs[id][err], up, "bad"),
+            toggle(() => V[d[k]], (v) => P.hmi(id, k, v), up)));
+        });
+        b.append(row("Задержка перед запуском", num(() => P.getTimer(id, "start"), (v) => P.setTimer(id, "start", v), up, "с.")));
+        b.append(row("Задержка перед остановом", num(() => P.getTimer(id, "stop"), (v) => P.setTimer(id, "stop", v), up, "с.")));
+        if (SHARED_NOTE[id]) b.append(h("div", { class: "note" }, "⚠ " + SHARED_NOTE[id]));
+        b.append(row("Время ТО", num(() => m.toHours, (v) => P.setToHours(id, v), up, "ч.")));
+        b.append(row("Текущее время работы", val(() => m.hours, up, (x) => x.toFixed(2)), h("span", { class: "unit" }, "ч.")));
+        b.append(row("Общее время работы", val(() => m.hoursTotal, up, (x) => x.toFixed(1)), h("span", { class: "unit" }, "ч.")));
+        b.append(row("Сброс часов ТО", h("button", { class: "btn-sw", type: "button", onclick: () => run(P.resetHours(id), "Часы ТО сброшены") }, "Сброс")));
+        b.append(row("Не отслеживать след. мех.", toggle(() => V[d.offNext], (v) => P.hmi(id, "offNext", v), up)));
+        b.append(row("Ручной режим", toggle(() => V[d.hm], (v) => P.hmi(id, "hand", v), up)));
+        const go = h("button", { class: "big-go", type: "button", onclick: () => run(P.pressStart(id)) }, "ПУСК");
+        const stop = h("button", { class: "big-stop", type: "button", onclick: () => run(P.pressStop(id)) }, "СТОП");
+        up(() => {
+          const hand = !!V[d.hm];
+          go.disabled = !hand; stop.disabled = !hand;
+          go.title = hand ? "HMI_BTN := TRUE" : "Кнопки работают в ручном режиме (как в ПЛК)";
+          stop.title = go.title;
+        });
+        b.append(h("div", { class: "btn-row" }, go, stop));
+        b.append(h("div", { class: "note" }, "В автоматическом режиме механизм запускается ПЛК: после появления CYCLE и NEXT и выдержки задержки пуска. Останавливается через задержку останова после пропадания CYCLE и PREV, либо сразу при пропадании NEXT."));
+        b.append(simSection(id, up));
+      },
+    });
+  }
+
+  // Неисправности и местный пост — входы ПЛК со стороны установки.
+  function simSection(id, up) {
+    const d = P.DEF[id], m = S.machines[id];
+    const inner = h("div", { class: "inner" });
+    const simRow = (label, key) => inner.append(row(label, toggle(() => m.sim[key], (v) => P.setSim(id, key, v), up)));
+    if (d.prot) simRow("Сработал автомат защиты (" + d.prot.toUpperCase() + ")", "az");
+    if (P.PCH[id]) simRow("Авария ПЧ / нет готовности (" + P.PCH[id].ready.toUpperCase() + ")", "pch");
+    if (d.dks) simRow("ДКС: нет импульсов (обрыв/пробуксовка)", "dks");
+    if (d.dsl1) simRow("ДСЛ 1: сход ленты внизу", "dsl1");
+    if (d.dsl2) simRow("ДСЛ 2: сход ленты вверху", "dsl2");
+    if (d.dp) simRow("ДП: подпор", "dp");
+    const lv = (key) => P.localVar(id, key);
+    if (d.loc) {
+      inner.append(h("div", { class: "sect" }, "Местный пост"));
+      inner.append(row("Местный режим (" + lv("mode").toUpperCase() + ")", toggle(() => V[lv("mode")], (v) => P.setLocal(id, "mode", v), up)));
+      const hold = h("button", { class: "btn-sw", type: "button", title: "Удерживайте — как кнопку на посту" }, "Пуск (удерж.)");
+      const on = () => P.setLocal(id, "pusk", true), off = () => P.setLocal(id, "pusk", false);
+      hold.addEventListener("pointerdown", on); hold.addEventListener("pointerup", off); hold.addEventListener("pointerleave", off);
+      up(() => hold.classList.toggle("on", !!V[lv("pusk")]));
+      inner.append(row("Местный пуск (" + lv("pusk").toUpperCase() + ")", hold));
+      inner.append(row("Местный стоп нажат (" + lv("stop").toUpperCase() + ")", toggle(() => V[lv("stop")], (v) => P.setLocal(id, "stop", v), up)));
+      inner.append(row((d.sens === "noria" ? "Верхний стоп нажат (" : "Стоп в конце нажат (") + lv("stopUp").toUpperCase() + ")",
+        toggle(() => V[lv("stopUp")], (v) => P.setLocal(id, "stopUp", v), up)));
     }
-    if (!openDlgId) return;
-    const m = S.machines[openDlgId];
-    if (!m) return;
-    const hc = $("dlg-hcur"), ht = $("dlg-htot"), st = $("dlg-status");
-    if (hc) hc.innerHTML = m.hours_cur.toFixed(3) + ' <span class="unit">ч.</span>';
-    if (ht) ht.innerHTML = m.hours_total.toFixed(1) + ' <span class="unit">ч.</span>';
-    if (st) st.textContent = statusText(m);
+    if (P.LOCAL_STOP[id]) {
+      inner.append(row("Местная аварийная кнопка (" + P.LOCAL_STOP[id].toUpperCase() + ")",
+        toggle(() => V[P.LOCAL_STOP[id]], (v) => P.setLocal(id, "estop", v), up)));
+    }
+    return h("details", {}, h("summary", {}, "Имитация: неисправности и местный пост"), inner);
   }
 
-  function diverterDlg(id) {
-    const d = S.diverters[id];
-    const m = S.machines[id];
-    // Legacy IDs/position tokens stay unchanged: the model uses them internally.
-    const label = id === "div_10_1"
-      ? {title: "Переключатель потока 13.1", a: "На БТ · триерные блоки", b: "На норию 15"}
-      : {title: "Переключатель потока 13.2", a: "В бункер 16 · СП", b: "На норию 20"};
-    openDlgId = null;
-    dlgShell(label.title, `
-      <div class="hmi-section">Направление продукта</div>
-      <div class="row"><span>${label.a}</span>
-        <button type="button" class="btn-sw" data-pos="${d.a}">Переключить</button></div>
-      <div class="row"><span>${label.b}</span>
-        <button type="button" class="btn-sw" data-pos="${d.b}">Переключить</button></div>
-      <div class="row"><span>Время переключения</span>
-        <span><input type="number" id="div-sw" step="0.5" min="0.5" value="${d.sw}"> <span class="unit">сек</span></span></div>
-      ${rowToggle("", d.manual, 'data-dm="1"', "Ручной режим")}
-      <div class="row status-row" id="div-status" role="status"></div>`);
-    openDiverterId = id;
-    refreshDlg();
-    const r = $("modal-root");
-    r.querySelectorAll("[data-pos]").forEach((b) => {
-      b.onclick = () => {
-        const res = P.switchDiverter(id, b.dataset.pos);
-        if (!res.ok) toast(res.error, true);
-        else diverterDlg(id);
-      };
-    });
-    $("div-sw").onchange = (e) => { const v = readNumber(e.target); if (v !== null) d.sw = Math.max(0.5, v); e.target.value = d.sw; };
-    r.querySelectorAll("[data-dm]").forEach((t) => {
-      t.onclick = () => { d.manual = !d.manual; t.classList.toggle("on", d.manual); t.setAttribute("aria-checked", String(d.manual)); };
+  function openFlapper(id) {
+    const f = P.DEF[id], m = S.machines[id];
+    const [l1, l2] = FLAP_POS[id];
+    openDlg({
+      id, title: "Переключатель потока " + m.poz, sub: m.name + " · блок Flapper", node: id,
+      build(b, up) {
+        const st = h("div", { class: "row" }, h("span", { class: "status" }));
+        up(() => {
+          const [t, cls] = stateText(id);
+          st.className = "row" + (cls === "bad" ? " bad" : cls === "ok" ? " good" : cls === "warn" ? " warn" : "");
+          st.firstChild.textContent = t + " · положение " + Math.round((1 - m.pos) * 100) + "/" + Math.round(m.pos * 100);
+        });
+        b.append(st);
+        const posRow = (label, n, pol, y) => {
+          const btn = h("button", { class: "btn-sw", type: "button", onclick: () => run(P.pressPos(id, n)) }, "Переключить");
+          up(() => { btn.disabled = !V[f.hm]; btn.title = V[f.hm] ? "" : "Перевод с панели — только в ручном режиме"; });
+          return row(label, lampb("концевик", () => V[pol], up), lampb("привод", () => V[y], up, "warn"), btn);
+        };
+        b.append(posRow(l1, 1, f.pol1, f.y1));
+        b.append(posRow(l2, 2, f.pol2, f.y2));
+        b.append(row("Время переключения", num(() => P.getTimer(id, "err"), (v) => P.setTimer(id, "err", v), up, "сек.")));
+        b.append(row("Ручной режим", toggle(() => V[f.hm], (v) => { V[f.hm] = !!v; return { ok: true }; }, up)));
+        b.append(row("Не переключился вовремя", lampb("ERR_SWAP", () => P.plc.fbs[id].err_swap, up, "bad")));
+        b.append(row("Оба концевика", lampb("ERR_CONC", () => P.plc.fbs[id].err_conc, up, "bad")));
+        b.append(h("div", { class: "note" }, "В автоматическом режиме положение задаёт режим очистки: " +
+          (id === "flow_1" ? "«Через триеры»" : "«Через пневмостол»") + ". ПЛК переводит заслонку только при запущенном режиме."));
+        const inner = h("div", { class: "inner" });
+        inner.append(row("Защита привода (" + f.prot.toUpperCase() + ")", toggle(() => m.sim.az, (v) => P.setSim(id, "az", v), up)));
+        inner.append(row("Заклинивание заслонки", toggle(() => m.sim.jam, (v) => P.setSim(id, "jam", v), up)));
+        b.append(h("details", {}, h("summary", {}, "Имитация неисправностей"), inner));
+      },
     });
   }
 
-  function bunkerDlg(id) {
-    const m = S.machines[id];
-    const key = id === "bun_21" ? "V" : id === "bun_A" ? "A" : id === "bun_B" ? "B"
-      : id === "bun_61" ? "b61" : id === "bun_9" ? "b9" : "b16";
-    const f = S.piles[key] || 0;
-    const dvuKey = { b61: "dvu_bo61", b9: "dvu_bo9", b16: "dvu_bo16", A: "dvu_waste1", B: "dvu_waste2", V: "dvu_a" }[key];
-    dlgShell(m.name, `
-      ${rowVal("Заполнение", (f * 100).toFixed(1), "%")}
-      ${rowVal("ДВУ (верхний уровень)", f >= 0.95 ? "сработал" : "норма")}
-      ${rowVal("Задержка ДВУ", S.settings[dvuKey], "с.")}
-      <div class="row"><span>Задать уровень</span>
-        <span><input type="number" id="bk-fill" min="0" max="100" value="${Math.round(f * 100)}"> <span class="unit">%</span></span></div>
-      <div class="btn-row"><button type="button" class="btn-go" id="bk-go">OK</button></div>`);
-    $("bk-go").onclick = () => {
-      const value = readNumber($("bk-fill")); if (value === null) return;
-      S.piles[key] = Math.max(0, Math.min(1, value / 100));
-      closeDlg();
-    };
+  function openTrierBlock(node) {
+    const n = S.ND[node];
+    openDlg({
+      id: node, title: "Триерный блок БТ-7/2 · поз. " + n.poz, node,
+      build(b, up) {
+        [n.drive, n.drive2].forEach((id, i) => {
+          const s = h("small");
+          up(() => { s.textContent = stateText(id)[0]; });
+          b.append(h("div", { class: "row link", tabindex: 0, onclick: () => openDrive(id) },
+            h("span", {}, "Двигатель N" + (i + 1), h("br"), s), h("span", {}, "»")));
+        });
+        b.append(h("div", { class: "note" }, "Продукт проходит блок, когда работают оба двигателя. N1 ждёт N2 и вентилятор АС-2 (NEXT), N2 ждёт норию 15 и шнек 22.4."));
+      },
+    });
   }
 
-  function openMachine(id) {
-    if (!id) return;
-    selected = id;
-    const m = S.machines[id];
-    if (!m) return;
-    if (m.kind === "diverter") diverterDlg(id);
-    else if (m.kind === "silo" || m.kind === "hopper") bunkerDlg(id);
-    else if (m.kind === "truck" || m.kind === "magnet" || m.kind === "cyclone") {
-      openDlgId = null;
-      dlgShell(m.name, `<div class="row"><span>${m.kind === "cyclone" ? "Пассивный узел: работает совместно с вентилятором и шлюзом аспирации." : "Пассивный узел технологической схемы. Отдельный электропривод отсутствует."}</span></div><div class="row sub"><span>Управление приводами — через соответствующие окна механизмов.</span></div>`);
-      return;
-    } else machineDlg(m);
-    document.querySelectorAll('[data-machine]').forEach(b => {
+  const LEVEL_OF = { V: "out_dvy_a", A: "out_dvy_bunk_1", B: "out_dvy_bunk_2", bo_1: "out_dvy_bo_1", bo_2: "out_dvy_bo_2", bo_3: "out_dvy_bo_3" };
+  const LEVEL_ID = { V: "A", A: "bunk_1", B: "bunk_2", bo_1: "bo_1", bo_2: "bo_2", bo_3: "bo_3" };
+  function openBunker(key, node) {
+    const name = { V: "Бункер зерновой БЗ-А-20 (В)", A: "Бункер отходов А", B: "Бункер отходов Б",
+      bo_1: "Бункер оперативный БО-1 (поз. 6.1)", bo_2: "Бункер оперативный БО-2 (поз. 9)", bo_3: "Бункер оперативный БО-3 (поз. 16)" }[key];
+    const lvl = P.plc.LEVELS.find((l) => l.id === LEVEL_ID[key]);
+    openDlg({
+      id: "lvl:" + key, title: name, node,
+      build(b, up) {
+        b.append(row("Уровень", val(() => S.levels[key] * 100, up, (x) => x.toFixed(1)), h("span", { class: "unit" }, "%")));
+        b.append(row("Датчик верхнего уровня", lampb("вход", () => V[lvl.input], up, "warn"), lampb(LEVEL_OF[key].toUpperCase(), () => V[LEVEL_OF[key]], up, "bad")));
+        b.append(row("Задержка ДВУ", num(() => V[lvl.timer], (v) => P.setDvu(lvl.id, v), up, "с.")));
+        b.append(h("div", { class: "note" }, {
+          V: "ДВУ сбрасывает режим очистки (Mode_och).", A: "ДВУ сбрасывает режим очистки (Mode_och).", B: "ДВУ сбрасывает режим очистки (Mode_och).",
+          bo_1: "ДВУ снимает CYCLE у конвейера 2 (подача).", bo_2: "ДВУ снимает CYCLE у конвейера 2 и остеобрушивателя.",
+          bo_3: "ДВУ снимает CYCLE у конвейера 2, ТОР и битера ТОР, триеров, норий 12 и 15.",
+        }[key]));
+        b.append(h("div", { class: "btn-row" }, h("button", { class: "btn-sw", type: "button", onclick: () => run(P.unload(key)) }, "Выгрузить бункер")));
+      },
+    });
+  }
+  function openPit() {
+    openDlg({
+      id: "pit", title: "Завальная яма", node: "intake",
+      build(b, up) {
+        b.append(row("Уровень зерна", val(() => S.levels.pit * 100, up, (x) => x.toFixed(1)), h("span", { class: "unit" }, "%")));
+        b.append(h("div", { class: "row link", onclick: () => openDrive("conv_2") }, h("span", {}, "Окно: конвейер поз. 2"), h("span", {}, "»")));
+        b.append(h("div", { class: "row link", onclick: () => openDrive("vor") }, h("span", {}, "Окно: ворошитель поз. 1"), h("span", {}, "»")));
+        b.append(h("div", { class: "btn-row" },
+          h("button", { class: "btn-sw", type: "button", onclick: () => run(P.refillPit(100)) }, "Разгрузить автомобиль (100 %)"),
+          h("button", { class: "btn-sw", type: "button", onclick: () => run(P.unload("pit")) }, "Очистить")));
+      },
+    });
+  }
+  function openInfo(t, text, links) {
+    openDlg({
+      id: "info", title: t,
+      build(b) {
+        b.append(h("div", { class: "note", style: "font-size:14px" }, text));
+        (links || []).forEach((rid) => b.append(h("div", { class: "row link", onclick: () => openAny(rid) }, h("span", {}, "Окно: " + S.machines[rid].name), h("span", {}, "»"))));
+      },
+    });
+  }
+
+  function openClean() {
+    openDlg({
+      id: "clean", title: "Режим очистки",
+      build(b, up) {
+        const opt = (label, key, dis) => row(label, toggle(() => V[key], (v) => P.setOption(key, v), up, dis));
+        b.append(opt("Через триеры", "with_trier"));
+        b.append(h("div", { class: "row-2" }, opt("Триер 14.1", "use_1"), opt("Триер 14.2", "use_2")));
+        b.append(opt("Через пневмостол", "with_pnev"));
+        b.append(opt("Вкл остеобрушиватель", "on_ost"));
+        b.append(opt("Вкл ворошитель", "on_vor"));
+        const warn = h("div", { class: "note" });
+        up(() => {
+          const w = [];
+          if (V.with_trier && !V.use_1 && !V.use_2) w.push("⚠ Выбрано «через триеры», но не выбран ни один блок — нория 12 не получит NEXT.");
+          if (!V.with_trier && (V.use_1 || V.use_2)) w.push("Триерные блоки включатся по use_1/use_2 даже без «через триеры» — так в программе ПЛК.");
+          warn.textContent = w.join(" ");
+        });
+        b.append(warn);
+        const st = h("div", { class: "row" }, h("span", { class: "status" }));
+        up(() => {
+          st.className = "row" + (V.mode_och ? " good" : V.gemer ? " bad" : "");
+          st.firstChild.textContent = V.mode_och ? "Режим очистки запущен" : V.gemer ? "Общая авария — пуск невозможен" : "Режим не запущен";
+        });
+        b.append(st);
+        const go = h("button", { class: "big-go", type: "button", onclick: () => run(P.modeStart(), "Режим очистки: Mode_och := TRUE") }, "ПУСК");
+        const stop = h("button", { class: "big-stop", type: "button", onclick: () => run(P.modeStop(), "Режим очистки: Mode_och := FALSE") }, "СТОП");
+        up(() => { go.disabled = !!V.mode_och; stop.disabled = !V.mode_och; });
+        b.append(h("div", { class: "btn-row" }, go, stop));
+        b.append(h("div", { class: "note" }, "Переключатели записываются в ПЛК сразу (RETAIN-переменные with_trier, use_1, use_2, with_pnev, on_ost, on_vor)."));
+      },
+    });
+  }
+
+  const DVU_LABEL = { bo_1: "Задержка ДВУ БО-1 (6.1)", bo_2: "Задержка ДВУ БО-2 (9)", bo_3: "Задержка ДВУ БО-3 (16)",
+    A: "Задержка ДВУ бункера В (БЗ-А)", bunk_1: "Задержка ДВУ 1 бункера отходов (А)", bunk_2: "Задержка ДВУ 2 бункера отходов (Б)" };
+  function openDvu() {
+    openDlg({
+      id: "dvu", title: "Настройки",
+      build(b, up) {
+        P.plc.LEVELS.forEach((l) => b.append(row(DVU_LABEL[l.id], num(() => V[l.timer], (v) => P.setDvu(l.id, v), up, "с."))));
+      },
+    });
+  }
+
+  function openCabinet() {
+    openDlg({
+      id: "cab", title: "Шкаф управления", sub: "Кнопки и сигналы, входящие в общую аварию GEMER",
+      build(b, up) {
+        const inp = (label, key) => row(label, toggle(() => V[key], (v) => P.setInput(key, v), up));
+        b.append(inp("Кнопка «СТОП» на шкафу (AVAR_STOP)", "avar_stop"));
+        [1, 2, 3, 4, 5].forEach((k) => b.append(inp("Аварийный стоп " + k + " (AVAR_STOP_" + k + ")", "avar_stop_" + k)));
+        b.append(inp("Пожарная сигнализация (FIRE_ALARM)", "fire_alarm"));
+        b.append(row("Реле контроля фаз в норме (x0_8)", toggle(() => V.x0_8, (v) => P.setInput("x0_8", v), up)));
+        b.append(row("Авария фаз (PHASE_CONTROL, защёлка)", lampb("PHASE", () => V.phase_control, up, "bad")));
+        b.append(inp("Кнопка «ПУСК» на шкафу (PUSK, x0_0)", "pusk"));
+        b.append(h("div", { class: "note" }, "⚠ В программе ПЛК сигнал PUSK входит в GEMER вместе с аварийными стопами: нажатие «ПУСК» на шкафу вызывает общую аварию. Эмулятор повторяет это поведение."));
+        b.append(row("Общая авария (GEMER)", lampb("GEMER", () => V.gemer, up, "bad")));
+      },
+    });
+  }
+
+  function openJournal(archive) {
+    openDlg({
+      id: "journal", title: archive ? "Архив сообщений" : "Журнал аварий", wide: true,
+      build(b, up) {
+        const tb = h("tbody");
+        b.append(h("div", { class: "alarm-wrap" }, h("table", { class: "alarm-table" },
+          h("thead", {}, h("tr", {}, h("th", {}, "Время запуска"), h("th", {}, "Сообщение"))), tb)));
+        let last = "";
+        up(() => {
+          const list = (archive ? S.archive : S.alarms).slice(0, 200);
+          const sig = list.length + ":" + list.filter((a) => a.active).length + ":" + (list[0] ? list[0].ts + list[0].message : "");
+          if (sig === last) return;
+          last = sig;
+          tb.innerHTML = list.map((a) => `<tr class="${a.active ? "act" : ""}"><td>${a.ts}</td><td>${esc(a.message)}</td></tr>`).join("") ||
+            "<tr><td colspan=2>Сообщений нет</td></tr>";
+        });
+        b.append(h("button", { class: "menu-item", type: "button", onclick: () => openJournal(!archive) }, archive ? "Журнал активных сообщений" : "Открыть архив сообщений"));
+      },
+    });
+  }
+
+  function openMenu() {
+    openDlg({
+      id: "menu", title: "Меню управления",
+      build(b) {
+        b.append(h("button", { class: "menu-item", type: "button", onclick: openClean }, "Режим очистки"));
+        b.append(h("button", { class: "menu-item", type: "button", onclick: openDvu }, "Настройки"));
+        b.append(h("button", { class: "menu-item", type: "button", onclick: openCabinet }, "Шкаф управления"));
+        b.append(h("button", { class: "menu-item", type: "button", onclick: openAccount }, "Учетная запись"));
+      },
+    });
+  }
+  function openAccount() {
+    openDlg({
+      id: "acc", title: "Учетная запись",
+      build(b, up) {
+        const i = h("input", { type: "text", value: S.user.login });
+        i.addEventListener("change", () => { S.user.login = i.value.trim() || "operator"; save(); });
+        b.append(row("Пользователь", i));
+        b.append(row("Роль", val(() => S.user.role, up)));
+      },
+    });
+  }
+
+  function nodeOfDrive(id) {
+    for (const [nid, n] of Object.entries(S.ND)) if (n.drive === id && n.kind !== "motor") return nid;
+    for (const [nid, n] of Object.entries(S.ND)) if (n.drive === id) return nid;
+    return null;
+  }
+  function openAny(id) { if (P.DEF[id]) openDrive(id); }
+  function openNode(nid) {
+    const n = S.ND[nid];
+    if (!n) return;
+    if (nid === "intake") return openDrive("conv_2");
+    if (n.kind === "trier") return openTrierBlock(nid);
+    if (n.drive) return openAny(n.drive);
+    if (n.level) return openBunker(n.level, nid);
+    if (nid === "truck_in") return openPit();
+    if (nid === "truck_out") return openBunker("V", "bun_21");
+    if (nid === "truck_A") return openBunker("A", "bun_A");
+    if (nid === "truck_B") return openBunker("B", "bun_B");
+    if (n.kind === "cyclone") {
+      const k = nid.slice(-1);
+      return openInfo("Циклон аспирации АС-" + k, "Пассивный узел: пыль из воздуховода оседает в циклоне и выгружается шлюзовым затвором на шнек 22.5.", ["fan_asp_" + k, "shl_" + k]);
+    }
+    if (nid === "magnet_3") return openInfo("Магнитный сепаратор ПМ-200 · поз. 3", "Пассивный узел: в программе ПЛК не управляется.", ["conv_2", "noria_4"]);
+  }
+
+  /* ------------------------------------------------ правая панель */
+  function buildRail() {
+    const box = $("#rail-machines");
+    box.innerHTML = "";
+    ORDER.forEach((id) => {
+      const m = S.machines[id];
+      box.append(h("button", { class: "rail-machine", type: "button", "data-machine": id, onclick: () => openDrive(id) },
+        h("span", { class: "led" }), h("span", {}, m.name), h("span", { class: "poz" }, m.poz)));
+    });
+  }
+  $("#rail-search").addEventListener("input", (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    $$(".rail-machine").forEach((b) => {
       const m = S.machines[b.dataset.machine];
-      b.classList.toggle('is-running', !!m.running);
-      b.classList.toggle('is-fault', !!m.fault);
-      b.title = m.fault ? 'Авария' : m.running ? 'Работает' : 'Остановлен';
+      b.style.display = !q || (m.name + " " + m.poz + " " + b.dataset.machine).toLowerCase().includes(q) ? "" : "none";
     });
-    renderSelected();
+  });
+  function updateRail() {
+    $$(".rail-machine").forEach((b) => { b.querySelector(".led").className = "led " + ledClass(b.dataset.machine); });
   }
 
-  /* ------------------------------------------------------- меню управления */
-  function menuDlg() {
-    openDlgId = null;
-    dlgShell("Меню управления", `
-      <div class="menu-item primary" id="mi-clean"><span>Режим очистки</span><span>→</span></div>
-      <div class="menu-item primary" id="mi-settings"><span>Настройки</span><span>→</span></div>
-      <div class="menu-item primary" id="mi-user"><span>Учётная запись</span><span>→</span></div>
-      <details class="hmi-more"><summary>Дополнительные действия</summary>
-        <div class="menu-item" data-go="equip">Оборудование линии</div>
-        <div class="menu-item" data-go="params">Технологические параметры</div>
-        <div class="menu-item" data-go="alarms">Аварии и сообщения</div>
-        <div class="menu-item" data-go="settings">Расширенные настройки</div>
-        <div class="menu-item" id="mi-feed">${S.feed ? "Закрыть подачу зерна" : "Открыть подачу зерна"}</div>
-        <div class="menu-item" id="mi-refill">Загрузить завальную яму</div>
-      </details>`);
-    $("mi-settings").onclick = settingsDlg;
-    $("modal-root").querySelectorAll("[data-go]").forEach((el) => {
-      el.onclick = () => { switchView(el.dataset.go); closeDlg(); };
-    });
-    $("mi-clean").onclick = cleanDlg;
-    $("mi-feed").onclick = () => {
-      const r = P.setFeed(!S.feed);
-      if (!r.ok) toast(r.error, true);
-      closeDlg();
-    };
-    $("mi-refill").onclick = () => { P.refillPit(); closeDlg(); };
-    $("mi-user").onclick = userDlg;
+  /* ------------------------------------------------ вкладки */
+  let tab = "mimic";
+  function switchTab(t) {
+    tab = t;
+    $$(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
+    $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + t));
+    if (t === "signals") buildSignals();
+    if (t === "settings") buildSettings();
+    updateViews(true);
   }
+  $$(".tab").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
 
-  /* --------------------------------------------------------- переключение вида */
-  let view = "mimic";
-  function switchView(tab) {
-    view = tab;
-    document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === tab));
-    document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + tab));
-    if (tab === "equip") renderEquip();
-    if (tab === "params") renderParams();
-    if (tab === "alarms") renderAlarmsView();
-    if (tab === "settings" && !$("su-login")) buildSettings();
+  function bits(list) {
+    return `<span class="bits">${list.map(([n, v, bad]) => `<span class="bit${v ? " on" : ""}${bad ? " bad" : ""}">${n}</span>`).join("")}</span>`;
   }
-
-  function cleanDlg() {
-    const o = S.opt;
-    openDlgId = null;
-    dlgShell("Режим очистки", `
-      <div class="row"><span>Через триеры</span><button type="button" class="toggle ${o.triers ? "on" : ""}" data-o="triers"><i></i></button></div>
-      <div class="row-2">
-        <div class="row"><span>Триер 1</span><button type="button" class="toggle ${o.trier1 ? "on" : ""}" data-o="trier1"><i></i></button></div>
-        <div class="row"><span>Триер 2</span><button type="button" class="toggle ${o.trier2 ? "on" : ""}" data-o="trier2"><i></i></button></div>
-      </div>
-      <div class="row"><span>Через пневмостол</span><button type="button" class="toggle ${o.pneumo ? "on" : ""}" data-o="pneumo"><i></i></button></div>
-      <div class="row"><span>ОП · остеобрушиватель</span><button type="button" class="toggle ${o.op ? "on" : ""}" data-o="op"><i></i></button></div>
-      <div class="row unavailable"><span>Ворошитель<small>Не реализован в используемой frontend-модели.</small></span><button type="button" class="toggle" disabled aria-label="Ворошитель недоступен"><i></i></button></div>
-      <div class="row sub"><span>${esc(P.routeName())}</span></div>
-      <div class="btn-row">
-        <button type="button" class="btn-go" id="mode-go">ПУСК</button>
-        <button type="button" class="btn-stop" id="mode-stop">СТОП</button>
-      </div>`);
-    $("modal-root").querySelectorAll("[data-o]").forEach((t) => {
-      t.onclick = () => {
-        const k = t.dataset.o;
-        if (!changeRouteOption(k, !S.opt[k])) return;
-        if (k === "triers" && !S.opt[k]) { S.opt.trier1 = S.opt.trier2 = false; }
-        if ((k === "trier1" || k === "trier2") && S.opt[k]) S.opt.triers = true;
-        t.classList.toggle("on", S.opt[k]);
-        syncOpts();
-        cleanDlg();
-      };
-    });
-    $("mode-go").onclick = () => {
-      const r = P.startMode();
-      if (!r.ok) toast(r.error, true);
-      else closeDlg();
-    };
-    $("mode-stop").onclick = () => { P.stopMode(); closeDlg(); };
-  }
-
-  function settingsDlg() {
-    const s = S.settings;
-    openDlgId = null;
-    const row = (k, lab) => `<div class="row"><span>${lab}</span>
-      <span><input type="number" step="0.5" min="0" max="120" data-s="${k}" value="${s[k]}"> <span class="unit">с.</span></span></div>`;
-    dlgShell("Настройки", `
-      ${row("dvu_bo61", "Задержка ДВУ бункера 6.1")}
-      ${row("dvu_bo9", "Задержка ДВУ бункера 9")}
-      ${row("dvu_bo16", "Задержка ДВУ бункера 16")}
-      ${row("dvu_a", "Задержка ДВУ бункера В")}
-      ${row("dvu_waste1", "Задержка ДВУ бункера отходов А")}
-      ${row("dvu_waste2", "Задержка ДВУ бункера отходов Б")}`);
-    $("modal-root").querySelectorAll("input[data-s]").forEach((inp) => {
-      inp.onchange = () => { const v = readNumber(inp); if (v !== null) { S.settings[inp.dataset.s] = Math.min(120, v); persistSettings(); } else inp.value = S.settings[inp.dataset.s]; };
-    });
-  }
-
-  function userDlg() {
-    openDlgId = null;
-    dlgShell("Учетная запись", `
-      <div class="row sub">Локальный профиль эмулятора. Роль не является серверной авторизацией.</div>
-      <div class="row"><span>Логин</span><input type="text" id="u-login" value="${esc(S.user.login)}"></div>
-      <div class="row"><span>Роль</span>
-        <select id="u-role">
-          <option>Оператор</option><option>Наладчик</option><option>Администратор</option>
-        </select></div>
-      <div class="btn-row"><button type="button" class="btn-go" id="u-ok">OK</button></div>`);
-    $("u-role").value = S.user.role;
-    $("u-ok").onclick = () => {
-      S.user.login = $("u-login").value.trim() || "operator";
-      S.user.role = $("u-role").value;
-      persistSettings();
-      if ($("su-login")) { $("su-login").value = S.user.login; $("su-role").value = S.user.role; }
-      P.raise("Оператор " + S.user.login + " (" + S.user.role + ") вошёл в систему", "ok");
-      closeDlg();
-    };
-  }
-
-  function alarmsDlg(archive) {
-    openDlgId = null;
-    const list = archive ? S.archive : S.alarms;
-    const rows = list.slice(0, 60).map((a, i) =>
-      `<tr class="${i === 0 && !archive ? "fresh" : ""}"><td>${a.ts}</td><td>${esc(a.message)}</td></tr>`).join("");
-    dlgShell(archive ? "Архив сообщений" : "Журнал аварий", `
-      <div class="table-wrap">
-        <table class="alarm-table">
-          <thead><tr><th>Время запуска</th><th>Сообщение</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="2">Нет сообщений</td></tr>'}</tbody>
-        </table>
-      </div>
-      ${archive ? '<button type="button" class="archive-btn" id="journal">← Вернуться в журнал</button>' : '<button type="button" class="archive-btn" id="arch">Открыть архив сообщений →</button>'}`, true);
-    if (!archive) $("arch").onclick = () => alarmsDlg(true);
-    else $("journal").onclick = () => alarmsDlg(false);
-  }
-
-  /* ═══════════════════════════════════ страница «Оборудование» */
-  function stateChip(m) {
-    if (m.fault) return '<span class="chip-st bad">Авария</span>';
-    if (m.starting) return '<span class="chip-st warn">Запуск</span>';
-    if (m.stopping) return '<span class="chip-st warn">Останов</span>';
-    if (m.running) return '<span class="chip-st ok">Работает</span>';
-    return '<span class="chip-st off">Остановлен</span>';
-  }
-
-  function matBar(m) {
-    const v = Math.round((m.mat || 0) * 100);
-    return `<div class="mini-bar" title="Наполнение продуктом ${v} %"><i style="width:${v}%"></i></div>`;
-  }
-
   function renderEquip() {
-    const host = $("eq-rows");
-    if (!host) return;
-    const q = ($("eq-search").value || "").trim().toLowerCase();
-    const f = $("eq-filter").value;
-    const rows = [];
-    for (const [id, m] of Object.entries(S.machines)) {
-      if (f === "run" && !m.running) continue;
-      if (f === "stop" && m.running) continue;
-      if (f === "fault" && !m.fault) continue;
-      if (f === "to" && !(m.hours_to > 0 && m.hours_cur >= m.hours_to)) continue;
-      const poz = (S.ND[id] && S.ND[id].poz) || "—";
-      if (q && !(m.name.toLowerCase().includes(q) || String(poz).toLowerCase().includes(q))) continue;
-      const left = m.hours_to > 0 ? Math.max(0, m.hours_to - m.hours_cur) : 0;
-      rows.push(`<tr data-id="${id}" class="${m.fault ? "row-bad" : ""}">
-        <td class="c-poz">${esc(poz)}</td>
-        <td class="c-name">${esc(m.name)}</td>
-        <td>${stateChip(m)}</td>
-        <td>${matBar(m)}</td>
-        <td>${m.amps.toFixed(1)}</td>
-        <td>${Math.round(m.rpm)}</td>
-        <td>${Math.round(m.load)} %</td>
-        <td>${m.temp.toFixed(0)}</td>
-        <td>${m.hours_total.toFixed(1)}</td>
-        <td class="${m.hours_to > 0 && left <= 0 ? "due" : ""}">${m.hours_to > 0 ? left.toFixed(1) : "—"}</td>
-        <td class="c-act">
-          <button type="button" class="btn-xs go" data-run="${id}">Пуск</button>
-          <button type="button" class="btn-xs stop" data-halt="${id}">Стоп</button>
-          <button type="button" class="btn-xs" data-open="${id}">Окно</button>
-        </td></tr>`);
-    }
-    host.innerHTML = rows.join("") || '<tr><td colspan="11" class="muted">Ничего не найдено</td></tr>';
-    host.querySelectorAll("[data-run]").forEach((b) => {
-      b.onclick = () => { const r = P.startMachine(b.dataset.run); if (r && !r.ok) toast(r.error, true); renderEquip(); };
+    const q = $("#eq-search").value.trim().toLowerCase(), f = $("#eq-filter").value;
+    const rows = ORDER.filter((id) => {
+      const m = S.machines[id], s = P.info(id).state;
+      if (q && !(m.name + " " + m.poz).toLowerCase().includes(q)) return false;
+      if (f === "run") return m.cmd;
+      if (f === "stop") return !m.cmd;
+      if (f === "fault") return m.fault;
+      if (f === "hand") return /hand|local/.test(s);
+      if (f === "to") return m.toHours > 0 && m.hours >= m.toHours;
+      return true;
+    }).map((id) => {
+      const m = S.machines[id], d = P.DEF[id];
+      const [t, cls, inf] = stateText(id);
+      const I = inf.I || {};
+      const cond = d.fb ? bits([["C", I.cycle], ["N", I.next], ["P", I.prev], ["RR", inf.fb.rr], ["Y", V[d.y]]])
+        : bits([["П1", V[d.pol1]], ["П2", V[d.pol2]], ["Y1", V[d.y1]], ["Y2", V[d.y2]]]);
+      const tm = d.fb ? P.getTimer(id, "start") + " / " + P.getTimer(id, "stop") : "ошибка " + P.getTimer(id, "err");
+      const due = m.toHours > 0 && m.hours >= m.toHours;
+      return `<tr class="${m.fault ? "row-bad" : ""}"><td class="c-poz">${m.poz}</td><td>${esc(m.name)}</td>
+        <td><span class="chip ${cls}">${esc(t)}</span></td><td>${cond}</td><td class="c-num">${tm}</td>
+        <td class="c-num${due ? " due" : ""}">${m.hours.toFixed(2)} / ${m.toHours}</td>
+        <td>${d.fb ? `<div class="bar"><i style="width:${Math.round(m.mat * 100)}%"></i></div>` : ""}</td>
+        <td><button class="btn btn-sm" data-open="${id}" type="button">Окно</button></td></tr>`;
     });
-    host.querySelectorAll("[data-halt]").forEach((b) => {
-      b.onclick = () => { P.stopMachine(b.dataset.halt); renderEquip(); };
+    $("#eq-rows").innerHTML = rows.join("") || `<tr><td colspan="8" class="muted">Нет механизмов по фильтру</td></tr>`;
+  }
+  $("#eq-rows").addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openDrive(b.dataset.open); });
+  $("#eq-search").addEventListener("input", renderEquip);
+  $("#eq-filter").addEventListener("change", renderEquip);
+
+  function renderAlarms() {
+    const scope = $("#al-scope").value;
+    const list = scope === "archive" ? S.archive : S.alarms;
+    const TYPE = { err: ["Авария", "bad"], warn: ["Предупр.", "warn"], ok: ["Событие", "ok"], info: ["Инфо", "info"] };
+    $("#al-rows").innerHTML = list.map((a) => {
+      const [t, c] = TYPE[a.lvl] || TYPE.info;
+      return `<tr class="${a.active ? "row-bad" : ""}"><td class="c-num">${a.ts}</td><td><span class="chip ${c}">${t}</span></td><td>${esc(a.message)}</td><td>${a.active ? '<span class="chip bad">активно</span>' : a.key ? '<span class="chip">снято</span>' : ""}</td></tr>`;
+    }).join("") || `<tr><td colspan="4" class="muted">Сообщений нет</td></tr>`;
+    const act = S.alarms.filter((a) => a.active && a.lvl === "err");
+    $("#al-causes").innerHTML = act.map((a) => `<div class="cause"><span>${esc(a.message)}</span></div>`).join("");
+  }
+  $("#al-scope").addEventListener("change", renderAlarms);
+  $("#al-reset").addEventListener("click", () => run(P.resetErr(), "RESET_ERR — сброс аварий"));
+
+  /* ------------------------------------------------ сигналы ПЛК */
+  let sigBuilt = false;
+  function buildSignals() {
+    if (sigBuilt) return;
+    sigBuilt = true;
+    const b = $("#signals-body");
+    const sig = (name, key, bad) => `<div class="sig-row"><span>${name}</span><span><code>${key.toUpperCase()}</code> <span class="bit${bad ? " bad" : ""}" data-sig="${key}">0</span></span></div>`;
+    const general = [["Кнопка «ПУСК» на шкафу", "pusk", 1], ["Кнопка «СТОП» на шкафу", "avar_stop", 1],
+      ...[1, 2, 3, 4, 5].map((k) => ["Аварийный стоп " + k, "avar_stop_" + k, 1]), ["Пожарная сигнализация", "fire_alarm", 1],
+      ["Реле контроля фаз (вход)", "x0_8"], ["Авария фаз (защёлка)", "phase_control", 1], ["Общая авария", "gemer", 1],
+      ["Сброс ошибок", "reset_err"], ["Откл. сирены", "mute"], ["Есть авария механизма", "do_alarm", 1], ["Лампа", "lamp", 1], ["Сирена", "sirena", 1]];
+    const modes = [["Режим очистки", "mode_och"], ["Через триеры", "with_trier"], ["Триер 14.1", "use_1"], ["Триер 14.2", "use_2"],
+      ["Через пневмостол", "with_pnev"], ["Остеобрушиватель", "on_ost"], ["Ворошитель", "on_vor"]];
+    const dvu = P.plc.LEVELS.map((l) => `<div class="sig-row"><span>${DVU_LABEL[l.id].replace("Задержка ", "")}</span><span>вход <span class="bit" data-sig="${l.input}">0</span> <code>${l.out.toUpperCase()}</code> <span class="bit bad" data-sig="${l.out}">0</span></span></div>`).join("");
+    const drv = ORDER.filter((id) => P.DEF[id].fb).map((id) => `<tr><td class="c-poz">${S.machines[id].poz}</td><td>${esc(S.machines[id].name)}</td><td><code>${P.DEF[id].y.toUpperCase()}</code></td><td data-drv="${id}"></td><td class="c-num" data-tm="${id}"></td></tr>`).join("");
+    const flp = ["flow_1", "flow_2"].map((id) => `<tr><td class="c-poz">${S.machines[id].poz}</td><td>${esc(S.machines[id].name)}</td><td data-flp="${id}"></td></tr>`).join("");
+    b.innerHTML = `<div class="sig-grid">
+      <section class="panel"><h3>Шкаф, общая авария, сигнализация</h3>${general.map(([n, k, bad]) => sig(n, k, bad)).join("")}</section>
+      <section class="panel"><h3>Режим очистки (HMI → ПЛК)</h3>${modes.map(([n, k]) => sig(n, k)).join("")}</section>
+      <section class="panel"><h3>Датчики верхнего уровня (DU)</h3>${dvu}</section></div>
+      <section class="panel wide"><h3>Блоки Transport / FB_och</h3><div class="table-wrap"><table class="grid-table"><thead><tr><th>Поз.</th><th>Механизм</th><th>Выход</th><th>CYCLE · NEXT · PREV · RR · START · RUN · DA · РУЧН · BTN</th><th>TON_START / TON_STOP, с</th></tr></thead><tbody>${drv}</tbody></table></div></section>
+      <section class="panel wide" style="margin-top:14px"><h3>Блоки Flapper</h3><div class="table-wrap"><table class="grid-table"><thead><tr><th>Поз.</th><th>Механизм</th><th>POL_1 · POL_2 · RUN_POL_1 · RUN_POL_2 · ERR_SWAP · ERR_CONC · DA · РУЧН</th></tr></thead><tbody>${flp}</tbody></table></div></section>`;
+  }
+  function renderSignals() {
+    $$("[data-sig]").forEach((e) => { const v = !!V[e.dataset.sig]; e.classList.toggle("on", v); e.textContent = v ? "1" : "0"; });
+    $$("[data-drv]").forEach((e) => {
+      const id = e.dataset.drv, d = P.DEF[id], fb = P.plc.fbs[id], I = fb.inputs || {};
+      e.innerHTML = bits([["C", I.cycle], ["N", I.next], ["P", I.prev], ["RR", fb.rr], ["S", fb.start], ["RUN", fb.run], ["DA", fb.da, 1], ["РУЧ", V[d.hm]], ["BTN", V[d.btn]]]);
     });
-    host.querySelectorAll("[data-open]").forEach((b) => {
-      b.onclick = () => openMachine(b.dataset.open);
+    $$("[data-tm]").forEach((e) => {
+      const id = e.dataset.tm, fb = P.plc.fbs[id];
+      e.textContent = fb.ton_start.et.toFixed(1) + "/" + P.getTimer(id, "start") + " · " + fb.ton_stop.et.toFixed(1) + "/" + P.getTimer(id, "stop");
+    });
+    $$("[data-flp]").forEach((e) => {
+      const id = e.dataset.flp, f = P.DEF[id], fb = P.plc.fbs[id];
+      e.innerHTML = bits([["П1", V[f.pol1]], ["П2", V[f.pol2]], ["Y1", fb.run_pol_1], ["Y2", fb.run_pol_2], ["SW", fb.err_swap, 1], ["CC", fb.err_conc, 1], ["DA", fb.da, 1], ["РУЧ", V[f.hm]]]);
     });
   }
 
-  /* ═══════════════════════════════════ страница «Параметры» */
-  const LEVEL_DEFS = [
-    ["pit", "Завальная яма", "Приём зерна с автотранспорта"],
-    ["b61", "Бункер оперативный 6.1", "Перед МУЗ-8М"],
-    ["b9", "Бункер оперативный 9", "Перед ТОР-18"],
-    ["b16", "Бункер оперативный 16", "Перед пневмостолом"],
-    ["V", "Бункер В — чистое зерно", "Готовый продукт"],
-    ["A", "Бункер отходов А", "Аспирационные относы"],
-    ["B", "Бункер отходов Б", "Сход с решёт и триеров"],
-  ];
-
-  function renderParams() {
-    const cards = $("param-cards");
-    if (!cards) return;
-    const need = P.need();
-    const ready = need.filter((id) => S.machines[id] && S.machines[id].running).length;
-    const items = [
-      ["Производительность", S.prod.toFixed(1), "т/ч", S.prod > 1 ? "ok" : "off"],
-      ["Влажность на входе", "18.6", "%", "off"],
-      ["Влажность на выходе", S.humOut.toFixed(1), "%", "ok"],
-      ["Температура агента", S.agent.toFixed(1), "°C", S.agent > 70 ? "warn" : "ok"],
-      ["Механизмов тракта", ready + " / " + need.length, "", ready === need.length ? "ok" : "warn"],
-      ["Зерна в потоке", String(S.grain.length), "частиц", "off"],
-      ["Маршрут очистки", P.routeName(), "", "ok"],
-      ["Подача", S.feed ? "Открыта" : "Закрыта", "", S.feed ? "ok" : "off"],
-    ];
-    cards.innerHTML = items.map(([t, v, u, k]) =>
-      `<div class="pcard ${k}"><span class="pc-t">${esc(t)}</span>
-       <b class="pc-v">${esc(v)}<small>${esc(u)}</small></b></div>`).join("");
-
-    $("param-levels").innerHTML = LEVEL_DEFS.map(([key, name, note]) => {
-      const v = (S.piles[key] || 0) * 100;
-      const cls = v >= 99 ? "bad" : v >= 85 ? "warn" : "";
-      return `<div class="lvl">
-        <div class="lvl-top"><span>${esc(name)}</span><b>${v.toFixed(0)} %</b></div>
-        <div class="lvl-bar ${cls}"><i style="width:${Math.min(100, v)}%"></i></div>
-        <div class="lvl-note">${esc(note)}</div></div>`;
-    }).join("");
-
-    $("param-flow").innerHTML = P.flowList().map((id) => {
-      const m = S.machines[id];
-      if (!m) return "";
-      const v = Math.round((m.mat || 0) * 100);
-      const cls = m.fault ? "bad" : m.running ? (v > 5 ? "ok" : "idle") : "off";
-      return `<div class="fnode ${cls}" title="${esc(m.name)} — продукт ${v} %">
-        <span class="fn-p">${esc((S.ND[id] && S.ND[id].poz) || "")}</span>
-        <div class="fn-bar"><i style="height:${v}%"></i></div>
-        <span class="fn-v">${v}%</span></div>`;
-    }).join('<span class="farrow">→</span>');
-
-    drawChartOn($("chart-big"), chartKey2);
-  }
-
-  /* ═══════════════════════════════════ страница «Аварии» */
-  const AL_KIND = { err: ["Авария", "bad"], warn: ["Предупреждение", "warn"],
-                    ok: ["Событие", "ok"], info: ["Сообщение", "off"] };
-  function alarmSource(msg) {
-    for (const m of Object.values(S.machines)) if (msg.includes(m.name)) return m.name;
-    return "—";
-  }
-
-  function renderAlarmsView() {
-    const host = $("al-rows");
-    if (!host) return;
-    const archive = $("al-scope").value === "archive";
-    const list = archive ? S.archive : S.alarms;
-    const act = S.alarms.filter((a) => a.active).length;
-    $("al-summary").innerHTML = `
-      <div class="asum ${act ? "bad" : "ok"}"><span>Активных аварий</span><b>${act}</b></div>
-      <div class="asum"><span>Всего в журнале</span><b>${S.alarms.length}</b></div>
-      <div class="asum"><span>В архиве</span><b>${S.archive.length}</b></div>
-      <div class="asum ${S.estop ? "bad" : "ok"}"><span>Аварийный стоп</span><b>${S.estop ? "НАЖАТ" : "снят"}</b></div>`;
-
-    // сработавшие датчики: пока причина не снята, квитирование невозможно
-    const trip = [];
-    for (const [id, m] of Object.entries(S.machines)) {
-      m.sensorList.forEach((k) => { if (m.sens[k] && !m.byp[k]) trip.push([id, k, m.name]); });
-    }
-    const box = $("al-causes");
-    if (trip.length) {
-      box.style.display = "";
-      box.innerHTML = '<div class="cause-head">Причины, которые нужно снять перед квитированием</div>' +
-        trip.map(([id, k, name]) => `<div class="cause">
-          <span><b>${esc(name)}</b> · ${SENSOR_NAMES[k] || k}</span>
-          <span><button type="button" class="btn-xs" data-byp="${id}:${k}">Снять с контроля</button>
-          <button type="button" class="btn-xs go" data-clr="${id}:${k}">Устранить</button></span></div>`).join("");
-      box.querySelectorAll("[data-clr]").forEach((b) => {
-        b.onclick = () => {
-          const [id, k] = b.dataset.clr.split(":");
-          P.clearSensor(id, k);
-          P.raise(S.machines[id].name + ": причина срабатывания " + (SENSOR_NAMES[k] || k) + " устранена", "ok");
-          renderAlarmsView();
-        };
-      });
-      box.querySelectorAll("[data-byp]").forEach((b) => {
-        b.onclick = () => {
-          const [id, k] = b.dataset.byp.split(":");
-          if (S.user.role === "Оператор") { toast("Снятие с контроля доступно наладчику и администратору", true); return; }
-          P.setBypass(id, k, true);
-          renderAlarmsView();
-        };
-      });
-    } else {
-      box.style.display = "none";
-      box.innerHTML = "";
-    }
-    host.innerHTML = list.slice(0, 200).map((a) => {
-      const [label, cls] = AL_KIND[a.lvl] || AL_KIND.info;
-      const mn = alarmSource(a.message);
-      return `<tr class="${a.active ? "row-bad" : ""}">
-        <td class="c-ts">${esc(a.ts)}</td>
-        <td><span class="chip-st ${cls}">${label}</span></td>
-        <td>${esc(mn)}</td>
-        <td>${esc(a.message)}</td>
-        <td>${a.active ? '<b class="due">не квитирована</b>' : "квитирована"}</td></tr>`;
-    }).join("") || '<tr><td colspan="5" class="muted">Сообщений нет</td></tr>';
-  }
-
-  /* ═══════════════════════════════════ страница «Настройки» */
-  function numRow(key, label, unit, step, min, max, hint) {
-    return `<div class="srow"><div><span>${esc(label)}</span>${hint ? `<em>${esc(hint)}</em>` : ""}</div>
-      <span class="sinp"><input type="number" data-s="${key}" value="${S.settings[key]}"
-        step="${step}" min="${min}" max="${max}"><i>${esc(unit)}</i></span></div>`;
-  }
-
+  /* ------------------------------------------------ настройки */
   function buildSettings() {
-    if (!$("set-dvu")) return;
-    $("set-dvu").innerHTML =
-      numRow("dvu_bo61", "Бункер оперативный 6.1", "с", 0.5, 0, 120, "Останов подачи при заполнении") +
-      numRow("dvu_bo9", "Бункер оперативный 9", "с", 0.5, 0, 120, "Останов подачи при заполнении") +
-      numRow("dvu_bo16", "Бункер оперативный 16", "с", 0.5, 0, 120, "Останов подачи при заполнении") +
-      numRow("dvu_a", "Бункер В (чистое зерно)", "с", 0.5, 0, 120, "Останов подачи при заполнении") +
-      numRow("dvu_waste1", "Бункер отходов А", "с", 0.5, 0, 120, "Останов нории 23") +
-      numRow("dvu_waste2", "Бункер отходов Б", "с", 0.5, 0, 120, "Останов нории 24");
-
-    $("set-seq").innerHTML =
-      numRow("seq_up", "Шаг каскадного пуска", "с", 0.05, 0.05, 5, "Пуск идёт с хвоста линии к голове") +
-      numRow("seq_down", "Шаг каскадного останова", "с", 0.05, 0.05, 5, "Останов идёт с головы линии к хвосту");
-
-    $("set-sim").innerHTML =
-      numRow("feed_rate", "Интенсивность подачи", "част./с", 1, 1, 30, "Плотность потока зерна на схеме") +
-      numRow("prod_nom", "Номинальная производительность", "т/ч", 0.1, 1, 40, "Паспортное значение линии") +
-      numRow("pit_load", "Загрузка ямы автотранспортом", "%", 5, 10, 100, "Сколько насыпают за один самосвал");
-
-    const o = S.opt;
-    $("set-route").innerHTML = `
-      <div class="srow"><div><span>Через триеры</span><em>БТ 14.1 / 14.2</em></div>
-        <button type="button" class="toggle ${o.triers ? "on" : ""}" data-o="triers"><i></i></button></div>
-      <div class="srow"><div><span>Триер 1</span></div>
-        <button type="button" class="toggle ${o.trier1 ? "on" : ""}" data-o="trier1"><i></i></button></div>
-      <div class="srow"><div><span>Триер 2</span></div>
-        <button type="button" class="toggle ${o.trier2 ? "on" : ""}" data-o="trier2"><i></i></button></div>
-      <div class="srow"><div><span>Через пневмостол</span><em>СП-200</em></div>
-        <button type="button" class="toggle ${o.pneumo ? "on" : ""}" data-o="pneumo"><i></i></button></div>
-      <div class="srow"><div><span>Остеобрушиватель</span><em>ОП поз. 5</em></div>
-        <button type="button" class="toggle ${o.op ? "on" : ""}" data-o="op"><i></i></button></div>
-      <div class="srow"><div><span>Текущий маршрут</span><em>Пересчитывается при пуске режима</em></div>
-        <b>${esc(P.routeName())}</b></div>`;
-
-    $("set-user").innerHTML = `
-      <div class="srow"><div><span>Логин</span></div><input type="text" id="su-login" value="${esc(S.user.login)}"></div>
-      <div class="srow"><div><span>Роль</span></div>
-        <select id="su-role"><option>Оператор</option><option>Наладчик</option><option>Администратор</option></select></div>
-      <div class="srow"><div><span>Права</span><em>Наладчик и выше могут снимать датчики с контроля</em></div>
-        <b>${S.user.role === "Оператор" ? "базовые" : "расширенные"}</b></div>`;
-    $("su-role").value = S.user.role;
-
-    $("set-view").innerHTML = `
-      <div class="srow"><div><span>Подписи механизмов</span></div>
-        <button type="button" class="toggle ${viewOpt.labels ? "on" : ""}" data-v="labels"><i></i></button></div>
-      <div class="srow"><div><span>Технологические трассы</span></div>
-        <button type="button" class="toggle ${viewOpt.pipes ? "on" : ""}" data-v="pipes"><i></i></button></div>
-      <div class="srow"><div><span>Воздуховоды аспирации</span></div>
-        <button type="button" class="toggle ${viewOpt.ducts ? "on" : ""}" data-v="ducts"><i></i></button></div>
-      `;
-
-    const host = $("view-settings");
-    host.querySelectorAll("[data-o]").forEach((b) => {
-      b.onclick = () => {
-        const k = b.dataset.o;
-        if (!changeRouteOption(k, !S.opt[k])) return;
-        if (k === "triers" && !S.opt.triers) { S.opt.trier1 = S.opt.trier2 = false; }
-        if ((k === "trier1" || k === "trier2") && S.opt[k]) S.opt.triers = true;
-        if (!S.opt.trier1 && !S.opt.trier2) S.opt.triers = false;
-        syncOpts(); rebuildSettingsDraft();
+    const dv = $("#set-dvu");
+    dv.innerHTML = "";
+    P.plc.LEVELS.forEach((l) => {
+      const i = h("input", { type: "number", min: 0, max: 3600, value: V[l.timer] });
+      i.addEventListener("change", () => { run(P.setDvu(l.id, i.value)); i.value = V[l.timer]; });
+      dv.append(h("div", { class: "set-row" }, h("span", {}, DVU_LABEL[l.id].replace("Задержка ", "")), h("span", {}, i, " с")));
+    });
+    const sim = $("#set-sim");
+    sim.innerHTML = "";
+    const sp = h("select", {}, ...[1, 2, 5, 10, 20].map((k) => h("option", { value: k, selected: S.timeScale === k }, "×" + k)));
+    sp.addEventListener("change", () => { run(P.setTimeScale(sp.value)); $("#speed").value = S.timeScale; });
+    sim.append(h("div", { class: "set-row" }, h("span", {}, "Скорость модели (вместе с таймерами ПЛК)"), sp));
+    sim.append(h("div", { class: "set-row" }, h("span", {}, "Завальная яма"),
+      h("button", { class: "btn btn-sm", type: "button", onclick: () => run(P.refillPit(100)) }, "Загрузить 100 %")));
+    sim.append(h("div", { class: "set-row" }, h("span", {}, "Конечные бункеры А, Б, В"),
+      h("button", { class: "btn btn-sm", type: "button", onclick: () => { ["A", "B", "V"].forEach((k) => P.unload(k)); save(); } }, "Выгрузить все")));
+    const vw = $("#set-view");
+    vw.innerHTML = "";
+    const vo = R.getViewOpt();
+    [["labels", "Подписи механизмов"], ["tags", "Метки состояний (пуск/стоп/авария)"], ["pipes", "Самотёчные трубы"], ["ducts", "Воздуховоды аспирации"]].forEach(([k, label]) => {
+      const c = h("input", { type: "checkbox", checked: vo[k] });
+      c.addEventListener("change", () => { R.setViewOpt({ [k]: c.checked }); save(); });
+      vw.append(h("label", { class: "set-row" }, h("span", {}, label), c));
+    });
+    const tt = $("#set-timers");
+    tt.innerHTML = "";
+    const tb = h("tbody");
+    ORDER.filter((id) => P.DEF[id].fb).forEach((id) => {
+      const cell = (which) => {
+        const i = h("input", { type: "number", min: 0, max: 3600, value: P.getTimer(id, which) });
+        i.addEventListener("change", () => { run(P.setTimer(id, which, i.value)); i.value = P.getTimer(id, which); });
+        return h("td", {}, i);
       };
+      tb.append(h("tr", {}, h("td", { class: "c-poz" }, S.machines[id].poz), h("td", {}, S.machines[id].name), cell("start"), cell("stop")));
     });
-    host.querySelectorAll("[data-v]").forEach((b) => {
-      b.onclick = () => { viewOpt[b.dataset.v] = !viewOpt[b.dataset.v]; global.RENDER.setViewOpt(viewOpt); rebuildSettingsDraft(); };
+    tt.append(h("div", { class: "table-wrap" }, h("table", { class: "grid-table timer-table" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Поз."), h("th", {}, "Механизм"), h("th", {}, "Пуск, с"), h("th", {}, "Останов, с"))), tb)));
+  }
+  $("#set-defaults").addEventListener("click", () => {
+    localStorage.removeItem(STORE);
+    location.reload();
+  });
+
+  /* ------------------------------------------------ RETAIN (localStorage) */
+  const STORE = "lpzs-rodina-retain-v2";
+  const RETAIN = (k) => /^hmi_(timer_|tm_|off_)/.test(k) || P.OPTIONS.includes(k);
+  let saveT = 0;
+  function save() {
+    clearTimeout(saveT);
+    saveT = setTimeout(() => {
+      const v = {};
+      Object.keys(V).forEach((k) => { if (RETAIN(k)) v[k] = V[k]; });
+      const hours = {};
+      Object.entries(S.machines).forEach(([id, m]) => { hours[id] = [m.hours, m.hoursTotal, m.toHours]; });
+      try { localStorage.setItem(STORE, JSON.stringify({ v, hours, user: S.user.login, speed: S.timeScale, view: R.getViewOpt() })); } catch (e) { /* приватный режим */ }
+    }, 300);
+  }
+  function load() {
+    let d;
+    try { d = JSON.parse(localStorage.getItem(STORE) || "null"); } catch (e) { d = null; }
+    if (!d || typeof d !== "object") return;
+    Object.entries(d.v || {}).forEach(([k, x]) => {
+      if (!RETAIN(k)) return;
+      if (typeof x === "boolean") V[k] = x;
+      else if (Number.isFinite(x) && x >= 0 && x <= 3600) V[k] = Math.round(x);
     });
-  }
-
-  function saveSettings() {
-    const host = $("view-settings");
-    const values = {};
-    for (const inp of host.querySelectorAll("input[data-s]")) {
-      const v = readNumber(inp); if (v === null) return;
-      values[inp.dataset.s] = v;
-    }
-    Object.assign(S.settings, values);
-    S.user.login = $("su-login").value.trim() || "operator";
-    S.user.role = roles.includes($("su-role").value) ? $("su-role").value : roles[0];
-    global.RENDER.setViewOpt(viewOpt);
-    if (persistSettings()) {
-      P.raise("Настройки сохранены оператором " + S.user.login, "ok");
-      toast("Настройки сохранены");
-    }
-    buildSettings();
-  }
-
-  function loadSettings() {
-    try {
-      const raw = localStorage.getItem("lpzs_settings");
-      if (!raw) return;
-      const d = JSON.parse(raw);
-      if (!d || typeof d !== "object") return;
-      if (d.s && typeof d.s === "object") Object.entries(settingLimits).forEach(([k, [min, max]]) => {
-        const v = d.s[k];
-        if (typeof v === "number" && Number.isFinite(v)) S.settings[k] = Math.max(min, Math.min(max, v));
-      });
-      if (d.u && typeof d.u === "object") {
-        if (typeof d.u.login === "string") S.user.login = d.u.login.trim() || "operator";
-        if (roles.includes(d.u.role)) S.user.role = d.u.role;
-      }
-      if (d.v && typeof d.v === "object") Object.keys(viewOpt).forEach(k => {
-        if (typeof d.v[k] === "boolean") viewOpt[k] = d.v[k];
-      });
-    } catch (e) { /* повреждённые данные — игнорируем */ }
-  }
-
-  /* ------------------------------------------------------ выбранный узел */
-  function renderSelected() {
-    const box = $("sel-body");
-    if (!selected || !S.machines[selected]) {
-      box.innerHTML = '<div class="muted">Кликните по механизму на схеме.</div>';
-      return;
-    }
-    const m = S.machines[selected];
-    const st = m.fault ? '<b class="st-bad">авария</b>'
-      : m.running ? '<b class="st-ok">работает</b>'
-      : m.starting ? '<b class="st-warn">запуск</b>'
-      : m.stopping ? '<b class="st-warn">останов</b>' : '<b>стоп</b>';
-    box.innerHTML = `
-      <div class="sel-head">
-        <div class="sel-ico">${iconFor(m.kind)}</div>
-        <div>
-          <div class="sel-name">${esc(m.name)}</div>
-          <div class="sel-sub">${m.poz ? "поз. " + m.poz + " · " : ""}${st}</div>
-        </div>
-      </div>
-      <div class="sel-kv">
-        <span>Скорость</span><b>${m.rpm.toFixed(0)} об/мин</b>
-        <span>Ток двигателя</span><b>${m.amps.toFixed(1)} A</b>
-        <span>Температура</span><b>${m.temp.toFixed(1)} °C</b>
-        <span>Нагрузка</span><b>${m.load.toFixed(0)} %</b>
-        <span>Наработка</span><b>${m.hours_cur.toFixed(1)} / ${m.hours_to} ч</b>
-      </div>
-      <div class="sel-actions">
-        <button type="button" class="btn-go sm" id="sel-go">ПУСК</button>
-        <button type="button" class="btn-stop sm" id="sel-stop">СТОП</button>
-        <button type="button" class="btn-mini" id="sel-more">Окно механизма…</button>
-      </div>`;
-    $("sel-go").onclick = () => {
-      const r = P.startMachine(selected);
-      if (!r.ok) toast(r.error, true);
-    };
-    $("sel-stop").onclick = () => P.stopMachine(selected);
-    $("sel-more").onclick = () => openMachine(selected);
-  }
-
-  function iconFor(kind) {
-    return { noria: "🛗", belt: "➖", screw: "🌀", fan: "🌪", trier: "🥁", muz: "⚙", tor: "⚙",
-      sp: "🌬", silo: "🛢", hopper: "🛢", pit: "🕳", cyclone: "🌪", diverter: "🔀", op: "⚙", gate: "🚪" }[kind] || "⚙";
-  }
-
-  /* ------------------------------------------------------------- график */
-  function drawChart() { drawChartOn($("chart"), chartKey); }
-
-  function drawChartOn(c, chartKey) {
-    if (!c) return;
-    const ctx = c.getContext("2d");
-    const r = c.getBoundingClientRect();
-    if (r.width < 10) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    c.width = r.width * dpr; c.height = r.height * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const W = r.width, H = r.height;
-    ctx.clearRect(0, 0, W, H);
-    const data = S.trend[chartKey] && S.trend[chartKey].filter(Number.isFinite);
-    if (!data) return;
-    const max = chartKey === "temp" ? 100 : chartKey === "hum" ? 25 : 20;
-    ctx.strokeStyle = "#d4dae2"; ctx.lineWidth = 1;
-    for (let i = 1; i < 4; i++) {
-      ctx.beginPath(); ctx.moveTo(0, (H * i) / 4); ctx.lineTo(W, (H * i) / 4); ctx.stroke();
-    }
-    if (data.length < 2) {
-      ctx.fillStyle = "#8b97a6"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
-      ctx.fillText("Накопление данных…", W / 2, H / 2);
-      return;
-    }
-    const col = chartKey === "temp" ? "#d99a17" : chartKey === "hum" ? "#3d9cf0" : "#1f9d4d";
-    ctx.beginPath();
-    data.forEach((v, i) => {
-      const x = (i / (data.length - 1)) * W;
-      const y = H - (v / max) * (H - 12) - 6;
-      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-    });
-    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
-    ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, col + "33"); g.addColorStop(1, col + "00");
-    ctx.fillStyle = g; ctx.fill();
-    ctx.fillStyle = "#5a6673"; ctx.font = "11px sans-serif"; ctx.textAlign = "left";
-    ctx.fillText(data[data.length - 1].toFixed(1) + (chartKey === "temp" ? " °C" : chartKey === "hum" ? " %" : " т/ч"), 6, 14);
-  }
-
-  /* --------------------------------------------------------------- панель */
-  function changeRouteOption(key, value) {
-    const patch = { [key]: value };
-    if (key === "triers") {
-      patch.trier1 = value;
-      patch.trier2 = value;
-    }
-    if ((key === "trier1" || key === "trier2") && value) patch.triers = true;
-    const result = P.setOptions(patch);
-    if (!result.ok) toast(result.error, true);
-    syncOpts();
-    return result.ok;
-  }
-
-  function syncOpts() {
-    $("opt-trier").checked = S.opt.triers;
-    $("opt-t1").checked = S.opt.trier1;
-    $("opt-t2").checked = S.opt.trier2;
-    $("opt-sp").checked = S.opt.pneumo;
-    $("opt-op").checked = S.opt.op;
-  }
-
-  function renderPanel() {
-    $("clock").textContent = P.ts();
-    const d = new Date();
-    $("date").textContent = [d.getDate(), d.getMonth() + 1, d.getFullYear()].map((n) => String(n).padStart(2, "0")).join(".");
-
-    const dot = $("mode-dot"), txt = $("mode-text");
-    dot.className = "dot";
-    if (S.estop) txt.textContent = "Аварийный стоп";
-    else if (S.mode_starting) { txt.textContent = "Запуск линии"; dot.classList.add("start"); }
-    else if (S.mode_stopping) { txt.textContent = "Останов линии"; dot.classList.add("start"); }
-    else if (S.mode_run) { txt.textContent = "Симуляция · работа"; dot.classList.add("run"); }
-    else txt.textContent = "Симуляция · стоп";
-
-    $("btn-estop").classList.toggle("off", !S.estop);
-    $("alarm-line").textContent = P.statusLine();
-    $("route-line").textContent = P.routeName();
-
-    const big = $("big-status");
-    big.innerHTML = `<span class="dot ${S.estop ? "" : S.mode_run ? "run" : S.mode_starting || S.mode_stopping ? "start" : ""}"></span>${esc(P.statusLine())}`;
-
-    $("kv-prod").textContent = S.prod.toFixed(1) + " т/ч";
-    $("kv-hum-in").textContent = S.humIn.toFixed(1) + " %";
-    $("kv-hum-out").textContent = S.humOut.toFixed(1) + " %";
-    $("kv-temp").textContent = S.agent.toFixed(1) + " °C";
-
-    $("bunker-meters").innerHTML = [["A", "Бункер А (отходы)"], ["B", "Бункер Б (фураж)"], ["V", "Бункер В (зерно)"]].map(([k, name]) => {
-      const f = (S.piles[k] || 0) * 100;
-      return `<div class="meter"><span>${name}</span>
-        <div class="bar ${f >= 95 ? "full" : ""}"><i style="width:${f}%"></i></div>
-        <span>${f.toFixed(0)}%</span></div>`;
-    }).join("");
-
-    const quick = [["as_1", "АС-1"], ["as_2", "АС-2"], ["as_3", "АС-3"],
-      ["intake", "Завальная яма"], ["noria_4", "Нория 4"], ["noria_20", "Нория 20"]];
-    $("quick").innerHTML = quick.map(([id, name]) => {
+    Object.entries(d.hours || {}).forEach(([id, a]) => {
       const m = S.machines[id];
-      const on = m.running || m.starting;
-      return `<div class="quick-row"><span>${name}</span>
-        <span class="st">${m.fault ? "авария" : on ? "вкл" : "выкл"}</span>
-        <button type="button" class="qtoggle ${on ? "on" : ""}" data-q="${id}"><i></i></button></div>`;
-    }).join("");
-    $("quick").querySelectorAll("[data-q]").forEach((b) => {
-      b.onclick = () => {
-        const id = b.dataset.q;
-        const m = S.machines[id];
-        if (m.running || m.starting) P.stopMachine(id);
-        else {
-          const r = P.startMachine(id);
-          if (!r.ok) toast(r.error, true); else m.manual = true;
-        }
-      };
+      if (!m || !Array.isArray(a)) return;
+      if (Number.isFinite(a[0]) && a[0] >= 0) m.hours = a[0];
+      if (Number.isFinite(a[1]) && a[1] >= 0) m.hoursTotal = a[1];
+      if (Number.isFinite(a[2]) && a[2] >= 0) m.toHours = a[2];
     });
+    if (typeof d.user === "string" && d.user) S.user.login = d.user.slice(0, 40);
+    if (d.speed) P.setTimeScale(d.speed);
+    if (d.view && typeof d.view === "object") R.setViewOpt(Object.fromEntries(Object.entries(d.view).filter(([, x]) => typeof x === "boolean")));
+  }
+  setInterval(save, 10000);
 
-    $("log").innerHTML = S.alarms.slice(0, 14).map((a) =>
-      `<div><span class="dot-mini" style="background:${a.lvl === "err" ? "#d43a2e" : a.lvl === "ok" ? "#1f9d4d" : "#d99a17"}"></span>
-       <span class="ts">${a.ts}</span><span>${esc(a.message)}</span></div>`).join("");
+  /* ------------------------------------------------ нижняя и верхняя панели */
+  $("#btn-start").addEventListener("click", () => run(P.modeStart(), "Режим очистки запущен: " + P.routeName()));
+  $("#btn-stop").addEventListener("click", () => run(P.modeStop(), "Штатный останов: механизмы отключаются по задержкам"));
+  $("#btn-ack").addEventListener("click", () => run(P.resetErr(), "RESET_ERR — сброс аварий"));
+  $("#btn-mute").addEventListener("click", () => run(P.setMute(!V.mute)));
+  $("#btn-estop").addEventListener("click", () => run(P.setInput("avar_stop", !V.avar_stop)));
+  $("#speed").addEventListener("change", (e) => run(P.setTimeScale(e.target.value)));
+  $("#btn-menu").addEventListener("click", openMenu);
+  $("#rail-clean").addEventListener("click", openClean);
+  $("#rail-settings").addEventListener("click", openDvu);
+  $("#rail-alarms").addEventListener("click", () => openJournal(false));
+  $("#rail-cabinet").addEventListener("click", openCabinet);
 
-    // подача зерна и остаток в завальной яме
-    const pit = (S.piles.pit || 0) * 100;
-    $("kv-pit").textContent = pit.toFixed(0) + " %";
-    const pf = $("pit-fill");
-    pf.style.width = Math.max(0, Math.min(100, pit)) + "%";
-    pf.className = pit <= 5 ? "empty" : pit <= 20 ? "low" : "";
-    const fb = $("btn-feed");
-    fb.textContent = S.feed ? "Закрыть подачу" : "Открыть подачу";
-    fb.classList.toggle("act", S.feed);
-
-    // счётчик активных аварий на вкладке
-    const act = S.alarms.filter((a) => a.active).length;
-    const badge = $("tab-alarm-count");
-    badge.textContent = act ? String(act) : "";
-    badge.style.display = act ? "inline-block" : "none";
-
-    document.querySelectorAll('[data-machine]').forEach(b => {
-      const m = S.machines[b.dataset.machine];
-      b.classList.toggle('is-running', !!m.running);
-      b.classList.toggle('is-fault', !!m.fault);
-      b.title = m.fault ? 'Авария' : m.running ? 'Работает' : 'Остановлен';
-    });
-    renderSelected();
-    drawChart();
-    refreshDlg();
-
-    // живое обновление открытой страницы
-    if (view === "equip") renderEquip();
-    else if (view === "params") renderParams();
-    else if (view === "alarms") renderAlarmsView();
+  function updateChrome() {
+    const now = new Date();
+    $("#clock").textContent = now.toLocaleTimeString("ru-RU");
+    $("#date").textContent = now.toLocaleDateString("ru-RU");
+    const lamp = (id, on, cls) => { $(id).className = "lamp" + (on ? " " + cls : ""); };
+    lamp("#lamp-mode", V.mode_och, "on-ok");
+    lamp("#lamp-gemer", V.gemer, "on-bad");
+    lamp("#lamp-siren", V.sirena, "on-warn");
+    const es = $("#btn-estop");
+    es.classList.toggle("pressed", !!V.avar_stop);
+    es.textContent = V.avar_stop ? "ОТЖАТЬ АВАРИЙНЫЙ СТОП" : "АВАРИЙНЫЙ СТОП";
+    $("#btn-start").disabled = !!V.mode_och || !!V.gemer;
+    $("#btn-start").title = V.gemer ? "Общая авария: сначала снимите причину (аварийный стоп, пожар, фазы)" : "Mode_och := TRUE с текущими настройками режима очистки";
+    $("#btn-stop").disabled = !V.mode_och;
+    $("#btn-mute").textContent = V.mute ? "Сирена откл." : "Сирена вкл.";
+    $("#btn-mute").classList.toggle("active", !!V.mute);
+    const line = $("#alarm-line");
+    line.textContent = P.statusLine();
+    line.className = "alarm-line" + (V.gemer || S.alarms.some((a) => a.active && a.lvl === "err") ? "" : " ok");
+    $("#route-line").textContent = P.routeName();
+    const n = S.alarms.filter((a) => a.active).length;
+    $("#tab-alarm-count").textContent = n ? n : "";
+    if ($("#speed").value !== String(S.timeScale)) $("#speed").value = S.timeScale;
   }
 
-  /* ---------------------------------------------------------------- ввод */
+  function updateViews(force) {
+    if (tab === "equip") renderEquip();
+    if (tab === "alarms") renderAlarms();
+    if (tab === "signals") renderSignals();
+    void force;
+  }
+
+  /* ------------------------------------------------ холст */
   function bindCanvas() {
-    const cv = $("plant-canvas");
-    cv.addEventListener("click", (e) => {
-      const [wx, wy] = global.RENDER.toWorld(e.clientX, e.clientY);
-      const id = global.RENDER.hitAt(wx, wy);
-      if (id) openMachine(id);
+    const cv = $("#plant-canvas"), tip = $("#tooltip");
+    let drag = null;
+    cv.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, moved: false }; cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener("pointermove", (e) => {
+      if (drag) {
+        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+        if (drag.moved || Math.hypot(dx, dy) > 5) {
+          drag.moved = true; cv.classList.add("grab");
+          R.panBy(dx, dy); drag.x = e.clientX; drag.y = e.clientY;
+          tip.style.display = "none";
+          return;
+        }
+      }
+      const [wx, wy] = R.toWorld(e.clientX, e.clientY);
+      const id = R.hitAt(wx, wy);
+      R.setHover(id);
+      cv.classList.toggle("hot", !!id);
+      if (!id) { tip.style.display = "none"; return; }
+      const n = S.ND[id];
+      const ids = [n.drive, n.drive2].filter(Boolean);
+      let html = "";
+      if (ids.length) html = ids.map((d) => `<b>${esc(S.machines[d].name)}</b> · поз. ${S.machines[d].poz}<br>${esc(stateText(d)[0])}`).join("<hr style='border-color:#2b3d50'>");
+      else if (n.level) html = `<b>${n.letter ? "Бункер " + n.letter : "Бункер оперативный " + n.poz}</b><br>Уровень ${(S.levels[n.level] * 100).toFixed(0)} %`;
+      else if (id.startsWith("truck")) html = id === "truck_in" ? "Автомобиль: загрузка завальной ямы" : "Автомобиль: выгрузка бункера";
+      else html = { magnet_3: "Магнитный сепаратор ПМ-200 (поз. 3)", cyc_1: "Циклон АС-1", cyc_2: "Циклон АС-2", cyc_3: "Циклон АС-3" }[id] || id;
+      tip.innerHTML = html;
+      tip.style.display = "block";
+      tip.style.left = Math.min(window.innerWidth - 330, e.clientX + 14) + "px";
+      tip.style.top = (e.clientY + 14) + "px";
     });
-    cv.addEventListener("mousemove", (e) => {
-      const [wx, wy] = global.RENDER.toWorld(e.clientX, e.clientY);
-      const id = global.RENDER.hitAt(wx, wy);
-      global.RENDER.setHover(id);
-      cv.style.cursor = id ? "pointer" : "default";
-      const tip = $("tooltip");
-      if (id && S.machines[id]) {
-        const m = S.machines[id];
-        tip.style.display = "block";
-        tip.style.left = e.clientX + 14 + "px";
-        tip.style.top = e.clientY + 10 + "px";
-        tip.innerHTML = `<b>${esc(m.name)}</b><br>${m.fault ? "АВАРИЯ" : m.running ? "работает" : m.starting ? "запуск" : "стоп"}`;
-      } else tip.style.display = "none";
-    });
-    cv.addEventListener("mouseleave", () => { $("tooltip").style.display = "none"; });
-  }
-
-  function bindOperatorRail() {
-    $("rail-clean").onclick = cleanDlg;
-    $("rail-settings").onclick = settingsDlg;
-    $("rail-alarms").onclick = () => alarmsDlg(false);
-    const inventory = Object.values(S.machines);
-    const draw = () => {
-      const q = $("rail-search").value.trim().toLowerCase();
-      $("rail-machines").innerHTML = inventory.filter(m => (m.name + " " + (m.poz || "")).toLowerCase().includes(q)).map(m =>
-        `<button type="button" class="rail-machine" data-machine="${esc(m.id)}"><span class="rail-led" aria-hidden="true"></span><span>${esc(m.name)}${m.poz && !m.name.endsWith(' ' + m.poz) && !m.name.endsWith('(' + m.poz + ')') ? ' · ' + esc(m.poz) : ''}</span><span>›</span></button>`).join("") || '<p class="muted">Не найдено</p>';
-      $("rail-machines").querySelectorAll("[data-machine]").forEach(b => b.onclick = () => openMachine(b.dataset.machine));
-    };
-    $("rail-search").oninput = draw;
-    draw();
-    // Use keyboard semantics for legacy clickable HMI rows.
-    new MutationObserver(() => {
-      $("modal-root").querySelectorAll('.menu-item, .row.link').forEach(el => {
-        if (el.tagName === 'BUTTON' || el.hasAttribute('tabindex')) return;
-        el.setAttribute('tabindex', '0'); el.setAttribute('role', 'button');
-        el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); } };
-      });
-    }).observe($("modal-root"), {childList:true, subtree:true});
-  }
-
-  function bindUI() {
-    bindOperatorRail();
-    $("btn-estop").onclick = () => P.setEstop(!S.estop);
-    const ack = () => {
-      const r = P.ackAlarms();
-      if (!r.ok) toast(r.error, true);
-      else toast("Аварии квитированы");
-    };
-    $("btn-ack").onclick = ack;
-    $("btn-ack2").onclick = ack;
-
-    $("btn-start").onclick = () => {
-      syncOpts();
-      const r = P.startMode();
-      if (!r.ok) toast(r.error, true);
-    };
-    $("btn-stop").onclick = () => P.stopMode();
-
-    $("opt-trier").onchange = (e) => changeRouteOption("triers", e.target.checked);
-    $("opt-t1").onchange = (e) => changeRouteOption("trier1", e.target.checked);
-    $("opt-t2").onchange = (e) => changeRouteOption("trier2", e.target.checked);
-    $("opt-sp").onchange = (e) => changeRouteOption("pneumo", e.target.checked);
-    $("opt-op").onchange = (e) => changeRouteOption("op", e.target.checked);
-
-    document.querySelectorAll("[data-fault]").forEach((b) => {
-      b.onclick = () => {
-        const [mid, sensor] = b.dataset.fault.split(":");
-        const r = P.injectSensor(mid, sensor);
-        if (!r.ok) toast(r.error || "Ошибка", true);
-        else toast("Имитация: " + (S.machines[mid].fault_text || "датчик сработал"), true);
-      };
-    });
-
-    document.querySelectorAll(".tab").forEach((t) => {
-      t.onclick = () => switchView(t.dataset.tab);
-    });
-
-    $("eq-search").oninput = () => renderEquip();
-    $("eq-filter").onchange = () => renderEquip();
-    $("al-scope").onchange = () => renderAlarmsView();
-    $("al-ack").onclick = ack;
-    $("set-save").onclick = saveSettings;
-    $("set-reset").onclick = () => { P.resetSettings(); buildSettings(); if (persistSettings()) toast("Настройки сброшены и сохранены"); };
-
-    $("btn-feed").onclick = () => {
-      const r = P.setFeed(!S.feed);
-      if (!r.ok) toast(r.error, true);
-    };
-    $("btn-refill").onclick = () => { P.refillPit(); toast("Завальная яма загружена"); };
-
-    document.querySelectorAll("[data-chart2]").forEach((c) => {
-      c.onclick = () => {
-        document.querySelectorAll("[data-chart2]").forEach((x) => x.classList.remove("active"));
-        c.classList.add("active");
-        chartKey2 = c.dataset.chart2;
-      };
-    });
-
-    document.querySelectorAll(".chip[data-chart]").forEach((c) => {
-      c.onclick = () => {
-        document.querySelectorAll(".chip[data-chart]").forEach((x) => x.classList.remove("active"));
-        c.classList.add("active");
-        chartKey = c.dataset.chart;
-      };
-    });
-
-    $("btn-menu").onclick = menuDlg;
-    document.addEventListener("keydown", (e) => {
-      const modal = $("modal-root");
-      if (!modal.classList.contains("open")) return;
-      if (e.key === "Escape") { e.preventDefault(); closeDlg(); }
-      if (e.key === "Tab") {
-        const items = Array.from(modal.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]'));
-        const first = items[0], last = items[items.length - 1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    cv.addEventListener("pointerup", (e) => {
+      const was = drag; drag = null; cv.classList.remove("grab");
+      if (was && !was.moved) {
+        const [wx, wy] = R.toWorld(e.clientX, e.clientY);
+        const id = R.hitAt(wx, wy);
+        if (id) openNode(id);
       }
     });
+    cv.addEventListener("pointerleave", () => { R.setHover(null); tip.style.display = "none"; });
+    cv.addEventListener("wheel", (e) => { e.preventDefault(); R.zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 1 / 1.15); }, { passive: false });
+    const center = (k) => { const r = cv.getBoundingClientRect(); R.zoomAt(r.left + r.width / 2, r.top + r.height / 2, k); };
+    $("#zoom-in").addEventListener("click", () => center(1.25));
+    $("#zoom-out").addEventListener("click", () => center(1 / 1.25));
+    $("#zoom-fit").addEventListener("click", () => R.fit());
   }
 
-  /* ---------------------------------------------------------------- цикл */
-  let panelAcc = 1;
+  /* ------------------------------------------------ запуск */
   function init() {
-    loadSettings();
-    global.RENDER.init($("plant-canvas"), () => renderPanel());
-    global.RENDER.setViewOpt(viewOpt);
+    load();
+    // Как на панели после включения: нажат аварийный стоп на шкафу.
+    P.setInput("avar_stop", true);
+    buildRail();
+    R.init($("#plant-canvas"));
     bindCanvas();
-    bindUI();
-    syncOpts();
-    switchView("mimic");
-    let last = performance.now();
-    function loop(t) {
-      const dt = Math.min(0.05, (t - last) / 1000);
-      last = t;
+    let last = performance.now(), acc = 0;
+    function frame(t) {
+      const dt = (t - last) / 1000; last = t;
       P.tick(dt);
-      global.RENDER.render();
-      panelAcc += dt;
-      if (panelAcc >= 0.25) {
-        panelAcc = 0;
-        renderPanel();
-      }
-      requestAnimationFrame(loop);
+      R.render();
+      acc += dt;
+      if (acc > 0.25) { acc = 0; updateChrome(); updateRail(); refresh(); updateViews(); }
+      requestAnimationFrame(frame);
     }
-    requestAnimationFrame(loop);
+    updateChrome();
+    requestAnimationFrame(frame);
+    window.UI = { openNode, openDrive, openClean, openCabinet, openJournal, openMenu, closeDlg, switchTab };
   }
-
-  document.addEventListener("DOMContentLoaded", init);
-})(window);
+  init();
+})();

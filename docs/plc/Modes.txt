@@ -1,0 +1,10 @@
+--- NET "" n=3
+   N19 := TRUE
+   S PHASE_CONTROL := (N19 AND NOT x0_8)
+   R PHASE_CONTROL := (N19 AND RESET_ERR)
+--- NET "" n=1
+   R Mode_och := (gemer OR OUT_dvy_A OR OUT_dvy_bunk_1 OR OUT_dvy_bunk_2)
+--- NET "Сброс аварий" n=1
+   R RESET_ERR := TON_RES_ERR=TON(RESET_ERR, T#1S)
+--- NET "" n=1
+   Y_run_PCH_2, Y_pch_biter, y_run_pch_TOR, Y_PCH_trier_1, Y_PCH_trier_1_2, Y_PCH_pnev, Y_PCH_trier_2_2, Y_PCH_trier_2 := NOT gemer

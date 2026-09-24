@@ -1,0 +1,22 @@
+--- NET "Prepared Value" n=3
+   N101 := TRUE
+   MOVE(LE(N101, TIMER_START, 0), 3)=>[TIMER_START]
+   MOVE(LE(N101, TIMER_STOP, 0), 15)=>[TIMER_STOP]
+--- NET "Разрешение на работу" n=3
+   N15 := NOT PROTECT
+   RR := (N15 AND NOT GEMER AND NOT M_STOP)
+   NOT DA := N15
+--- NET "Старт автоматического режима" n=1
+   S START := (TON_START=TON((RR AND NOT HAND_MODE AND CYCLE AND NEXT), TIMER_START*T#1S) OR (RR AND F_TRIG(HAND_MODE) AND RUN AND CYCLE AND NEXT))
+--- NET "Безударный переход и формирование бита для импульса" n=1
+   ImpHandOn, R START := (R_TRIG(HAND_MODE) AND RUN)
+--- NET "Импульс на включение бита в ручном" n=1
+   R_TRIG_BUTTON := R_TRIG(ImpHandOn)
+--- NET "Включение механизма" n=1
+   RUN := (RR AND ((START AND NOT HAND_MODE) OR (BUTTON AND HAND_MODE)))
+--- NET "Плавная останока" n=1
+   TON_STOP=TON((RR AND NOT CYCLE AND NOT PREV), TIMER_STOP*T#1S)
+--- NET "Сброс автоматического режима" n=1
+   R START := (TON_STOP.Q OR NOT RR OR NOT NEXT OR M_STOP)
+--- NET "Сброс ручного режима" n=1
+   RES_BUTTON := (NOT HAND_MODE OR (HAND_MODE AND (NOT RR OR (NOT NEXT AND NOT OFF_NEXT_M))))
